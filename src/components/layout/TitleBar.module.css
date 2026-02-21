@@ -1,0 +1,55 @@
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 var(--sp-3) 0 var(--sp-4);
+  background: var(--bg-void);
+  border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0;
+  user-select: none;
+  /* Drag region covers the whole bar */
+  -webkit-app-region: drag;
+}
+
+.title {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  -webkit-app-region: drag;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  /* Controls must NOT be draggable */
+  -webkit-app-region: no-drag;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  transition: color var(--t-base), background var(--t-base);
+  border: none;
+  background: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.btn:hover {
+  color: var(--text-muted);
+  background: var(--bg-raised);
+}
+
+.btnClose:hover {
+  color: #fff;
+  background: #c0392b;
+}

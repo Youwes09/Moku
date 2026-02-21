@@ -1,0 +1,112 @@
+.root {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  background: var(--bg-void);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--sp-4) 0;
+  gap: 0;
+}
+
+.logo {
+  /* Logo set to 80px */
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  /* MARGIN REMOVED */
+  margin-bottom: 0; 
+  
+  /* Allows the logo to overflow the sidebar width if the sidebar is smaller than 80px */
+  overflow: visible;
+}
+
+.logoIcon {
+  /* Icon set to 80px */
+  width: 80px;
+  height: 80px;
+  
+  /* Apply your UI accent green */
+  background-color: var(--accent);
+  
+  /* SVG Mask Logic using Moku-Icon.svg */
+  mask-image: url("../../assets/Moku-Icon.svg");
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+  
+  -webkit-mask-image: url("../../assets/Moku-Icon.svg");
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+
+  /* Prominent glow for the large logo */
+  filter: drop-shadow(0 0 12px rgba(107, 143, 107, 0.4));
+}
+
+.nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  width: 100%;
+  padding: 0 var(--sp-2);
+}
+
+.tab {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--text-faint);
+  transition: color var(--t-base), background var(--t-base);
+}
+
+.tab:hover {
+  color: var(--text-muted);
+  background: var(--bg-raised);
+}
+
+.tabActive {
+  color: var(--accent-fg);
+  background: var(--accent-muted);
+}
+
+.tabActive:hover {
+  color: var(--accent-fg);
+  background: var(--accent-muted);
+}
+
+/* ── Bottom section ── */
+.bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: var(--sp-3) var(--sp-2) 0;
+  border-top: 1px solid var(--border-dim);
+  margin-top: var(--sp-3);
+}
+
+.settingsBtn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--text-faint);
+  transition: color var(--t-base), background var(--t-base), transform var(--t-slow);
+}
+
+.settingsBtn:hover {
+  color: var(--text-muted);
+  background: var(--bg-raised);
+  transform: rotate(30deg);
+}

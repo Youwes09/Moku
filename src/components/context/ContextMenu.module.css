@@ -1,0 +1,55 @@
+.menu {
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-1);
+  min-width: 180px;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.5),
+    0 1px 4px rgba(0, 0, 0, 0.3);
+  animation: scaleIn 0.1s ease both;
+  transform-origin: top left;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 6px var(--sp-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+  border: none;
+  background: none;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+}
+
+.itemDanger { color: var(--color-error); }
+.itemDanger:hover:not(:disabled) { background: var(--color-error-bg); color: var(--color-error); }
+
+.itemDisabled { opacity: 0.35; cursor: default; }
+
+.itemIcon {
+  display: flex;
+  align-items: center;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.itemLabel { flex: 1; }
+
+.separator {
+  height: 1px;
+  background: var(--border-dim);
+  margin: var(--sp-1) var(--sp-2);
+}

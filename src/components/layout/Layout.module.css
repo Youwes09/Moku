@@ -1,0 +1,15 @@
+.root {
+  display: flex;
+  height: 100%;
+  background: var(--bg-base);
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  overflow: hidden;
+  background: var(--bg-surface);
+  /* GPU layer for main content area */
+  transform: translateZ(0);
+  contain: layout style;
+}

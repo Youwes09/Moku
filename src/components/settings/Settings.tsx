@@ -1,0 +1,435 @@
+import { useEffect, useRef, useState, useCallback } from "react";
+import { X, Book, Image, Sliders, Info, Keyboard, Gear } from "@phosphor-icons/react";
+import { useStore } from "../../store";
+import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind, type Keybinds } from "../../lib/keybinds";
+import type { Settings, FitMode } from "../../store";
+import s from "./Settings.module.css";
+
+type Tab = "general" | "reader" | "library" | "performance" | "keybinds" | "about";
+
+const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: "general",     label: "General",     icon: <Gear size={14} weight="light" /> },
+  { id: "reader",      label: "Reader",      icon: <Book size={14} weight="light" /> },
+  { id: "library",     label: "Library",     icon: <Image size={14} weight="light" /> },
+  { id: "performance", label: "Performance", icon: <Sliders size={14} weight="light" /> },
+  { id: "keybinds",    label: "Keybinds",    icon: <Keyboard size={14} weight="light" /> },
+  { id: "about",       label: "About",       icon: <Info size={14} weight="light" /> },
+];
+
+// ── Primitives ────────────────────────────────────────────────────────────────
+
+function Toggle({ checked, onChange, label, description }: {
+  checked: boolean; onChange: (v: boolean) => void; label: string; description?: string;
+}) {
+  return (
+    <label className={s.toggleRow}>
+      <div className={s.toggleInfo}>
+        <span className={s.toggleLabel}>{label}</span>
+        {description && <span className={s.toggleDesc}>{description}</span>}
+      </div>
+      <button role="switch" aria-checked={checked}
+        className={[s.toggle, checked ? s.toggleOn : ""].join(" ")}
+        onClick={() => onChange(!checked)}>
+        <span className={s.toggleThumb} />
+      </button>
+    </label>
+  );
+}
+
+function Stepper({ value, onChange, min, max, step = 1, label, description }: {
+  value: number; onChange: (v: number) => void;
+  min: number; max: number; step?: number; label: string; description?: string;
+}) {
+  return (
+    <div className={s.stepRow}>
+      <div className={s.toggleInfo}>
+        <span className={s.toggleLabel}>{label}</span>
+        {description && <span className={s.toggleDesc}>{description}</span>}
+      </div>
+      <div className={s.stepControls}>
+        <button className={s.stepBtn} onClick={() => onChange(Math.max(min, value - step))} disabled={value <= min}>−</button>
+        <span className={s.stepVal}>{value}</span>
+        <button className={s.stepBtn} onClick={() => onChange(Math.min(max, value + step))} disabled={value >= max}>+</button>
+      </div>
+    </div>
+  );
+}
+
+function SelectRow({ value, options, onChange, label, description }: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+  label: string;
+  description?: string;
+}) {
+  return (
+    <div className={s.stepRow}>
+      <div className={s.toggleInfo}>
+        <span className={s.toggleLabel}>{label}</span>
+        {description && <span className={s.toggleDesc}>{description}</span>}
+      </div>
+      <select className={s.select} value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function TextRow({ value, onChange, label, description, placeholder }: {
+  value: string; onChange: (v: string) => void;
+  label: string; description?: string; placeholder?: string;
+}) {
+  return (
+    <div className={s.stepRow}>
+      <div className={s.toggleInfo}>
+        <span className={s.toggleLabel}>{label}</span>
+        {description && <span className={s.toggleDesc}>{description}</span>}
+      </div>
+      <input className={s.textInput} value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder} spellCheck={false} />
+    </div>
+  );
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+
+function GeneralTab({ settings, update }: { settings: Settings; update: (p: Partial<Settings>) => void }) {
+  return (
+    <div className={s.panel}>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Interface Scale</p>
+        <div className={s.scaleRow}>
+          <input type="range" min={70} max={150} step={5}
+            value={settings.uiScale}
+            onChange={(e) => update({ uiScale: Number(e.target.value) })}
+            className={s.scaleSlider} />
+          <span className={s.scaleVal}>{settings.uiScale}%</span>
+          <button className={s.stepBtn}
+            onClick={() => update({ uiScale: 100 })}
+            disabled={settings.uiScale === 100} title="Reset">↺</button>
+        </div>
+        <p className={s.scaleHint}>
+          {[70, 80, 90, 100, 110, 125, 150].map((v) => (
+            <button key={v}
+              className={[s.scalePreset, settings.uiScale === v ? s.scalePresetActive : ""].join(" ")}
+              onClick={() => update({ uiScale: v })}>{v}%</button>
+          ))}
+        </p>
+      </div>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Server</p>
+        <TextRow label="Server URL" description="Base URL of your Suwayomi instance"
+          value={settings.serverUrl ?? "http://localhost:4567"}
+          onChange={(v) => update({ serverUrl: v })}
+          placeholder="http://localhost:4567" />
+        <TextRow label="Server binary" description="Path or command to launch tachidesk-server"
+          value={settings.serverBinary}
+          onChange={(v) => update({ serverBinary: v })}
+          placeholder="tachidesk-server" />
+        <Toggle label="Auto-start server"
+          description="Launch tachidesk-server when Moku opens"
+          checked={settings.autoStartServer}
+          onChange={(v) => update({ autoStartServer: v })} />
+      </div>
+    </div>
+  );
+}
+
+function ReaderTab({ settings, update }: { settings: Settings; update: (p: Partial<Settings>) => void }) {
+  return (
+    <div className={s.panel}>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Page Layout</p>
+        <SelectRow label="Default layout"
+          description="How chapters open by default"
+          value={settings.pageStyle}
+          options={[
+            { value: "single",    label: "Single page"  },
+            { value: "double",    label: "Double page"  },
+            { value: "longstrip", label: "Long strip"   },
+          ]}
+          onChange={(v) => update({ pageStyle: v as Settings["pageStyle"] })} />
+        <SelectRow label="Reading direction"
+          description="Left-to-right for most manga, right-to-left for Japanese"
+          value={settings.readingDirection}
+          options={[
+            { value: "ltr", label: "Left to right" },
+            { value: "rtl", label: "Right to left" },
+          ]}
+          onChange={(v) => update({ readingDirection: v as Settings["readingDirection"] })} />
+        <Toggle label="Offset double spreads"
+          description="Shift double-page groups so spreads align correctly"
+          checked={settings.offsetDoubleSpreads}
+          onChange={(v) => update({ offsetDoubleSpreads: v })} />
+        <Toggle label="Page gap"
+          description="Add spacing between pages in double and longstrip modes"
+          checked={settings.pageGap}
+          onChange={(v) => update({ pageGap: v })} />
+      </div>
+
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Fit &amp; Zoom</p>
+        <SelectRow label="Default fit mode"
+          description="How pages are sized to fit the screen"
+          value={settings.fitMode ?? "width"}
+          options={[
+            { value: "width",    label: "Fit width"   },
+            { value: "height",   label: "Fit height"  },
+            { value: "screen",   label: "Fit screen"  },
+            { value: "original", label: "Original (1:1)" },
+          ]}
+          onChange={(v) => update({ fitMode: v as FitMode })} />
+        <div className={s.stepRow}>
+          <div className={s.toggleInfo}>
+            <span className={s.toggleLabel}>Max page width</span>
+            <span className={s.toggleDesc}>Pixel cap for fit-width mode. Ctrl+scroll in reader to adjust live.</span>
+          </div>
+          <div className={s.stepControls}>
+            <button className={s.stepBtn} onClick={() => update({ maxPageWidth: Math.max(200, (settings.maxPageWidth ?? 900) - 100) })}>−</button>
+            <span className={s.stepVal}>{settings.maxPageWidth ?? 900}px</span>
+            <button className={s.stepBtn} onClick={() => update({ maxPageWidth: Math.min(2400, (settings.maxPageWidth ?? 900) + 100) })}>+</button>
+          </div>
+        </div>
+        <Toggle label="Optimize contrast"
+          description="Use webkit-optimize-contrast rendering (sharper on low-DPI)"
+          checked={settings.optimizeContrast}
+          onChange={(v) => update({ optimizeContrast: v })} />
+      </div>
+
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Behaviour</p>
+        <Toggle label="Auto-mark chapters read"
+          description="Mark a chapter as read when you reach the last page"
+          checked={settings.autoMarkRead}
+          onChange={(v) => update({ autoMarkRead: v })} />
+        <Stepper label="Pages to preload"
+          description="Images loaded ahead of the current page"
+          value={settings.preloadPages} min={0} max={10}
+          onChange={(v) => update({ preloadPages: v })} />
+      </div>
+    </div>
+  );
+}
+
+function LibraryTab({ settings, update }: { settings: Settings; update: (p: Partial<Settings>) => void }) {
+  const clearHistory = useStore((s) => s.clearHistory);
+  const historyLen   = useStore((s) => s.history.length);
+  return (
+    <div className={s.panel}>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Display</p>
+        <Toggle label="Crop cover images"
+          description="Fill grid cells — may crop cover edges"
+          checked={settings.libraryCropCovers}
+          onChange={(v) => update({ libraryCropCovers: v })} />
+        <Toggle label="Show NSFW sources"
+          description="Display adult content sources in the sources list"
+          checked={settings.showNsfw}
+          onChange={(v) => update({ showNsfw: v })} />
+        <Stepper label="Initial cards to display"
+          description="Cards shown before 'Show more' appears"
+          value={settings.libraryPageSize} min={12} max={200} step={12}
+          onChange={(v) => update({ libraryPageSize: v })} />
+      </div>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Chapters</p>
+        <SelectRow label="Default sort direction"
+          value={settings.chapterSortDir}
+          options={[
+            { value: "desc", label: "Newest first" },
+            { value: "asc",  label: "Oldest first" },
+          ]}
+          onChange={(v) => update({ chapterSortDir: v as Settings["chapterSortDir"] })} />
+        <Stepper label="Chapters per page"
+          description="Chapter list pagination size"
+          value={settings.chapterPageSize} min={10} max={100} step={5}
+          onChange={(v) => update({ chapterPageSize: v })} />
+      </div>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Extensions</p>
+        <SelectRow label="Preferred language"
+          description="Language variant shown first when an extension has multiple"
+          value={settings.preferredExtensionLang ?? "en"}
+          options={[
+            { value: "en",    label: "English"        },
+            { value: "es",    label: "Spanish"        },
+            { value: "fr",    label: "French"         },
+            { value: "de",    label: "German"         },
+            { value: "pt-br", label: "Portuguese (BR)" },
+            { value: "it",    label: "Italian"        },
+            { value: "ru",    label: "Russian"        },
+            { value: "ar",    label: "Arabic"         },
+            { value: "tr",    label: "Turkish"        },
+            { value: "zh",    label: "Chinese (Simplified)" },
+            { value: "zh-hant", label: "Chinese (Traditional)" },
+            { value: "ko",    label: "Korean"         },
+            { value: "ja",    label: "Japanese"       },
+            { value: "id",    label: "Indonesian"     },
+            { value: "vi",    label: "Vietnamese"     },
+            { value: "th",    label: "Thai"           },
+            { value: "pl",    label: "Polish"         },
+            { value: "nl",    label: "Dutch"          },
+          ]}
+          onChange={(v) => update({ preferredExtensionLang: v })} />
+      </div>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>History</p>
+        <div className={s.stepRow}>
+          <div className={s.toggleInfo}>
+            <span className={s.toggleLabel}>Reading history</span>
+            <span className={s.toggleDesc}>{historyLen} entries stored</span>
+          </div>
+          <button className={s.dangerBtn} onClick={clearHistory} disabled={historyLen === 0}>
+            Clear history
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PerformanceTab({ settings, update }: { settings: Settings; update: (p: Partial<Settings>) => void }) {
+  return (
+    <div className={s.panel}>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Rendering</p>
+        <Toggle label="GPU acceleration"
+          description="Promote reader and library to compositor layers (recommended)"
+          checked={settings.gpuAcceleration}
+          onChange={(v) => update({ gpuAcceleration: v })} />
+      </div>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Interface</p>
+        <Toggle label="Compact sidebar"
+          description="Reduce sidebar icon spacing"
+          checked={settings.compactSidebar}
+          onChange={(v) => update({ compactSidebar: v })} />
+      </div>
+    </div>
+  );
+}
+
+function KeybindsTab({ settings, update, reset }: {
+  settings: Settings; update: (p: Partial<Settings>) => void; reset: () => void;
+}) {
+  const [listening, setListening] = useState<keyof Keybinds | null>(null);
+
+  useEffect(() => {
+    if (!listening) return;
+    function onKey(e: KeyboardEvent) {
+      e.preventDefault(); e.stopPropagation();
+      const bind = eventToKeybind(e);
+      if (!bind) return;
+      update({ keybinds: { ...settings.keybinds, [listening!]: bind } });
+      setListening(null);
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [listening, settings.keybinds]);
+
+  return (
+    <div className={s.panel}>
+      <div className={s.section}>
+        <div className={s.kbHeader}>
+          <p className={s.sectionTitle}>Keyboard shortcuts</p>
+          <button className={s.resetAllBtn} onClick={reset}>Reset all</button>
+        </div>
+        <p className={s.kbHint}>Click a key to rebind, then press the new combination.</p>
+        <div className={s.kbList}>
+          {(Object.keys(KEYBIND_LABELS) as (keyof Keybinds)[]).map((key) => {
+            const isListening = listening === key;
+            const isDefault   = settings.keybinds[key] === DEFAULT_KEYBINDS[key];
+            return (
+              <div key={key} className={s.kbRow}>
+                <span className={s.kbLabel}>{KEYBIND_LABELS[key]}</span>
+                <div className={s.kbRight}>
+                  <button
+                    className={[s.kbBind, isListening ? s.kbBindListening : ""].join(" ")}
+                    onClick={() => setListening(isListening ? null : key)}>
+                    {isListening ? "Press key…" : settings.keybinds[key]}
+                  </button>
+                  <button className={s.kbReset}
+                    onClick={() => update({ keybinds: { ...settings.keybinds, [key]: DEFAULT_KEYBINDS[key] } })}
+                    disabled={isDefault} title="Reset">↺</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AboutTab() {
+  return (
+    <div className={s.panel}>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Moku</p>
+        <div className={s.aboutBlock}>
+          <p className={s.aboutLine}>A manga reader frontend for Suwayomi / Tachidesk.</p>
+          <p className={s.aboutLine} style={{ color: "var(--text-faint)", marginTop: "var(--sp-2)" }}>
+            Built with Tauri + React. Connects to tachidesk-server.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+
+export default function SettingsModal() {
+  const [tab, setTab]      = useState<Tab>("general");
+  const closeSettings      = useStore((s) => s.closeSettings);
+  const settings           = useStore((s) => s.settings);
+  const updateSettings     = useStore((s) => s.updateSettings);
+  const resetKeybinds      = useStore((s) => s.resetKeybinds);
+  const backdropRef        = useRef<HTMLDivElement>(null);
+
+  const handleBackdrop = useCallback(
+    (e: React.MouseEvent) => { if (e.target === backdropRef.current) closeSettings(); },
+    [closeSettings]
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeSettings(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [closeSettings]);
+
+  return (
+    <div className={s.backdrop} ref={backdropRef} onClick={handleBackdrop}>
+      <div className={s.modal} role="dialog" aria-label="Settings">
+        <div className={s.sidebar}>
+          <p className={s.modalTitle}>Settings</p>
+          <nav className={s.nav}>
+            {TABS.map((t) => (
+              <button key={t.id}
+                className={[s.navItem, tab === t.id ? s.navActive : ""].join(" ")}
+                onClick={() => setTab(t.id)}>
+                {t.icon}
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+        <div className={s.content}>
+          <div className={s.contentHeader}>
+            <p className={s.contentTitle}>{TABS.find((t) => t.id === tab)?.label}</p>
+            <button className={s.closeBtn} onClick={closeSettings}><X size={15} weight="light" /></button>
+          </div>
+          <div className={s.contentBody}>
+            {tab === "general"     && <GeneralTab     settings={settings} update={updateSettings} />}
+            {tab === "reader"      && <ReaderTab      settings={settings} update={updateSettings} />}
+            {tab === "library"     && <LibraryTab     settings={settings} update={updateSettings} />}
+            {tab === "performance" && <PerformanceTab settings={settings} update={updateSettings} />}
+            {tab === "keybinds"    && <KeybindsTab    settings={settings} update={updateSettings} reset={resetKeybinds} />}
+            {tab === "about"       && <AboutTab />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

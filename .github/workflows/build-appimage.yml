@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
 
     steps:
       - name: Checkout
@@ -19,12 +19,11 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          # Pin webkit to 2.44 — 2.46+ causes EGL_BAD_PARAMETER crash on many systems
+          # ubuntu-20.04 ships webkit2gtk 2.44 by default, avoiding the
+          # EGL_BAD_PARAMETER crash present in 2.46+
           # https://github.com/gitbutlerapp/gitbutler/issues/5282
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev=2.44.* \
-            libjavascriptcoregtk-4.1-dev=2.44.* \
-            gir1.2-webkit2-4.1=2.44.* \
+            libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \

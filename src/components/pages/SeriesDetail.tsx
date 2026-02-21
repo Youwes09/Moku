@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   ArrowLeft, BookmarkSimple, Download, CheckCircle,
   ArrowSquareOut, BookOpen, CircleNotch, Play,
-  SortAscending, SortDescending,
+  SortAscending, SortDescending, CaretDown, ArrowsClockwise,
 } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import {
@@ -12,6 +12,7 @@ import {
 } from "../../lib/queries";
 import { useStore } from "../../store";
 import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
+import MigrateModal from "./MigrateModal";
 import type { Manga, Chapter } from "../../lib/types";
 import s from "./SeriesDetail.module.css";
 
@@ -44,6 +45,8 @@ export default function SeriesDetail() {
   const [loadingChapters, setLoadingChapters] = useState(true);
   const [enqueueing, setEnqueueing]     = useState<Set<number>>(new Set());
   const [dlOpen, setDlOpen]             = useState(false);
+  const [detailsOpen, setDetailsOpen]   = useState(false);
+  const [migrateOpen, setMigrateOpen]   = useState(false);
   const [togglingLibrary, setTogglingLibrary] = useState(false);
   const [chapterPage, setChapterPage]   = useState(1);
   const [ctx, setCtx]                   = useState<CtxState | null>(null);
@@ -62,7 +65,6 @@ export default function SeriesDetail() {
   const loadChapters = useCallback((mangaId: number) => {
     return gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId })
       .then((data) => {
-        // Always store in natural order (ascending sourceOrder), sort in render
         const sorted = [...data.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
         setChapters(sorted);
         return sorted;
@@ -79,17 +81,13 @@ export default function SeriesDetail() {
       .catch(console.error)
       .finally(() => setLoadingChapters(false));
 
-    // Fetch from source in background
     gql(FETCH_CHAPTERS, { mangaId: activeManga.id })
       .then(() => loadChapters(activeManga.id))
       .catch(console.error);
   }, [activeManga?.id]);
 
-  // Sorted chapters based on setting
   const sortedChapters = useMemo(() =>
-    sortDir === "desc"
-      ? [...chapters].reverse()
-      : [...chapters],
+    sortDir === "desc" ? [...chapters].reverse() : [...chapters],
     [chapters, sortDir]
   );
 
@@ -99,15 +97,12 @@ export default function SeriesDetail() {
     chapterPage * CHAPTERS_PER_PAGE
   );
 
-  // Progress stats
   const readCount = chapters.filter((c) => c.isRead).length;
   const totalCount = chapters.length;
   const progressPct = totalCount > 0 ? (readCount / totalCount) * 100 : 0;
 
-  // Start / Continue reading logic
   const continueChapter = useMemo(() => {
     if (!chapters.length) return null;
-    // Find first unread chapter (in ascending order)
     const asc = [...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
     const inProgress = asc.find((c) => !c.isRead && (c.lastPageRead ?? 0) > 0);
     if (inProgress) return { chapter: inProgress, type: "continue" as const };
@@ -139,7 +134,6 @@ export default function SeriesDetail() {
   }
 
   async function markAllAboveRead(indexInSorted: number) {
-    // "above" = all chapters that appear before this one in the current sort
     const targets = sortedChapters.slice(0, indexInSorted + 1);
     const ids = targets.filter((c) => !c.isRead).map((c) => c.id);
     if (!ids.length) return;
@@ -244,7 +238,6 @@ export default function SeriesDetail() {
               </div>
             )}
 
-            {manga?.source && <p className={s.sourceLabel}>{manga.source.displayName}</p>}
             {manga?.description && <p className={s.description}>{manga.description}</p>}
           </div>
         )}
@@ -279,7 +272,6 @@ export default function SeriesDetail() {
           )}
         </div>
 
-        {/* Start / Continue reading button */}
         {continueChapter && (
           <button
             className={s.readBtn}
@@ -299,8 +291,6 @@ export default function SeriesDetail() {
           </button>
         )}
 
-
-        {/* ── Download panel ── */}
         {chapters.length > 0 && (
           <div className={s.downloadSection}>
             <button className={s.downloadToggle} onClick={() => setDlOpen((p) => !p)}>
@@ -347,11 +337,40 @@ export default function SeriesDetail() {
         <p className={s.chapterCount}>
           {totalCount} {totalCount === 1 ? "chapter" : "chapters"}
         </p>
+
+        {/* ── Details (collapsible) ── */}
+        {!loadingManga && manga?.source && (
+          <div className={s.detailsSection}>
+            <button className={s.detailsToggle} onClick={() => setDetailsOpen((p) => !p)}>
+              <span>Details</span>
+              <CaretDown size={11} weight="light" className={detailsOpen ? s.caretOpen : s.caretClosed} />
+            </button>
+            {detailsOpen && (
+              <div className={s.detailsBody}>
+                <div className={s.detailRow}>
+                  <span className={s.detailKey}>Source</span>
+                  <span className={s.detailVal}>{manga.source.displayName}</span>
+                </div>
+                <div className={s.detailRow}>
+                  <span className={s.detailKey}>Language</span>
+                  <span className={s.detailVal}>{manga.source.name.match(/\(([^)]+)\)$/)?.[1] ?? "—"}</span>
+                </div>
+                <div className={s.detailRow}>
+                  <span className={s.detailKey}>Source ID</span>
+                  <span className={[s.detailVal, s.detailMono].join(" ")}>{manga.source.id}</span>
+                </div>
+                <button className={s.migrateBtn} onClick={() => setMigrateOpen(true)}>
+                  <ArrowsClockwise size={12} weight="light" />
+                  Switch source
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Chapter list ── */}
       <div className={s.listWrap}>
-        {/* List header with sort + pagination */}
         <div className={s.listHeader}>
           <button
             className={s.sortBtn}
@@ -436,7 +455,6 @@ export default function SeriesDetail() {
           )}
         </div>
 
-        {/* Bottom pagination */}
         {totalPages > 1 && (
           <div className={s.paginationBottom}>
             <button
@@ -454,13 +472,24 @@ export default function SeriesDetail() {
         )}
       </div>
 
-      {/* Context menu */}
       {ctx && (
         <ContextMenu
           x={ctx.x}
           y={ctx.y}
           items={buildCtxItems(ctx.chapter, ctx.indexInSorted)}
           onClose={() => setCtx(null)}
+        />
+      )}
+
+      {migrateOpen && manga && (
+        <MigrateModal
+          manga={manga}
+          currentChapters={chapters}
+          onClose={() => setMigrateOpen(false)}
+          onMigrated={(newManga) => {
+            setMigrateOpen(false);
+            setActiveManga(newManga);
+          }}
         />
       )}
     </div>

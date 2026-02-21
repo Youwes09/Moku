@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { MagnifyingGlass, CircleNotch } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import { GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
@@ -13,57 +13,73 @@ interface SourceResult {
   error: string | null;
 }
 
+const CONCURRENCY = 3;
+
+async function runConcurrent<T>(
+  items: T[],
+  fn: (item: T) => Promise<void>
+): Promise<void> {
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const item = items[i++];
+      await fn(item).catch(() => {});
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
+}
+
 export default function Search() {
   const [query, setQuery]         = useState("");
   const [submitted, setSubmitted] = useState("");
   const [results, setResults]     = useState<SourceResult[]>([]);
-  const [sources, setSources]     = useState<Source[]>([]);
+  const [allSources, setAllSources]   = useState<Source[]>([]);
   const [loadingSources, setLoadingSources] = useState(false);
+  const [activeLang, setActiveLang] = useState<string>("preferred");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const setActiveManga = useStore((s) => s.setActiveManga);
-  const setNavPage     = useStore((s) => s.setNavPage);
+  const setActiveManga = useStore((st) => st.setActiveManga);
+  const setNavPage     = useStore((st) => st.setNavPage);
+  const preferredLang  = useStore((st) => st.settings.preferredExtensionLang);
 
-  const loadSources = useCallback(async () => {
-    if (sources.length) return sources;
+  useEffect(() => {
     setLoadingSources(true);
-    const data = await gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
+    gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
+      .then((d) => setAllSources(d.sources.nodes.filter((s) => s.id !== "0")))
+      .catch(console.error)
       .finally(() => setLoadingSources(false));
-    const nodes = data.sources.nodes.filter((s) => s.id !== "0");
-    setSources(nodes);
-    return nodes;
-  }, [sources]);
+  }, []);
 
-  async function runSearch() {
+  const langs = ["preferred", ...Array.from(new Set(allSources.map((s) => s.lang))).sort(), "all"];
+
+  const visibleSources = allSources.filter((src) => {
+    if (activeLang === "all") return true;
+    if (activeLang === "preferred") return src.lang === preferredLang;
+    return src.lang === activeLang;
+  });
+
+  const runSearch = useCallback(async () => {
     const q = query.trim();
-    if (!q) return;
+    if (!q || !visibleSources.length) return;
     setSubmitted(q);
 
-    const srcs = await loadSources();
-    // Initialise loading state for each source
-    setResults(srcs.map((src) => ({ source: src, mangas: [], loading: true, error: null })));
+    setResults(visibleSources.map((src) => ({ source: src, mangas: [], loading: true, error: null })));
 
-    // Fire all source queries in parallel, update each independently
-    srcs.forEach((src) => {
-      gql<{ fetchSourceManga: { mangas: Manga[] } }>(FETCH_SOURCE_MANGA, {
-        source: src.id, type: "SEARCH", page: 1, query: q,
-      })
-        .then((d) => {
-          setResults((prev) => prev.map((r) =>
-            r.source.id === src.id
-              ? { ...r, mangas: d.fetchSourceManga.mangas, loading: false }
-              : r
-          ));
-        })
-        .catch((e) => {
-          setResults((prev) => prev.map((r) =>
-            r.source.id === src.id
-              ? { ...r, loading: false, error: e.message }
-              : r
-          ));
+    await runConcurrent(visibleSources, async (src) => {
+      try {
+        const d = await gql<{ fetchSourceManga: { mangas: Manga[] } }>(FETCH_SOURCE_MANGA, {
+          source: src.id, type: "SEARCH", page: 1, query: q,
         });
+        setResults((prev) => prev.map((r) =>
+          r.source.id === src.id ? { ...r, mangas: d.fetchSourceManga.mangas, loading: false } : r
+        ));
+      } catch (e: any) {
+        setResults((prev) => prev.map((r) =>
+          r.source.id === src.id ? { ...r, loading: false, error: e.message } : r
+        ));
+      }
     });
-  }
+  }, [query, visibleSources]);
 
   function openManga(m: Manga) {
     setActiveManga(m);
@@ -75,20 +91,24 @@ export default function Search() {
 
   return (
     <div className={s.root}>
-      {/* ── Search bar ── */}
       <div className={s.header}>
         <h1 className={s.heading}>Search</h1>
         <div className={s.searchBar}>
           <MagnifyingGlass size={14} className={s.searchIcon} weight="light" />
-          <input ref={inputRef} className={s.searchInput}
-            placeholder="Search across all sources…"
+          <input
+            ref={inputRef}
+            className={s.searchInput}
+            placeholder="Search across sources…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && runSearch()}
-            autoFocus />
-          <button className={s.searchBtn}
+            autoFocus
+          />
+          <button
+            className={s.searchBtn}
             onClick={runSearch}
-            disabled={!query.trim() || loadingSources}>
+            disabled={!query.trim() || loadingSources}
+          >
             {loadingSources
               ? <CircleNotch size={13} weight="light" className="anim-spin" />
               : "Search"}
@@ -96,16 +116,31 @@ export default function Search() {
         </div>
       </div>
 
-      {/* ── Empty state ── */}
+      <div className={s.langBar}>
+        {langs.map((l) => (
+          <button
+            key={l}
+            onClick={() => setActiveLang(l)}
+            className={[s.langBtn, activeLang === l ? s.langBtnActive : ""].join(" ").trim()}
+          >
+            {l === "preferred" ? `${preferredLang.toUpperCase()} (default)` : l === "all" ? "All" : l.toUpperCase()}
+          </button>
+        ))}
+        {visibleSources.length > 0 && (
+          <span className={s.sourceCount}>{visibleSources.length} sources</span>
+        )}
+      </div>
+
       {!submitted && (
         <div className={s.empty}>
           <MagnifyingGlass size={36} weight="light" className={s.emptyIcon} />
-          <p className={s.emptyText}>Search across all installed sources at once</p>
-          <p className={s.emptyHint}>Results from each source appear as they load.</p>
+          <p className={s.emptyText}>Search across sources</p>
+          <p className={s.emptyHint}>
+            Searching {visibleSources.length} {activeLang === "preferred" ? `${preferredLang.toUpperCase()}` : activeLang === "all" ? "" : activeLang.toUpperCase()} source{visibleSources.length !== 1 ? "s" : ""}.
+          </p>
         </div>
       )}
 
-      {/* ── Results ── */}
       {submitted && (
         <div className={s.results}>
           {results.length === 0 && (
@@ -117,44 +152,47 @@ export default function Search() {
           {results
             .filter((r) => r.mangas.length > 0 || r.loading || r.error)
             .map(({ source, mangas, loading, error }) => (
-            <div key={source.id} className={s.sourceSection}>
-              <div className={s.sourceHeader}>
-                <img src={thumbUrl(source.iconUrl)} alt={source.displayName}
-                  className={s.sourceIcon}
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                <span className={s.sourceName}>{source.displayName}</span>
-                {loading && <CircleNotch size={12} weight="light" className="anim-spin" style={{ color: "var(--text-faint)" }} />}
-                {!loading && mangas.length > 0 && (
-                  <span className={s.resultCount}>{mangas.length} results</span>
-                )}
-              </div>
+              <div key={source.id} className={s.sourceSection}>
+                <div className={s.sourceHeader}>
+                  <img
+                    src={thumbUrl(source.iconUrl)}
+                    alt={source.displayName}
+                    className={s.sourceIcon}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                  />
+                  <span className={s.sourceName}>{source.displayName}</span>
+                  {loading && <CircleNotch size={12} weight="light" className="anim-spin" style={{ color: "var(--text-faint)" }} />}
+                  {!loading && mangas.length > 0 && (
+                    <span className={s.resultCount}>{mangas.length} results</span>
+                  )}
+                </div>
 
-              {error ? (
-                <p className={s.sourceError}>{error}</p>
-              ) : loading ? (
-                <div className={s.sourceRow}>
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className={s.skCard}>
-                      <div className={["skeleton", s.skCover].join(" ")} />
-                      <div className={["skeleton", s.skTitle].join(" ")} />
-                    </div>
-                  ))}
-                </div>
-              ) : mangas.length > 0 ? (
-                <div className={s.sourceRow}>
-                  {mangas.slice(0, 8).map((m) => (
-                    <button key={m.id} className={s.card} onClick={() => openManga(m)}>
-                      <div className={s.coverWrap}>
-                        <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} className={s.cover} />
-                        {m.inLibrary && <span className={s.inLibBadge}>In Library</span>}
+                {error ? (
+                  <p className={s.sourceError}>{error}</p>
+                ) : loading ? (
+                  <div className={s.sourceRow}>
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className={s.skCard}>
+                        <div className={["skeleton", s.skCover].join(" ")} />
+                        <div className={["skeleton", s.skTitle].join(" ")} />
                       </div>
-                      <p className={s.cardTitle}>{m.title}</p>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ))}
+                    ))}
+                  </div>
+                ) : mangas.length > 0 ? (
+                  <div className={s.sourceRow}>
+                    {mangas.slice(0, 8).map((m) => (
+                      <button key={m.id} className={s.card} onClick={() => openManga(m)}>
+                        <div className={s.coverWrap}>
+                          <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} className={s.cover} />
+                          {m.inLibrary && <span className={s.inLibBadge}>In Library</span>}
+                        </div>
+                        <p className={s.cardTitle}>{m.title}</p>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
 
           {allDone && !hasResults && submitted && (
             <div className={s.empty}>

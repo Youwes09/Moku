@@ -1,6 +1,5 @@
 // ── Library ──────────────────────────────────────────────────────────────────
 
-// Full library query with chapter progress — only used for inLibrary manga
 export const GET_LIBRARY = `
   query GetLibrary {
     mangas(condition: { inLibrary: true }) {
@@ -19,7 +18,6 @@ export const GET_LIBRARY = `
   }
 `;
 
-// Lightweight query for browse/search (no progress needed)
 export const GET_ALL_MANGA = `
   query GetAllManga {
     mangas {
@@ -141,6 +139,19 @@ export const MARK_CHAPTERS_READ = `
   }
 `;
 
+export const UPDATE_CHAPTERS_PROGRESS = `
+  mutation UpdateChaptersProgress($ids: [Int!]!, $isRead: Boolean, $isBookmarked: Boolean, $lastPageRead: Int) {
+    updateChapters(input: { ids: $ids, patch: { isRead: $isRead, isBookmarked: $isBookmarked, lastPageRead: $lastPageRead } }) {
+      chapters {
+        id
+        isRead
+        isBookmarked
+        lastPageRead
+      }
+    }
+  }
+`;
+
 export const DELETE_DOWNLOADED_CHAPTERS = `
   mutation DeleteDownloadedChapters($ids: [Int!]!) {
     deleteDownloadedChapters(input: { ids: $ids }) {
@@ -153,7 +164,6 @@ export const DELETE_DOWNLOADED_CHAPTERS = `
 `;
 
 // ── Downloads ─────────────────────────────────────────────────────────────────
-// Updated to include manga title, thumbnail, and pageCount
 
 export const GET_DOWNLOAD_STATUS = `
   query GetDownloadStatus {
@@ -280,6 +290,30 @@ export const FETCH_SOURCE_MANGA = `
         inLibrary
       }
       hasNextPage
+    }
+  }
+`;
+
+export const FETCH_MANGA = `
+  mutation FetchManga($id: Int!) {
+    fetchManga(input: { id: $id }) {
+      manga {
+        id
+        title
+        description
+        thumbnailUrl
+        status
+        author
+        artist
+        genre
+        inLibrary
+        realUrl
+        source {
+          id
+          name
+          displayName
+        }
+      }
     }
   }
 `;

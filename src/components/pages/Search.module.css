@@ -35,6 +35,44 @@
 .searchBtn:hover:not(:disabled) { filter: brightness(1.1); }
 .searchBtn:disabled { opacity: 0.4; cursor: default; }
 
+.langBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-6);
+  border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0;
+}
+
+.langBtn {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wider);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-dim);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
+}
+.langBtn:hover { color: var(--text-muted); border-color: var(--border-strong); }
+.langBtnActive {
+  background: var(--accent-muted);
+  border-color: var(--accent-dim);
+  color: var(--accent-fg);
+}
+.langBtnActive:hover { background: var(--accent-muted); color: var(--accent-fg); }
+
+.sourceCount {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wide);
+  margin-left: auto;
+}
+
 .results { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-6); }
 
 .sourceSection { display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -77,7 +115,6 @@
   line-height: var(--leading-snug);
 }
 
-/* Skeletons */
 .skCard { flex-shrink: 0; width: 110px; }
 .skCover { aspect-ratio: 2/3; border-radius: var(--radius-md); }
 .skTitle { height: 11px; margin-top: var(--sp-1); width: 75%; }

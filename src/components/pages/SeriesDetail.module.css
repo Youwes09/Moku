@@ -428,3 +428,91 @@
 .dlItem:hover { background: var(--bg-overlay); color: var(--text-primary); }
 
 .dlItemSub { font-size: var(--text-xs); color: var(--text-faint); }
+/* ── Details section ── */
+.detailsSection {
+  margin-top: var(--sp-2);
+  border-top: 1px solid var(--border-dim);
+  padding-top: var(--sp-2);
+}
+
+.detailsToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px var(--sp-1);
+  border-radius: var(--radius-md);
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--t-base), background var(--t-base);
+}
+.detailsToggle:hover { color: var(--text-muted); background: var(--bg-raised); }
+
+.caretClosed { transition: transform var(--t-base); }
+.caretOpen   { transform: rotate(180deg); transition: transform var(--t-base); }
+
+.detailsBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-1);
+}
+
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.detailKey {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wide);
+  flex-shrink: 0;
+}
+
+.detailVal {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailMono {
+  font-family: monospace;
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+
+.migrateBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 6px var(--sp-2);
+  margin-top: var(--sp-1);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-dim);
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  cursor: pointer;
+  transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
+}
+.migrateBtn:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+  background: var(--bg-raised);
+}

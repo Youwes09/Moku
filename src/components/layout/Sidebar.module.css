@@ -10,41 +10,34 @@
 }
 
 .logo {
-  /* Logo set to 80px */
   width: 80px;
   height: 80px;
   display: flex;
   align-items: center;
   justify-content: center;
-  
-  /* MARGIN REMOVED */
-  margin-bottom: 0; 
-  
-  /* Allows the logo to overflow the sidebar width if the sidebar is smaller than 80px */
+
+  margin-bottom: var(--sp-3);
+
   overflow: visible;
 }
 
 .logoIcon {
-  /* Icon set to 80px */
   width: 80px;
   height: 80px;
-  
-  /* Apply your UI accent green */
+
   background-color: var(--accent);
-  
-  /* SVG Mask Logic using Moku-Icon.svg */
-  mask-image: url("../../assets/Moku-Icon.svg");
+
+  mask-image: url("../../assets/moku-icon.svg");
   mask-repeat: no-repeat;
   mask-position: center;
   mask-size: contain;
-  
-  -webkit-mask-image: url("../../assets/Moku-Icon.svg");
+
+  -webkit-mask-image: url("../../assets/moku-icon.svg");
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-position: center;
   -webkit-mask-size: contain;
 
-  /* Prominent glow for the large logo */
-  filter: drop-shadow(0 0 12px rgba(107, 143, 107, 0.4));
+  filter: drop-shadow(0 0 8px rgba(107, 143, 107, 0.35));
 }
 
 .nav {
@@ -83,7 +76,6 @@
   background: var(--accent-muted);
 }
 
-/* ── Bottom section ── */
 .bottom {
   display: flex;
   flex-direction: column;

@@ -100,6 +100,15 @@
 
 .row:hover { background: var(--bg-raised); border-color: var(--border-dim); }
 
+.rowIndented {
+  padding-left: var(--sp-5);
+}
+
+.indentSpacer {
+  width: 32px;
+  flex-shrink: 0;
+}
+
 .icon {
   width: 32px;
   height: 32px;
@@ -128,6 +137,8 @@
 }
 
 .arrow {
+  display: flex;
+  align-items: center;
   font-family: var(--font-ui);
   font-size: var(--text-xs);
   color: var(--text-faint);

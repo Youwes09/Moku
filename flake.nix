@@ -9,10 +9,14 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nix-appimage = {
+      url = "github:ralismark/nix-appimage";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    inputs@{ flake-parts, crane, rust-overlay, ... }:
+    inputs@{ flake-parts, crane, rust-overlay, nix-appimage, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
         "x86_64-linux"
@@ -51,8 +55,6 @@
             gsettings-desktop-schemas
           ];
 
-          # Only rebuild the frontend when files that actually affect the output change.
-          # Changing flake.nix, README.md, src-tauri/*, etc. won't invalidate the cache.
           frontendSrc = lib.cleanSourceWith {
             src = ./.;
             filter = path: type:
@@ -94,8 +96,6 @@
             installPhase = "cp -r dist $out";
           };
 
-          # tauri::generate_context!() embeds icons and reads tauri.conf.json +
-          # capabilities at compile time — all must survive the source filter.
           cargoSrc = lib.cleanSourceWith {
             src = ./src-tauri;
             filter = path: type:
@@ -118,9 +118,6 @@
               wrapGAppsHook3
             ];
 
-            # Crane unpacks source to /build/source (src-tauri/).
-            # tauri.conf.json has frontendDist = "../dist", so dist goes one
-            # level up at /build/dist.
             preBuild = ''
               cp -r ${frontend} ../dist
             '';
@@ -132,6 +129,8 @@
 
           moku = craneLib.buildPackage (commonArgs // {
             inherit cargoArtifacts;
+
+            meta.mainProgram = "moku";
 
             postInstall = ''
               wrapProgram $out/bin/moku \
@@ -149,6 +148,7 @@
           packages = {
             inherit moku frontend;
             default = moku;
+            appimage = nix-appimage.bundlers."${system}".default moku;
           };
 
           devShells.default = pkgs.mkShell {
@@ -161,12 +161,28 @@
               nodejs_22
               pnpm
               suwayomi-server
+              xdg-utils
             ];
 
             shellHook = ''
               export WEBKIT_DISABLE_COMPOSITING_MODE=1
+              export APPIMAGE_EXTRACT_AND_RUN=1
+              export NO_STRIP=true
               export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
               export XDG_DATA_DIRS="${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+
+              if [ ! -e /usr/bin/xdg-open ]; then
+                sudo ln -sf ${pkgs.xdg-utils}/bin/xdg-open /usr/bin/xdg-open
+              fi
+
+              LINUXDEPLOY="$HOME/.cache/tauri/linuxdeploy-x86_64.AppImage"
+              LINUXDEPLOY_REAL="$HOME/.cache/tauri/linuxdeploy-x86_64.AppImage.real"
+              if [ -f "$LINUXDEPLOY" ] && [ ! -f "$LINUXDEPLOY_REAL" ]; then
+                mv "$LINUXDEPLOY" "$LINUXDEPLOY_REAL"
+                printf '#!/bin/sh\nexec ${pkgs.appimage-run}/bin/appimage-run "%s" "$@"\n' "$LINUXDEPLOY_REAL" > "$LINUXDEPLOY"
+                chmod +x "$LINUXDEPLOY"
+                echo "linuxdeploy wrapped with appimage-run"
+              fi
 
               echo "Moku dev shell"
               echo "  pnpm install && pnpm tauri:dev"

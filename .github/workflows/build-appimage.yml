@@ -19,8 +19,12 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
+          # Pin webkit to 2.44 — 2.46+ causes EGL_BAD_PARAMETER crash on many systems
+          # https://github.com/gitbutlerapp/gitbutler/issues/5282
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
+            libwebkit2gtk-4.1-dev=2.44.* \
+            libjavascriptcoregtk-4.1-dev=2.44.* \
+            gir1.2-webkit2-4.1=2.44.* \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \

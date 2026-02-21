@@ -486,7 +486,7 @@ export default function SeriesDetail() {
           manga={manga}
           currentChapters={chapters}
           onClose={() => setMigrateOpen(false)}
-          onMigrated={(newManga) => {
+          onMigrated={(newManga: Manga) => {
             setMigrateOpen(false);
             setActiveManga(newManga);
           }}

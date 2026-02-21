@@ -51,13 +51,30 @@
             gsettings-desktop-schemas
           ];
 
-          # Frontend (Vite/TypeScript) built as a separate derivation.
-          # Update `hash` whenever pnpm-lock.yaml changes:
-          #   nix build .#frontend 2>&1 | grep "got:"
+          # Only rebuild the frontend when files that actually affect the output change.
+          # Changing flake.nix, README.md, src-tauri/*, etc. won't invalidate the cache.
+          frontendSrc = lib.cleanSourceWith {
+            src = ./.;
+            filter = path: type:
+              let base = builtins.baseNameOf path;
+              in
+              (lib.hasInfix "/src" path)
+              || base == "index.html"
+              || base == "package.json"
+              || base == "pnpm-lock.yaml"
+              || base == "tsconfig.json"
+              || base == "tsconfig.node.json"
+              || base == "vite.config.ts"
+              || base == "postcss.config.js"
+              || base == "postcss.config.cjs"
+              || base == "tailwind.config.js"
+              || base == "tailwind.config.ts";
+          };
+
           frontend = pkgs.stdenv.mkDerivation {
             pname = "moku-frontend";
             version = "0.1.0";
-            src = lib.cleanSource ./.;
+            src = frontendSrc;
 
             nativeBuildInputs = with pkgs; [
               nodejs_22
@@ -68,7 +85,7 @@
             pnpmDeps = pkgs.fetchPnpmDeps {
               pname = "moku-frontend";
               version = "0.1.0";
-              src = lib.cleanSource ./.;
+              src = frontendSrc;
               fetcherVersion = 1;
               hash = "sha256-2Hdzsjwbb+CKiRn/nGHwLeysKvpvEhd5C213YgWmOSU=";
             };
@@ -152,7 +169,7 @@
               export XDG_DATA_DIRS="${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
 
               echo "Moku dev shell"
-              echo "  pnpm install && pnpm tauri dev"
+              echo "  pnpm install && pnpm tauri:dev"
             '';
           };
 

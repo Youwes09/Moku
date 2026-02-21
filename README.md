@@ -25,11 +25,14 @@
 - Full manga reader with keyboard navigation
 - Chapter download queue
 - Extension and source management
+- Source migration with read progress transfer
+- Cross-source search
 - Reading history tracking
 
 ## Requirements
 
 [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server) must be running at `http://127.0.0.1:4567`.
+ > Note: The application does also launch the server on start-up by itself, so only the package is required on path.
 
 ## Installation
 
@@ -59,8 +62,10 @@ nix build
 ```bash
 nix develop
 pnpm install
-pnpm tauri dev
+pnpm tauri:dev
 ```
+
+> `tauri:dev` uses `src-tauri/tauri.dev.conf.json` to set the Vite dev server URL, keeping the release build config clean for `nix build`.
 
 ## Stack
 

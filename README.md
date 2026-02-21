@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="src/assets/Moku-Icon.svg" width="256" style="display:block;margin:0 auto;" />
-  <h1 style="margin:4px 0 2px;">Moku</h1>
-  <p style="margin:0 0 12px;">A fast, minimal manga reader frontend for <a href="https://github.com/Suwayomi/Suwayomi-Server">Suwayomi-Server</a>, built with Tauri and React.</p>
+  <img src="src/assets/rounded-icon.png" width="120" />
+  <h1>Moku</h1>
+  <p>A fast, minimal manga reader frontend for <a href="https://github.com/Suwayomi/Suwayomi-Server">Suwayomi-Server</a>, built with Tauri and React.</p>
 
   <table>
     <tr>

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="src/assets/rounded-icon.png" width="120" />
+  <img src="src/assets/rounded-logo.png" width="120" />
   <h1>Moku</h1>
   <p>A fast, minimal manga reader frontend for <a href="https://github.com/Suwayomi/Suwayomi-Server">Suwayomi-Server</a>, built with Tauri and React.</p>
 

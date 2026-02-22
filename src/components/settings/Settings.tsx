@@ -62,15 +62,51 @@ function SelectRow({ value, options, onChange, label, description }: {
   label: string;
   description?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   return (
     <div className={s.stepRow}>
       <div className={s.toggleInfo}>
         <span className={s.toggleLabel}>{label}</span>
         {description && <span className={s.toggleDesc}>{description}</span>}
       </div>
-      <select className={s.select} value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
+      <div className={s.selectWrap} ref={ref}>
+        <button className={s.selectBtn} onClick={() => setOpen((o) => !o)}>
+          <span>{selected?.label ?? value}</span>
+          <svg className={[s.selectCaret, open ? s.selectCaretOpen : ""].join(" ")} width="10" height="6" viewBox="0 0 10 6" fill="none">
+            <path d="M0 0l5 6 5-6" fill="currentColor" />
+          </svg>
+        </button>
+        {open && (
+          <div className={s.selectMenu}>
+            {options.map((o) => (
+              <button
+                key={o.value}
+                className={[s.selectOption, o.value === value ? s.selectOptionActive : ""].join(" ")}
+                onClick={() => { onChange(o.value); setOpen(false); }}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -143,11 +179,10 @@ function ReaderTab({ settings, update }: { settings: Settings; update: (p: Parti
         <p className={s.sectionTitle}>Page Layout</p>
         <SelectRow label="Default layout"
           description="How chapters open by default"
-          value={settings.pageStyle}
+          value={settings.pageStyle === "double" ? "single" : settings.pageStyle}
           options={[
-            { value: "single",    label: "Single page"  },
-            { value: "double",    label: "Double page"  },
-            { value: "longstrip", label: "Long strip"   },
+            { value: "single",    label: "Single page" },
+            { value: "longstrip", label: "Long strip"  },
           ]}
           onChange={(v) => update({ pageStyle: v as Settings["pageStyle"] })} />
         <SelectRow label="Reading direction"
@@ -158,12 +193,8 @@ function ReaderTab({ settings, update }: { settings: Settings; update: (p: Parti
             { value: "rtl", label: "Right to left" },
           ]}
           onChange={(v) => update({ readingDirection: v as Settings["readingDirection"] })} />
-        <Toggle label="Offset double spreads"
-          description="Shift double-page groups so spreads align correctly"
-          checked={settings.offsetDoubleSpreads}
-          onChange={(v) => update({ offsetDoubleSpreads: v })} />
         <Toggle label="Page gap"
-          description="Add spacing between pages in double and longstrip modes"
+          description="Add spacing between pages in longstrip mode"
           checked={settings.pageGap}
           onChange={(v) => update({ pageGap: v })} />
       </div>
@@ -174,9 +205,9 @@ function ReaderTab({ settings, update }: { settings: Settings; update: (p: Parti
           description="How pages are sized to fit the screen"
           value={settings.fitMode ?? "width"}
           options={[
-            { value: "width",    label: "Fit width"   },
-            { value: "height",   label: "Fit height"  },
-            { value: "screen",   label: "Fit screen"  },
+            { value: "width",    label: "Fit width"      },
+            { value: "height",   label: "Fit height"     },
+            { value: "screen",   label: "Fit screen"     },
             { value: "original", label: "Original (1:1)" },
           ]}
           onChange={(v) => update({ fitMode: v as FitMode })} />
@@ -203,6 +234,10 @@ function ReaderTab({ settings, update }: { settings: Settings; update: (p: Parti
           description="Mark a chapter as read when you reach the last page"
           checked={settings.autoMarkRead}
           onChange={(v) => update({ autoMarkRead: v })} />
+        <Toggle label="Auto-advance chapters"
+          description="Automatically open the next chapter at the end of a long strip"
+          checked={settings.autoNextChapter ?? false}
+          onChange={(v) => update({ autoNextChapter: v })} />
         <Stepper label="Pages to preload"
           description="Images loaded ahead of the current page"
           value={settings.preloadPages} min={0} max={10}
@@ -252,24 +287,24 @@ function LibraryTab({ settings, update }: { settings: Settings; update: (p: Part
           description="Language variant shown first when an extension has multiple"
           value={settings.preferredExtensionLang ?? "en"}
           options={[
-            { value: "en",    label: "English"        },
-            { value: "es",    label: "Spanish"        },
-            { value: "fr",    label: "French"         },
-            { value: "de",    label: "German"         },
-            { value: "pt-br", label: "Portuguese (BR)" },
-            { value: "it",    label: "Italian"        },
-            { value: "ru",    label: "Russian"        },
-            { value: "ar",    label: "Arabic"         },
-            { value: "tr",    label: "Turkish"        },
-            { value: "zh",    label: "Chinese (Simplified)" },
-            { value: "zh-hant", label: "Chinese (Traditional)" },
-            { value: "ko",    label: "Korean"         },
-            { value: "ja",    label: "Japanese"       },
-            { value: "id",    label: "Indonesian"     },
-            { value: "vi",    label: "Vietnamese"     },
-            { value: "th",    label: "Thai"           },
-            { value: "pl",    label: "Polish"         },
-            { value: "nl",    label: "Dutch"          },
+            { value: "en",      label: "English"                  },
+            { value: "es",      label: "Spanish"                  },
+            { value: "fr",      label: "French"                   },
+            { value: "de",      label: "German"                   },
+            { value: "pt-br",   label: "Portuguese (BR)"          },
+            { value: "it",      label: "Italian"                  },
+            { value: "ru",      label: "Russian"                  },
+            { value: "ar",      label: "Arabic"                   },
+            { value: "tr",      label: "Turkish"                  },
+            { value: "zh",      label: "Chinese (Simplified)"     },
+            { value: "zh-hant", label: "Chinese (Traditional)"    },
+            { value: "ko",      label: "Korean"                   },
+            { value: "ja",      label: "Japanese"                 },
+            { value: "id",      label: "Indonesian"               },
+            { value: "vi",      label: "Vietnamese"               },
+            { value: "th",      label: "Thai"                     },
+            { value: "pl",      label: "Polish"                   },
+            { value: "nl",      label: "Dutch"                    },
           ]}
           onChange={(v) => update({ preferredExtensionLang: v })} />
       </div>

@@ -50,6 +50,8 @@ export default function SeriesDetail() {
   const [togglingLibrary, setTogglingLibrary] = useState(false);
   const [chapterPage, setChapterPage]   = useState(1);
   const [ctx, setCtx]                   = useState<CtxState | null>(null);
+  const [jumpOpen, setJumpOpen]         = useState(false);
+  const [jumpInput, setJumpInput]       = useState("");
 
   const sortDir = settings.chapterSortDir;
 
@@ -104,10 +106,13 @@ export default function SeriesDetail() {
   const continueChapter = useMemo(() => {
     if (!chapters.length) return null;
     const asc = [...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
+    const anyRead = asc.some((c) => c.isRead);
+    // In-progress: started but not finished
     const inProgress = asc.find((c) => !c.isRead && (c.lastPageRead ?? 0) > 0);
     if (inProgress) return { chapter: inProgress, type: "continue" as const };
+    // If any chapter is read, user is continuing — find next unread
     const firstUnread = asc.find((c) => !c.isRead);
-    if (firstUnread) return { chapter: firstUnread, type: "start" as const };
+    if (firstUnread) return { chapter: firstUnread, type: anyRead ? "continue" : "start" as const };
     return { chapter: asc[0], type: "reread" as const };
   }, [chapters]);
 
@@ -291,49 +296,6 @@ export default function SeriesDetail() {
           </button>
         )}
 
-        {chapters.length > 0 && (
-          <div className={s.downloadSection}>
-            <button className={s.downloadToggle} onClick={() => setDlOpen((p) => !p)}>
-              <Download size={13} weight="light" />
-              Download
-            </button>
-            {dlOpen && (
-              <div className={s.downloadMenu}>
-                {continueChapter && (
-                  <button className={s.dlItem}
-                    onClick={() => {
-                      const from = sortedChapters.indexOf(continueChapter.chapter);
-                      const ids = sortedChapters.slice(from).filter((c) => !c.isDownloaded).map((c) => c.id);
-                      enqueueMultiple(ids);
-                      setDlOpen(false);
-                    }}>
-                    <span>From current</span>
-                    <span className={s.dlItemSub}>Ch.{continueChapter.chapter.chapterNumber} onwards</span>
-                  </button>
-                )}
-                <button className={s.dlItem}
-                  onClick={() => {
-                    const ids = sortedChapters.filter((c) => !c.isRead && !c.isDownloaded).map((c) => c.id);
-                    enqueueMultiple(ids);
-                    setDlOpen(false);
-                  }}>
-                  <span>Unread chapters</span>
-                  <span className={s.dlItemSub}>{sortedChapters.filter((c) => !c.isRead && !c.isDownloaded).length} remaining</span>
-                </button>
-                <button className={s.dlItem}
-                  onClick={() => {
-                    const ids = sortedChapters.filter((c) => !c.isDownloaded).map((c) => c.id);
-                    enqueueMultiple(ids);
-                    setDlOpen(false);
-                  }}>
-                  <span>Download all</span>
-                  <span className={s.dlItemSub}>{sortedChapters.filter((c) => !c.isDownloaded).length} not downloaded</span>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
         <p className={s.chapterCount}>
           {totalCount} {totalCount === 1 ? "chapter" : "chapters"}
         </p>
@@ -387,21 +349,103 @@ export default function SeriesDetail() {
             <span>{sortDir === "desc" ? "Newest first" : "Oldest first"}</span>
           </button>
 
-          {totalPages > 1 && (
-            <div className={s.pagination}>
-              <button
-                className={s.pageBtn}
-                onClick={() => setChapterPage((p) => Math.max(1, p - 1))}
-                disabled={chapterPage === 1}
-              >←</button>
-              <span className={s.pageNum}>{chapterPage} / {totalPages}</span>
-              <button
-                className={s.pageBtn}
-                onClick={() => setChapterPage((p) => Math.min(totalPages, p + 1))}
-                disabled={chapterPage === totalPages}
-              >→</button>
-            </div>
-          )}
+          <div className={s.listHeaderRight}>
+            {/* Jump to chapter */}
+            {chapters.length > 1 && (
+              <div className={s.jumpWrap}>
+                {!jumpOpen ? (
+                  <button className={s.jumpToggle} onClick={() => { setJumpOpen(true); setJumpInput(""); }}>
+                    Go to…
+                  </button>
+                ) : (
+                  <div className={s.jumpRow}>
+                    <input
+                      className={s.jumpInput}
+                      type="text"
+                      placeholder="Ch. #"
+                      value={jumpInput}
+                      autoFocus
+                      onChange={(e) => setJumpInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") { setJumpOpen(false); return; }
+                        if (e.key === "Enter") {
+                          const num = parseFloat(jumpInput);
+                          if (!isNaN(num)) {
+                            const target = sortedChapters.find((c) => c.chapterNumber === num)
+                              ?? sortedChapters.reduce((best, c) =>
+                                Math.abs(c.chapterNumber - num) < Math.abs(best.chapterNumber - num) ? c : best
+                              , sortedChapters[0]);
+                            if (target) openReader(target, sortedChapters);
+                          }
+                          setJumpOpen(false);
+                        }
+                      }}
+                    />
+                    <button className={s.jumpCancel} onClick={() => setJumpOpen(false)}>✕</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Download menu */}
+            {chapters.length > 0 && (
+              <div className={s.dlWrap}>
+                <button className={s.dlToggleBtn} onClick={() => setDlOpen((p) => !p)}>
+                  <Download size={13} weight="light" />
+                </button>
+                {dlOpen && (
+                  <div className={s.dlDropdown}>
+                    {continueChapter && (
+                      <button className={s.dlItem}
+                        onClick={() => {
+                          const from = sortedChapters.indexOf(continueChapter.chapter);
+                          const ids = sortedChapters.slice(from).filter((c) => !c.isDownloaded).map((c) => c.id);
+                          enqueueMultiple(ids);
+                          setDlOpen(false);
+                        }}>
+                        <span>From current</span>
+                        <span className={s.dlItemSub}>Ch.{continueChapter.chapter.chapterNumber} onwards</span>
+                      </button>
+                    )}
+                    <button className={s.dlItem}
+                      onClick={() => {
+                        const ids = sortedChapters.filter((c) => !c.isRead && !c.isDownloaded).map((c) => c.id);
+                        enqueueMultiple(ids);
+                        setDlOpen(false);
+                      }}>
+                      <span>Unread chapters</span>
+                      <span className={s.dlItemSub}>{sortedChapters.filter((c) => !c.isRead && !c.isDownloaded).length} remaining</span>
+                    </button>
+                    <button className={s.dlItem}
+                      onClick={() => {
+                        const ids = sortedChapters.filter((c) => !c.isDownloaded).map((c) => c.id);
+                        enqueueMultiple(ids);
+                        setDlOpen(false);
+                      }}>
+                      <span>Download all</span>
+                      <span className={s.dlItemSub}>{sortedChapters.filter((c) => !c.isDownloaded).length} not downloaded</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {totalPages > 1 && (
+              <div className={s.pagination}>
+                <button
+                  className={s.pageBtn}
+                  onClick={() => setChapterPage((p) => Math.max(1, p - 1))}
+                  disabled={chapterPage === 1}
+                >←</button>
+                <span className={s.pageNum}>{chapterPage} / {totalPages}</span>
+                <button
+                  className={s.pageBtn}
+                  onClick={() => setChapterPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={chapterPage === totalPages}
+                >→</button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className={s.list}>

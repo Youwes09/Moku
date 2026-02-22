@@ -1,0 +1,22 @@
+Todo:
+1. Check all Keybind Toggles
+2. Update ReadME with Comprehensive Feature List
+3. Explore Manga Upscaler
+4. Add Zoom-Slider for Zoom in Manga Reader
+
+
+Bugs:
+2. Fix Auto-scroll between chapters & state when moving chapters (Implemented but not Fluidic)
+3. Patch Chapters to Grid View
+5. Fix Keybind Toggles
+
+Features:
+1. Frecency based Manga Suggestions
+2. Proper Explore Tab
+
+
+Big Revisions:
+1. Anime & Novel Support
+
+Test:
+1. URL & Extension Additions

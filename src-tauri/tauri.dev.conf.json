@@ -2,5 +2,12 @@
   "build": {
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "pnpm dev"
+  },
+  "app": {
+    "windows": [
+      {
+        "devtools": true
+      }
+    ]
   }
 }

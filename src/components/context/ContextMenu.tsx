@@ -51,13 +51,20 @@ export default function ContextMenu({ x, y, items, onClose }: Props) {
     };
   }, [onClose]);
 
-  // Adjust position so menu doesn't clip outside viewport
+  // Adjust position so menu doesn't clip outside viewport.
+  // Compensate for CSS zoom (applied via document.documentElement.style.zoom)
+  // because clientX/Y are pre-zoom pixels while `position:fixed` is post-zoom.
   const style = useCallback(() => {
-    const menuW = 200;
-    const menuH = items.length * 32;
-    const left = x + menuW > window.innerWidth  ? x - menuW : x;
-    const top  = y + menuH > window.innerHeight ? y - menuH : y;
-    return { left, top };
+    const zoom   = parseFloat(document.documentElement.style.zoom || "1") / 100 || 1;
+    const scaledX = x / zoom;
+    const scaledY = y / zoom;
+    const menuW  = 200;
+    const menuH  = items.length * 36;
+    const vw     = window.innerWidth  / zoom;
+    const vh     = window.innerHeight / zoom;
+    const left   = scaledX + menuW > vw ? scaledX - menuW : scaledX;
+    const top    = scaledY + menuH > vh ? scaledY - menuH : scaledY;
+    return { left: Math.max(4, left), top: Math.max(4, top) };
   }, [x, y, items.length]);
 
   return createPortal(

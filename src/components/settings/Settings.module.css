@@ -159,20 +159,45 @@
   min-width: 28px; text-align: center; letter-spacing: var(--tracking-wide);
 }
 
-/* ─── Select ── */
-.select {
+/* ─── Select (custom) ── */
+.selectWrap { position: relative; flex-shrink: 0; min-width: 130px; }
+
+.selectBtn {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  width: 100%; padding: 5px 10px;
   background: var(--bg-raised); border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md); padding: 5px 10px; color: var(--text-secondary);
+  border-radius: var(--radius-md); color: var(--text-secondary);
   font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
-  outline: none; cursor: pointer; flex-shrink: 0; transition: border-color var(--t-base);
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M0 0l5 6 5-6' fill='%23888'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  padding-right: 24px;
+  cursor: pointer; transition: border-color var(--t-base), background var(--t-base);
+  text-align: left;
 }
-.select:focus { border-color: var(--border-focus); }
-.select option { background: var(--bg-raised); color: var(--text-secondary); }
+.selectBtn:hover { border-color: var(--border-focus); }
+
+.selectCaret {
+  color: var(--text-faint); flex-shrink: 0;
+  transition: transform var(--t-base);
+}
+.selectCaretOpen { transform: rotate(180deg); }
+
+.selectMenu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  background: var(--bg-raised); border: 1px solid var(--border-base);
+  border-radius: var(--radius-md); padding: var(--sp-1);
+  display: flex; flex-direction: column; gap: 1px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 200; animation: scaleIn 0.1s ease both; transform-origin: top center;
+}
+
+.selectOption {
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
+  color: var(--text-secondary); background: none; border: none;
+  cursor: pointer; text-align: left;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.selectOption:hover { background: var(--bg-overlay); color: var(--text-primary); }
+.selectOptionActive { color: var(--accent-fg); background: var(--accent-muted); }
+.selectOptionActive:hover { background: var(--accent-muted); color: var(--accent-fg); }
 
 /* ─── Scale ── */
 .scaleRow {

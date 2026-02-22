@@ -36,6 +36,7 @@ export interface Settings {
   offsetDoubleSpreads: boolean;
   preloadPages: number;
   autoMarkRead: boolean;
+  autoNextChapter: boolean;
   libraryCropCovers: boolean;
   libraryPageSize: number;
   showNsfw: boolean;
@@ -61,6 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
   offsetDoubleSpreads: false,
   preloadPages: 3,
   autoMarkRead: true,
+  autoNextChapter: false,
   libraryCropCovers: true,
   libraryPageSize: 48,
   showNsfw: false,

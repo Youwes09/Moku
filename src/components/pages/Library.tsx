@@ -1,10 +1,11 @@
 import { useEffect, useState, useMemo, useCallback, memo } from "react";
 import { MagnifyingGlass, Books, DownloadSimple, X } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
-import { GET_LIBRARY, GET_ALL_MANGA } from "../../lib/queries";
+import { GET_LIBRARY, GET_ALL_MANGA, UPDATE_MANGA } from "../../lib/queries";
 import { useStore } from "../../store";
 import type { LibraryFilter } from "../../store";
 import type { Manga } from "../../lib/types";
+import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
 import s from "./Library.module.css";
 
 const INITIAL_PAGE_SIZE = 48;
@@ -14,14 +15,16 @@ const PAGE_INCREMENT = 48;
 const MangaCard = memo(function MangaCard({
   manga,
   onClick,
+  onContextMenu,
   cropCovers,
 }: {
   manga: Manga;
   onClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
   cropCovers: boolean;
 }) {
   return (
-    <button className={s.card} onClick={onClick}>
+    <button className={s.card} onClick={onClick} onContextMenu={onContextMenu}>
       <div className={s.coverWrap}>
         <img
           src={thumbUrl(manga.thumbnailUrl)}
@@ -46,6 +49,7 @@ export default function Library() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [visibleCount, setVisibleCount] = useState(INITIAL_PAGE_SIZE);
+  const [ctx, setCtx] = useState<{ x: number; y: number; manga: Manga } | null>(null);
 
   const setActiveManga = useStore((state) => state.setActiveManga);
   const libraryFilter = useStore((state) => state.libraryFilter);
@@ -98,6 +102,37 @@ export default function Library() {
     (m: Manga) => () => setActiveManga(m),
     [setActiveManga]
   );
+
+  async function removeFromLibrary(manga: Manga) {
+    await gql(UPDATE_MANGA, { id: manga.id, inLibrary: false }).catch(console.error);
+    setAllManga((prev) => prev.map((m) => m.id === manga.id ? { ...m, inLibrary: false } : m));
+  }
+
+  function openCtx(e: React.MouseEvent, m: Manga) {
+    e.preventDefault();
+    const menuW = 200;
+    const menuH = 96;
+    const x = Math.min(e.clientX, window.innerWidth - menuW - 8);
+    const y = Math.min(e.clientY, window.innerHeight - menuH - 8);
+    setCtx({ x, y, manga: m });
+  }
+
+  function buildCtxItems(m: Manga): ContextMenuEntry[] {
+    return [
+      {
+        label: "Open",
+        onClick: () => setActiveManga(m),
+      },
+      { separator: true },
+      {
+        label: m.inLibrary ? "Remove from library" : "Add to library",
+        danger: m.inLibrary,
+        onClick: () => m.inLibrary ? removeFromLibrary(m) : gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
+          .then(() => setAllManga((prev) => prev.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x)))
+          .catch(console.error),
+      },
+    ];
+  }
 
   // All genres present in current library
   const allTags = useMemo(() => {
@@ -208,6 +243,7 @@ export default function Library() {
                 key={m.id}
                 manga={m}
                 onClick={handleCardClick(m)}
+                onContextMenu={(e) => openCtx(e, m)}
                 cropCovers={settings.libraryCropCovers}
               />
             ))}
@@ -224,6 +260,14 @@ export default function Library() {
             </div>
           )}
         </>
+      )}
+      {ctx && (
+        <ContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          items={buildCtxItems(ctx.manga)}
+          onClose={() => setCtx(null)}
+        />
       )}
     </div>
   );

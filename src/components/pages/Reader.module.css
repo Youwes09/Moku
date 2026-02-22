@@ -6,12 +6,23 @@
   transform: translateZ(0); will-change: transform;
 }
 
+/* ── UI autohide ── */
+.uiHidden {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.topbar, .bottombar {
+  transition: opacity 0.25s ease;
+}
+
 /* ── Topbar ── */
 .topbar {
   display: flex; align-items: center; gap: var(--sp-1);
   padding: 0 var(--sp-3); height: 40px;
   background: var(--bg-void); border-bottom: 1px solid var(--border-dim);
-  flex-shrink: 0; overflow: hidden;
+  flex-shrink: 0; overflow: visible;
+  position: relative; z-index: 2;
 }
 
 .iconBtn {
@@ -55,14 +66,60 @@
 .modeBtnActive:hover { color: var(--accent-fg); background: var(--accent-muted); }
 .modeBtnLabel { text-transform: capitalize; }
 
+/* ── Zoom ── */
+.zoomWrap {
+  position: relative; flex-shrink: 0;
+}
+
 .zoomBtn {
   font-family: var(--font-ui); font-size: var(--text-2xs);
   letter-spacing: var(--tracking-wide); color: var(--text-faint);
   padding: 4px var(--sp-2); border-radius: var(--radius-sm);
-  flex-shrink: 0; min-width: 36px; text-align: center;
+  min-width: 36px; text-align: center;
   transition: color var(--t-base), background var(--t-base);
 }
 .zoomBtn:hover { color: var(--text-secondary); background: var(--bg-raised); }
+
+.zoomPopover {
+  position: absolute; top: calc(100% + 6px); left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-raised); border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg); padding: var(--sp-3) var(--sp-3) var(--sp-2);
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 100; min-width: 160px;
+  animation: scaleIn 0.1s ease both; transform-origin: top center;
+}
+
+.zoomSlider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 140px; height: 3px;
+  background: var(--border-strong);
+  border-radius: 2px; outline: none; cursor: pointer;
+}
+.zoomSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--accent-fg);
+  cursor: pointer;
+}
+.zoomSlider::-moz-range-thumb {
+  width: 12px; height: 12px;
+  border-radius: 50%; border: none;
+  background: var(--accent-fg);
+  cursor: pointer;
+}
+
+.zoomResetBtn {
+  font-family: var(--font-ui); font-size: var(--text-xs);
+  color: var(--text-muted); letter-spacing: var(--tracking-wide);
+  padding: 2px var(--sp-2); border-radius: var(--radius-sm);
+  transition: color var(--t-base), background var(--t-base);
+}
+.zoomResetBtn:hover { color: var(--text-primary); background: var(--bg-overlay); }
 
 /* ── Viewer ── */
 .viewer {
@@ -163,11 +220,26 @@
 
 .dlRow { display: flex; align-items: center; gap: var(--sp-2); }
 
-.dlInput {
-  width: 48px; padding: 4px var(--sp-2);
+.dlStepper {
+  display: flex; align-items: center; gap: 2px;
   background: var(--bg-overlay); border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm); color: var(--text-secondary);
-  font-family: var(--font-ui); font-size: var(--text-xs);
-  text-align: center; outline: none;
+  border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0;
 }
-.dlInput:focus { border-color: var(--border-focus); }
+
+.dlStepBtn {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 28px;
+  font-size: var(--text-base); color: var(--text-muted);
+  background: none; border: none; cursor: pointer; line-height: 1;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.dlStepBtn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
+.dlStepBtn:disabled { opacity: 0.25; cursor: default; }
+
+.dlStepVal {
+  font-family: var(--font-ui); font-size: var(--text-xs);
+  color: var(--text-secondary); min-width: 24px; text-align: center;
+  letter-spacing: var(--tracking-wide);
+}
+/* Viewer focus — suppress outline since we're handling keys ourselves */
+.viewer:focus { outline: none; }

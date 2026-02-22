@@ -110,18 +110,14 @@
             cargoToml = ./src-tauri/Cargo.toml;
             cargoLock = ./src-tauri/Cargo.lock;
             strictDeps = true;
-
             buildInputs = runtimeLibs;
-
             nativeBuildInputs = with pkgs; [
               pkg-config
               wrapGAppsHook3
             ];
-
             preBuild = ''
               cp -r ${frontend} ../dist
             '';
-
             WEBKIT_DISABLE_COMPOSITING_MODE = "1";
           };
 
@@ -129,9 +125,7 @@
 
           moku = craneLib.buildPackage (commonArgs // {
             inherit cargoArtifacts;
-
             meta.mainProgram = "moku";
-
             postInstall = ''
               wrapProgram $out/bin/moku \
                 --prefix XDG_DATA_DIRS : "${lib.makeSearchPath "share/gsettings-schemas" [
@@ -153,7 +147,6 @@
 
           devShells.default = pkgs.mkShell {
             buildInputs = runtimeLibs;
-
             nativeBuildInputs = with pkgs; [
               rustToolchain
               pkg-config
@@ -163,7 +156,6 @@
               suwayomi-server
               xdg-utils
             ];
-
             shellHook = ''
               export WEBKIT_DISABLE_COMPOSITING_MODE=1
               export APPIMAGE_EXTRACT_AND_RUN=1

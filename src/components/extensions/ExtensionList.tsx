@@ -1,16 +1,17 @@
 import { useEffect, useState, useMemo } from "react";
-import { MagnifyingGlass, ArrowsClockwise, Plus, CircleNotch, CaretRight, CaretDown } from "@phosphor-icons/react";
+import { MagnifyingGlass, ArrowsClockwise, Plus, CircleNotch, CaretRight, CaretDown, X, Check, GitBranch } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import {
   GET_EXTENSIONS, FETCH_EXTENSIONS, UPDATE_EXTENSION, INSTALL_EXTERNAL_EXTENSION,
+  GET_SETTINGS, SET_EXTENSION_REPOS,
 } from "../../lib/queries";
 import { useStore } from "../../store";
 import type { Extension } from "../../lib/types";
 import s from "./ExtensionList.module.css";
 
 type Filter = "installed" | "available" | "updates" | "all";
+type Panel = null | "apk" | "repos";
 
-// Strip language tag suffix e.g. "MangaDex (EN)" → "MangaDex"
 function baseName(name: string): string {
   return name.replace(/\s*\([A-Z0-9-]{2,10}\)\s*$/, "").trim();
 }
@@ -18,7 +19,7 @@ function baseName(name: string): string {
 interface ExtGroup {
   base: string;
   primary: Extension;
-  variants: Extension[]; // all variants excluding primary
+  variants: Extension[];
 }
 
 export default function ExtensionList() {
@@ -29,8 +30,21 @@ export default function ExtensionList() {
   const [search, setSearch]         = useState("");
   const [working, setWorking]       = useState<Set<string>>(new Set());
   const [expanded, setExpanded]     = useState<Set<string>>(new Set());
-  const [externalUrl, setExternalUrl] = useState("");
-  const [showExternal, setShowExternal] = useState(false);
+  const [panel, setPanel]           = useState<Panel>(null);
+
+  // APK install state
+  const [externalUrl, setExternalUrl]     = useState("");
+  const [installing, setInstalling]       = useState(false);
+  const [installError, setInstallError]   = useState<string | null>(null);
+  const [installSuccess, setInstallSuccess] = useState(false);
+
+  // Repo management state
+  const [repos, setRepos]             = useState<string[]>([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const [newRepoUrl, setNewRepoUrl]   = useState("");
+  const [repoError, setRepoError]     = useState<string | null>(null);
+  const [savingRepos, setSavingRepos] = useState(false);
+
   const preferredLang = useStore((s) => s.settings.preferredExtensionLang);
 
   async function load() {
@@ -47,6 +61,52 @@ export default function ExtensionList() {
       .finally(() => setRefreshing(false));
   }
 
+  async function loadRepos() {
+    setReposLoading(true);
+    try {
+      const d = await gql<{ settings: { extensionRepos: string[] } }>(GET_SETTINGS);
+      setRepos(d.settings.extensionRepos ?? []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setReposLoading(false);
+    }
+  }
+
+  async function saveRepos(updated: string[]) {
+    setSavingRepos(true);
+    try {
+      const d = await gql<{ setSettings: { settings: { extensionRepos: string[] } } }>(
+        SET_EXTENSION_REPOS, { repos: updated }
+      );
+      setRepos(d.setSettings.settings.extensionRepos);
+    } catch (e: unknown) {
+      setRepoError(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSavingRepos(false);
+    }
+  }
+
+  function addRepo() {
+    const url = newRepoUrl.trim();
+    if (!url) return;
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      setRepoError("URL must start with http:// or https://");
+      return;
+    }
+    if (repos.includes(url)) {
+      setRepoError("Repo already added");
+      return;
+    }
+    setRepoError(null);
+    setNewRepoUrl("");
+    saveRepos([...repos, url]);
+  }
+
+  function removeRepo(url: string) {
+    saveRepos(repos.filter((r) => r !== url));
+  }
+
   const mutate = async (fn: () => Promise<unknown>, pkgName: string) => {
     setWorking((p) => new Set(p).add(pkgName));
     await fn().catch(console.error);
@@ -55,11 +115,47 @@ export default function ExtensionList() {
   };
 
   async function installExternal() {
-    if (!externalUrl.trim()) return;
-    await gql(INSTALL_EXTERNAL_EXTENSION, { url: externalUrl.trim() }).catch(console.error);
+    const url = externalUrl.trim();
+    if (!url) return;
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      setInstallError("URL must start with http:// or https://");
+      return;
+    }
+    if (!url.endsWith(".apk")) {
+      setInstallError("URL must point to an .apk file");
+      return;
+    }
+    setInstalling(true);
+    setInstallError(null);
+    setInstallSuccess(false);
+    try {
+      await gql(INSTALL_EXTERNAL_EXTENSION, { url });
+      setInstallSuccess(true);
+      setExternalUrl("");
+      await load();
+      setTimeout(() => {
+        setPanel(null);
+        setInstallSuccess(false);
+      }, 1500);
+    } catch (e: unknown) {
+      setInstallError(e instanceof Error ? e.message : "Install failed");
+    } finally {
+      setInstalling(false);
+    }
+  }
+
+  function openPanel(p: Panel) {
+    if (panel === p) {
+      setPanel(null);
+      return;
+    }
+    setPanel(p);
+    setInstallError(null);
+    setInstallSuccess(false);
     setExternalUrl("");
-    setShowExternal(false);
-    await load();
+    setRepoError(null);
+    setNewRepoUrl("");
+    if (p === "repos") loadRepos();
   }
 
   useEffect(() => {
@@ -76,8 +172,6 @@ export default function ExtensionList() {
     return matchSearch && matchFilter;
   });
 
-  // Group by base name. Primary is the preferred/en/first variant.
-  // variants contains only the non-primary ones for the expanded list.
   const groups = useMemo<ExtGroup[]>(() => {
     const map = new Map<string, Extension[]>();
     for (const ext of filtered) {
@@ -131,7 +225,14 @@ export default function ExtensionList() {
       <div className={s.header}>
         <h1 className={s.heading}>Extensions</h1>
         <div className={s.headerActions}>
-          <button className={s.iconBtn} onClick={() => setShowExternal(!showExternal)} title="Install from URL">
+          <button
+            className={[s.iconBtn, panel === "repos" ? s.iconBtnActive : ""].join(" ").trim()}
+            onClick={() => openPanel("repos")} title="Manage repos">
+            <GitBranch size={14} weight="light" />
+          </button>
+          <button
+            className={[s.iconBtn, panel === "apk" ? s.iconBtnActive : ""].join(" ").trim()}
+            onClick={() => openPanel("apk")} title="Install from URL">
             <Plus size={14} weight="light" />
           </button>
           <button className={s.iconBtn} onClick={fetchFromRepo} disabled={refreshing} title="Refresh repo">
@@ -140,12 +241,97 @@ export default function ExtensionList() {
         </div>
       </div>
 
-      {showExternal && (
-        <div className={s.externalRow}>
-          <input className={s.externalInput} placeholder="APK URL"
-            value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && installExternal()} autoFocus />
-          <button className={s.installBtn} onClick={installExternal}>Install</button>
+      {/* ── APK install panel ── */}
+      {panel === "apk" && (
+        <div className={s.externalPanel}>
+          <div className={s.panelHeader}>
+            <span className={s.panelTitle}>Install from APK URL</span>
+            <button className={s.iconBtn} onClick={() => setPanel(null)}><X size={14} weight="light" /></button>
+          </div>
+          <div className={s.externalRow}>
+            <input
+              className={[s.externalInput, installError ? s.externalInputError : ""].join(" ").trim()}
+              placeholder="https://example.com/extension.apk"
+              value={externalUrl}
+              onChange={(e) => { setExternalUrl(e.target.value); setInstallError(null); }}
+              onKeyDown={(e) => e.key === "Enter" && !installing && installExternal()}
+              autoFocus
+              disabled={installing}
+            />
+            <button
+              className={[s.installBtn, installSuccess ? s.installBtnSuccess : ""].join(" ").trim()}
+              onClick={installExternal}
+              disabled={installing || !externalUrl.trim()}
+            >
+              {installing
+                ? <CircleNotch size={13} weight="light" className="anim-spin" />
+                : installSuccess
+                  ? <><Check size={13} weight="bold" /> Done</>
+                  : "Install"}
+            </button>
+          </div>
+          {installError && <div className={s.panelError}>{installError}</div>}
+        </div>
+      )}
+
+      {/* ── Repo management panel ── */}
+      {panel === "repos" && (
+        <div className={s.externalPanel}>
+          <div className={s.panelHeader}>
+            <span className={s.panelTitle}>Extension Repositories</span>
+            <button className={s.iconBtn} onClick={() => setPanel(null)}><X size={14} weight="light" /></button>
+          </div>
+
+          {reposLoading ? (
+            <div className={s.repoLoading}>
+              <CircleNotch size={14} weight="light" className="anim-spin" style={{ color: "var(--text-faint)" }} />
+            </div>
+          ) : (
+            <>
+              {repos.length === 0 ? (
+                <div className={s.repoEmpty}>No repos configured.</div>
+              ) : (
+                <div className={s.repoList}>
+                  {repos.map((url) => (
+                    <div key={url} className={s.repoRow}>
+                      <span className={s.repoUrl}>{url}</span>
+                      <button
+                        className={s.repoRemoveBtn}
+                        onClick={() => removeRepo(url)}
+                        disabled={savingRepos}
+                        title="Remove repo"
+                      >
+                        {savingRepos
+                          ? <CircleNotch size={12} weight="light" className="anim-spin" />
+                          : <X size={12} weight="bold" />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className={s.externalRow} style={{ marginTop: "var(--sp-2)" }}>
+                <input
+                  className={[s.externalInput, repoError ? s.externalInputError : ""].join(" ").trim()}
+                  placeholder="https://example.com/index.min.json"
+                  value={newRepoUrl}
+                  onChange={(e) => { setNewRepoUrl(e.target.value); setRepoError(null); }}
+                  onKeyDown={(e) => e.key === "Enter" && !savingRepos && addRepo()}
+                  disabled={savingRepos}
+                />
+                <button
+                  className={s.installBtn}
+                  onClick={addRepo}
+                  disabled={savingRepos || !newRepoUrl.trim()}
+                >
+                  {savingRepos
+                    ? <CircleNotch size={13} weight="light" className="anim-spin" />
+                    : "Add"}
+                </button>
+              </div>
+              {repoError && <div className={s.panelError}>{repoError}</div>}
+            </>
+          )}
         </div>
       )}
 
@@ -176,7 +362,6 @@ export default function ExtensionList() {
           {groups.map(({ base, primary, variants }) => {
             const isExpanded = expanded.has(base);
             const hasVariants = variants.length > 0;
-
             return (
               <div key={base} className={s.group}>
                 <div className={s.row}>
@@ -194,14 +379,11 @@ export default function ExtensionList() {
                   {hasVariants && (
                     <button className={s.expandBtn} onClick={() => toggleExpand(base)}
                       title={`${variants.length + 1} languages`}>
-                      {isExpanded
-                        ? <CaretDown size={12} weight="light" />
-                        : <CaretRight size={12} weight="light" />}
+                      {isExpanded ? <CaretDown size={12} weight="light" /> : <CaretRight size={12} weight="light" />}
                       <span className={s.expandCount}>{variants.length + 1}</span>
                     </button>
                   )}
                 </div>
-
                 {isExpanded && hasVariants && (
                   <div className={s.variants}>
                     {variants.map((v) => (

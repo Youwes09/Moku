@@ -1,6 +1,6 @@
 app-id: dev.moku.app
 runtime: org.gnome.Platform
-runtime-version: '47'
+runtime-version: '48'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
@@ -9,10 +9,14 @@ separate-locales: false
 
 finish-args:
   - --socket=wayland
+  - --socket=x11
   - --socket=fallback-x11
   - --share=ipc
   - --device=dri
   - --share=network
+  - --socket=session-bus
+  - --socket=system-bus
+  - --filesystem=home
   - --filesystem=xdg-data/moku:create
   - --talk-name=org.freedesktop.Flatpak
 
@@ -20,10 +24,8 @@ build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:
     CARGO_HOME: /run/build/moku/cargo
-    RUSTFLAGS: ''
 
 modules:
-
   - name: openjdk
     buildsystem: simple
     build-commands:
@@ -35,17 +37,122 @@ modules:
         sha256: f1af100c4afca2035f446967323230150cfe5872b5a664d98c86963e5c066e0d
         dest-filename: jdk.tar.gz
 
+  # catch_abort.so — intercepts SIGTRAP/SIGILL from KCEF's CEF subprocess and
+  # exits just that thread instead of killing the whole JVM. Official Suwayomi
+  # fix for headless environments. Source inlined to avoid upstream drift.
+  - name: catch-abort
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/lib
+      - gcc -shared -fPIC -o /app/lib/catch_abort.so catch_abort.c -ldl -lpthread
+    sources:
+      - type: inline
+        dest-filename: catch_abort.c
+        contents: |
+          // Linux only:
+          // Attempts to catch SIGTRAP and exit the thread instead of bringing down the whole process
+
+          #define _GNU_SOURCE
+          #include <stdio.h>
+          #include <dlfcn.h>
+          #include <signal.h>
+          #include <pthread.h>
+          #include <execinfo.h>
+
+          void signalHandler(int signum, siginfo_t* si, void* uc) {
+            void *retaddrs[64];
+            int n = backtrace(retaddrs, sizeof(retaddrs) / sizeof(retaddrs[0]));
+            printf("\n### ABORT :: Backtrace: ###\n");
+            backtrace_symbols_fd(retaddrs, n, STDERR_FILENO);
+            printf("### ABORT :: Exiting this thread. If this causes problems, please report the above backtrace to Suwayomi. ###\n\n");
+            pthread_exit(NULL);
+          }
+
+          __attribute__((constructor))
+          void dlmain() {
+            struct sigaction sa = {0};
+            sa.sa_flags     = SA_SIGINFO | SA_RESTART;
+            sa.sa_sigaction = &signalHandler;
+            sigemptyset(&sa.sa_mask);
+            if (sigaction(SIGTRAP, &sa, NULL) != 0) {
+              printf("[FATAL] sigaction failed\n");
+            }
+            if (sigaction(SIGILL, &sa, NULL) != 0) {
+              printf("[FATAL] sigaction failed\n");
+            }
+          }
+
   - name: tachidesk-server
     buildsystem: simple
     build-commands:
-      - mkdir -p /app/tachidesk /app/bin
+      - mkdir -p /app/tachidesk /app/bin /app/tachidesk/default-conf
       - cp Suwayomi-Server.jar /app/tachidesk/
+
+      - |
+        cat > /app/tachidesk/default-conf/server.conf << 'EOF'
+        server.ip = "127.0.0.1"
+        server.port = 4567
+        server.webUIEnabled = false
+        server.initialOpenInBrowserEnabled = false
+        server.systemTrayEnabled = false
+        server.webUIInterface = "browser"
+        server.webUIFlavor = "WebUI"
+        server.webUIChannel = "stable"
+        server.electronPath = ""
+        server.debugLogsEnabled = false
+        server.downloadAsCbz = true
+        server.autoDownloadNewChapters = false
+        server.globalUpdateInterval = 12
+        server.maxSourcesInParallel = 6
+        server.extensionRepos = []
+        EOF
+
       - |
         cat > /app/bin/tachidesk-server << 'EOF'
         #!/bin/sh
-        exec /app/jre/bin/java -jar /app/tachidesk/Suwayomi-Server.jar "$@"
+
+        DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/moku/tachidesk"
+        mkdir -p "$DATA_DIR"
+
+        # Seed conf on first run
+        if [ ! -f "$DATA_DIR/server.conf" ]; then
+          cp /app/tachidesk/default-conf/server.conf "$DATA_DIR/server.conf"
+        fi
+
+        # Force-patch the three keys that cause JCEF/GUI crashes every launch.
+        # Suwayomi ignores -D JVM flags when a conf file exists on disk.
+        sed -i \
+          -e 's|server\.webUIEnabled.*|server.webUIEnabled = false|' \
+          -e 's|server\.initialOpenInBrowserEnabled.*|server.initialOpenInBrowserEnabled = false|' \
+          -e 's|server\.systemTrayEnabled.*|server.systemTrayEnabled = false|' \
+          "$DATA_DIR/server.conf"
+
+        # Append keys if absent
+        grep -q 'server\.webUIEnabled'                "$DATA_DIR/server.conf" || echo 'server.webUIEnabled = false'                >> "$DATA_DIR/server.conf"
+        grep -q 'server\.initialOpenInBrowserEnabled' "$DATA_DIR/server.conf" || echo 'server.initialOpenInBrowserEnabled = false' >> "$DATA_DIR/server.conf"
+        grep -q 'server\.systemTrayEnabled'           "$DATA_DIR/server.conf" || echo 'server.systemTrayEnabled = false'           >> "$DATA_DIR/server.conf"
+
+        unset DISPLAY
+        unset WAYLAND_DISPLAY
+
+        export _JAVA_OPTIONS="-Djava.awt.headless=true"
+        export JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
+
+        # Intercepts SIGTRAP/SIGILL from KCEF's CEF subprocess, exits just
+        # that thread instead of crashing the whole JVM process.
+        export LD_PRELOAD="/app/lib/catch_abort.so"
+
+        exec /app/jre/bin/java \
+          -Djava.awt.headless=true \
+          -Dapple.awt.UIElement=true \
+          -Dsun.java2d.noddraw=true \
+          -Dsun.awt.disablegui=true \
+          -Dsuwayomi.tachidesk.config.server.rootDir="$DATA_DIR" \
+          -jar /app/tachidesk/Suwayomi-Server.jar
         EOF
+
       - chmod +x /app/bin/tachidesk-server
+
     sources:
       - type: file
         url: https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/suwayomi-server-v2.1.1867.jar
@@ -54,14 +161,12 @@ modules:
 
   - name: moku
     buildsystem: simple
-
     build-options:
       env:
         CARGO_HOME: /run/build/moku/cargo
         XDG_DATA_HOME: /run/build/moku/xdg-data
         TAURI_SKIP_DEVSERVER_CHECK: 'true'
         PKG_CONFIG_PATH: /usr/lib/pkgconfig:/usr/share/pkgconfig
-
     build-commands:
       - tar -xzf frontend-dist.tar.gz
       - . /usr/lib/sdk/rust-stable/enable.sh && PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/share/pkgconfig cargo build --release --manifest-path src-tauri/Cargo.toml
@@ -71,7 +176,6 @@ modules:
       - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/dev.moku.app.png
       - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/dev.moku.app.png
       - install -Dm644 packaging/dev.moku.app.metainfo.xml /app/share/metainfo/dev.moku.app.metainfo.xml
-
     sources:
       - type: dir
         path: .
@@ -85,6 +189,5 @@ modules:
         contents: |
           [source.crates-io]
           replace-with = "vendored-sources"
-
           [source.vendored-sources]
           directory = "/run/build/moku/cargo/vendor"

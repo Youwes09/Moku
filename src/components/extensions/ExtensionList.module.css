@@ -18,23 +18,53 @@
 }
 .iconBtn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-raised); }
 .iconBtn:disabled { opacity: 0.4; }
+.iconBtnActive { color: var(--accent-fg); background: var(--accent-muted); }
+.iconBtnActive:hover:not(:disabled) { color: var(--accent-fg); background: var(--accent-muted); filter: brightness(1.1); }
 
+.externalPanel {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: 0 var(--sp-6) var(--sp-3); flex-shrink: 0;
+  animation: fadeIn 0.1s ease both;
+}
+.externalHeader {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.externalTitle {
+  font-family: var(--font-ui); font-size: var(--text-xs);
+  color: var(--text-muted); letter-spacing: var(--tracking-wide);
+}
 .externalRow {
-  display: flex; gap: var(--sp-2); padding: 0 var(--sp-6) var(--sp-3); flex-shrink: 0;
+  display: flex; gap: var(--sp-2);
 }
 .externalInput {
   flex: 1; background: var(--bg-raised); border: 1px solid var(--border-strong);
   border-radius: var(--radius-md); padding: 6px var(--sp-3);
   color: var(--text-primary); font-size: var(--text-sm); outline: none;
+  transition: border-color var(--t-base);
 }
 .externalInput:focus { border-color: var(--border-focus); }
+.externalInput:disabled { opacity: 0.5; }
+.externalInputError { border-color: var(--color-error) !important; }
+.externalError {
+  font-family: var(--font-ui); font-size: var(--text-xs);
+  color: var(--color-error); letter-spacing: var(--tracking-wide);
+  padding: 0 2px;
+}
 .installBtn {
+  display: flex; align-items: center; gap: var(--sp-1);
   font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
   padding: 6px 14px; border-radius: var(--radius-md);
   background: var(--accent-muted); color: var(--accent-fg);
-  border: 1px solid var(--accent-dim); cursor: pointer;
+  border: 1px solid var(--accent-dim); cursor: pointer; flex-shrink: 0;
+  transition: filter var(--t-base), opacity var(--t-base);
+  white-space: nowrap;
 }
-.installBtn:hover { filter: brightness(1.1); }
+.installBtn:hover:not(:disabled) { filter: brightness(1.1); }
+.installBtn:disabled { opacity: 0.5; cursor: default; }
+.installBtnSuccess {
+  background: var(--color-success, #2d6a3f); border-color: var(--color-success, #2d6a3f);
+  color: #fff;
+}
 
 .controls {
   display: flex; align-items: center; justify-content: space-between;
@@ -170,3 +200,79 @@
   flex: 1; color: var(--text-faint);
   font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
 }
+
+/* ── Panel shared styles ── */
+.externalPanel {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: 0 var(--sp-6) var(--sp-3); flex-shrink: 0;
+  animation: fadeIn 0.1s ease both;
+}
+.panelHeader {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.panelTitle {
+  font-family: var(--font-ui); font-size: var(--text-xs);
+  color: var(--text-muted); letter-spacing: var(--tracking-wide);
+}
+.panelError {
+  font-family: var(--font-ui); font-size: var(--text-xs);
+  color: var(--color-error); letter-spacing: var(--tracking-wide);
+  padding: 0 2px;
+}
+.externalRow { display: flex; gap: var(--sp-2); }
+.externalInput {
+  flex: 1; background: var(--bg-raised); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); padding: 6px var(--sp-3);
+  color: var(--text-primary); font-size: var(--text-sm); outline: none;
+  transition: border-color var(--t-base);
+}
+.externalInput:focus { border-color: var(--border-focus); }
+.externalInput:disabled { opacity: 0.5; }
+.externalInputError { border-color: var(--color-error) !important; }
+.installBtn {
+  display: flex; align-items: center; gap: var(--sp-1);
+  font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
+  padding: 6px 14px; border-radius: var(--radius-md);
+  background: var(--accent-muted); color: var(--accent-fg);
+  border: 1px solid var(--accent-dim); cursor: pointer; flex-shrink: 0;
+  transition: filter var(--t-base), opacity var(--t-base);
+  white-space: nowrap;
+}
+.installBtn:hover:not(:disabled) { filter: brightness(1.1); }
+.installBtn:disabled { opacity: 0.5; cursor: default; }
+.installBtnSuccess {
+  background: color-mix(in srgb, var(--accent-fg) 20%, transparent);
+  border-color: var(--accent-fg); color: var(--accent-fg);
+}
+
+/* ── Repo list ── */
+.repoLoading {
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--sp-3);
+}
+.repoEmpty {
+  font-family: var(--font-ui); font-size: var(--text-xs);
+  color: var(--text-faint); letter-spacing: var(--tracking-wide);
+  padding: var(--sp-1) 2px;
+}
+.repoList {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.repoRow {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 5px var(--sp-2); border-radius: var(--radius-md);
+  background: var(--bg-raised); border: 1px solid var(--border-dim);
+}
+.repoUrl {
+  flex: 1; font-family: var(--font-mono, monospace); font-size: var(--text-2xs);
+  color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  letter-spacing: 0;
+}
+.repoRemoveBtn {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: var(--radius-sm);
+  color: var(--text-faint); flex-shrink: 0;
+  transition: color var(--t-base), background var(--t-base);
+}
+.repoRemoveBtn:hover:not(:disabled) { color: var(--color-error); background: var(--bg-overlay); }
+.repoRemoveBtn:disabled { opacity: 0.4; }

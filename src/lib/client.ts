@@ -3,7 +3,7 @@ const DEFAULT_URL = "http://127.0.0.1:4567";
 function getServerUrl(): string {
   // Read from persisted Zustand store if available, fall back to default
   try {
-    const raw = localStorage.getItem("moku-settings");
+    const raw = localStorage.getItem("moku-store");
     if (raw) {
       const parsed = JSON.parse(raw);
       const url = parsed?.state?.settings?.serverUrl;

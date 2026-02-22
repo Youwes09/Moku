@@ -400,3 +400,22 @@ export const INSTALL_EXTERNAL_EXTENSION = `
     }
   }
 `;
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+export const GET_SETTINGS = `
+  query GetSettings {
+    settings {
+      extensionRepos
+    }
+  }
+`;
+
+export const SET_EXTENSION_REPOS = `
+  mutation SetExtensionRepos($repos: [String!]!) {
+    setSettings(input: { settings: { extensionRepos: $repos } }) {
+      settings {
+        extensionRepos
+      }
+    }
+  }
+`;

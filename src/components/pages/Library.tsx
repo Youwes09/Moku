@@ -1,10 +1,9 @@
 import { useEffect, useState, useMemo, useCallback, memo } from "react";
-import { MagnifyingGlass, Books, DownloadSimple, X } from "@phosphor-icons/react";
+import { MagnifyingGlass, Books, DownloadSimple, X, Folder, Trash } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
-import { GET_LIBRARY, GET_ALL_MANGA, UPDATE_MANGA } from "../../lib/queries";
+import { GET_LIBRARY, GET_ALL_MANGA, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS } from "../../lib/queries";
 import { useStore } from "../../store";
-import type { LibraryFilter } from "../../store";
-import type { Manga } from "../../lib/types";
+import type { Manga, Chapter } from "../../lib/types";
 import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
 import s from "./Library.module.css";
 
@@ -51,16 +50,15 @@ export default function Library() {
   const [visibleCount, setVisibleCount] = useState(INITIAL_PAGE_SIZE);
   const [ctx, setCtx] = useState<{ x: number; y: number; manga: Manga } | null>(null);
 
-  const setActiveManga = useStore((state) => state.setActiveManga);
-  const libraryFilter = useStore((state) => state.libraryFilter);
+  const setActiveManga   = useStore((state) => state.setActiveManga);
+  const libraryFilter    = useStore((state) => state.libraryFilter);
   const setLibraryFilter = useStore((state) => state.setLibraryFilter);
-  const settings = useStore((state) => state.settings);
+  const settings         = useStore((state) => state.settings);
   const libraryTagFilter = useStore((state) => state.libraryTagFilter);
   const setLibraryTagFilter = useStore((state) => state.setLibraryTagFilter);
+  const folders          = useStore((state) => state.settings.folders);
 
   useEffect(() => {
-    // Fetch all manga (for downloaded filter on non-library entries) and
-    // library manga (for unreadCount/chapter progress). Merge: library wins.
     Promise.all([
       gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA),
       gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY),
@@ -73,27 +71,47 @@ export default function Library() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Reset visible count when filter/search changes
   useEffect(() => { setVisibleCount(INITIAL_PAGE_SIZE); }, [libraryFilter, search]);
+
+  // Reset filter if the active folder tab gets hidden
+  useEffect(() => {
+    const activeFolder = folders.find((f) => f.id === libraryFilter);
+    if (activeFolder && !activeFolder.showTab) {
+      setLibraryFilter("library");
+    }
+  }, [folders]);
+
+  const isBuiltinFilter = libraryFilter === "all" || libraryFilter === "library" || libraryFilter === "downloaded";
 
   const filtered = useMemo(() => {
     let items = allManga;
 
-    // Apply filter tab
     if (libraryFilter === "library") {
       items = items.filter((m) => m.inLibrary);
     } else if (libraryFilter === "downloaded") {
       items = items.filter((m) => (m.downloadCount ?? 0) > 0);
+    } else if (!isBuiltinFilter) {
+      // folder filter
+      const folder = folders.find((f) => f.id === libraryFilter);
+      if (folder) {
+        items = items.filter((m) => folder.mangaIds.includes(m.id));
+      }
     }
 
-    // Apply search
+    // tag filter only applies to library/all/folder views
+    if (libraryTagFilter.length > 0) {
+      items = items.filter((m) =>
+        libraryTagFilter.every((tag) => (m.genre ?? []).includes(tag))
+      );
+    }
+
     if (search.trim()) {
       const q = search.toLowerCase();
       items = items.filter((m) => m.title.toLowerCase().includes(q));
     }
 
     return items;
-  }, [allManga, libraryFilter, search]);
+  }, [allManga, libraryFilter, search, libraryTagFilter, folders, isBuiltinFilter]);
 
   const visible = filtered.slice(0, visibleCount);
   const hasMore = visibleCount < filtered.length;
@@ -108,10 +126,26 @@ export default function Library() {
     setAllManga((prev) => prev.map((m) => m.id === manga.id ? { ...m, inLibrary: false } : m));
   }
 
+  async function deleteAllDownloads(manga: Manga) {
+    try {
+      const data = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: manga.id });
+      const downloadedIds = data.chapters.nodes
+        .filter((c) => c.isDownloaded)
+        .map((c) => c.id);
+      if (!downloadedIds.length) return;
+      await gql(DELETE_DOWNLOADED_CHAPTERS, { ids: downloadedIds });
+      setAllManga((prev) =>
+        prev.map((m) => m.id === manga.id ? { ...m, downloadCount: 0 } : m)
+      );
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   function openCtx(e: React.MouseEvent, m: Manga) {
     e.preventDefault();
     const menuW = 200;
-    const menuH = 96;
+    const menuH = 160;
     const x = Math.min(e.clientX, window.innerWidth - menuW - 8);
     const y = Math.min(e.clientY, window.innerHeight - menuH - 8);
     setCtx({ x, y, manga: m });
@@ -127,25 +161,39 @@ export default function Library() {
       {
         label: m.inLibrary ? "Remove from library" : "Add to library",
         danger: m.inLibrary,
-        onClick: () => m.inLibrary ? removeFromLibrary(m) : gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
-          .then(() => setAllManga((prev) => prev.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x)))
-          .catch(console.error),
+        onClick: () => m.inLibrary
+          ? removeFromLibrary(m)
+          : gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
+              .then(() => setAllManga((prev) => prev.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x)))
+              .catch(console.error),
+      },
+      {
+        label: "Delete all downloads",
+        danger: true,
+        disabled: !(m.downloadCount && m.downloadCount > 0),
+        icon: <Trash size={13} weight="light" />,
+        onClick: () => deleteAllDownloads(m),
       },
     ];
   }
 
-  // All genres present in current library
   const allTags = useMemo(() => {
     const tagSet = new Set<string>();
     allManga.filter((m) => m.inLibrary).forEach((m) => (m.genre ?? []).forEach((g) => tagSet.add(g)));
     return Array.from(tagSet).sort();
   }, [allManga]);
 
-  const counts = useMemo(() => ({
-    all: allManga.length,
-    library: allManga.filter((m) => m.inLibrary).length,
-    downloaded: allManga.filter((m) => (m.downloadCount ?? 0) > 0).length,
-  }), [allManga]);
+  const counts = useMemo(() => {
+    const result: Record<string, number> = {
+      all: allManga.length,
+      library: allManga.filter((m) => m.inLibrary).length,
+      downloaded: allManga.filter((m) => (m.downloadCount ?? 0) > 0).length,
+    };
+    folders.forEach((f) => {
+      result[f.id] = allManga.filter((m) => f.mangaIds.includes(m.id)).length;
+    });
+    return result;
+  }, [allManga, folders]);
 
   if (error) return (
     <div className={s.center}>
@@ -160,7 +208,8 @@ export default function Library() {
         <div className={s.headerLeft}>
           <h1 className={s.heading}>Library</h1>
           <div className={s.tabs}>
-            {(["library", "downloaded", "all"] as LibraryFilter[]).map((f) => (
+            {/* Built-in tabs */}
+            {(["library", "downloaded", "all"] as const).map((f) => (
               <button
                 key={f}
                 className={[s.tab, libraryFilter === f ? s.tabActive : ""].join(" ").trim()}
@@ -176,6 +225,18 @@ export default function Library() {
                 <span className={s.tabCount}>{counts[f]}</span>
               </button>
             ))}
+            {/* Folder tabs — only shown if the folder has showTab enabled */}
+            {folders.filter((f) => f.showTab).map((folder) => (
+              <button
+                key={folder.id}
+                className={[s.tab, libraryFilter === folder.id ? s.tabActive : ""].join(" ").trim()}
+                onClick={() => setLibraryFilter(folder.id)}
+              >
+                <Folder size={11} weight="bold" />
+                {folder.name}
+                <span className={s.tabCount}>{counts[folder.id] ?? 0}</span>
+              </button>
+            ))}
           </div>
         </div>
         <div className={s.searchWrap}>
@@ -188,7 +249,6 @@ export default function Library() {
           />
         </div>
       </div>
-
 
       {/* Tag filter panel */}
       {allTags.length > 0 && (
@@ -233,6 +293,8 @@ export default function Library() {
             ? "No manga saved to library. Browse sources to add some."
             : libraryFilter === "downloaded"
             ? "No downloaded manga."
+            : !isBuiltinFilter
+            ? "No manga in this folder yet. Right-click manga to assign them."
             : "No manga found."}
         </div>
       ) : (

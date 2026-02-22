@@ -1,9 +1,9 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
   ArrowLeft, BookmarkSimple, Download, CheckCircle,
   ArrowSquareOut, BookOpen, CircleNotch, Play,
   SortAscending, SortDescending, CaretDown, ArrowsClockwise,
-  List, SquaresFour,
+  List, SquaresFour, FolderSimplePlus, X, Trash,
 } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import {
@@ -33,6 +33,107 @@ interface CtxState {
 
 const CHAPTERS_PER_PAGE = 25;
 
+// ── Folder picker (icon button for list header) ───────────────────────────────
+function FolderPicker({ mangaId }: { mangaId: number }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const folders               = useStore((st) => st.settings.folders);
+  const assignMangaToFolder   = useStore((st) => st.assignMangaToFolder);
+  const removeMangaFromFolder = useStore((st) => st.removeMangaFromFolder);
+  const addFolder             = useStore((st) => st.addFolder);
+  const [newName, setNewName]   = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const assigned = folders.filter((f) => f.mangaIds.includes(mangaId));
+  const hasAssigned = assigned.length > 0;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setCreating(false);
+        setNewName("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  function handleCreate() {
+    const name = newName.trim();
+    if (!name) return;
+    const id = addFolder(name);
+    assignMangaToFolder(id, mangaId);
+    setNewName("");
+    setCreating(false);
+  }
+
+  return (
+    <div className={s.folderPickerWrap} ref={ref}>
+      <button
+        className={[s.folderPickerBtn, hasAssigned ? s.folderPickerBtnActive : ""].join(" ")}
+        onClick={() => setOpen((p) => !p)}
+        title={hasAssigned ? `Folders: ${assigned.map((f) => f.name).join(", ")}` : "Add to folder"}
+      >
+        <FolderSimplePlus size={14} weight={hasAssigned ? "fill" : "light"} />
+      </button>
+
+      {open && (
+        <div className={s.folderPickerMenu}>
+          {folders.length === 0 && !creating && (
+            <p className={s.folderPickerEmpty}>No folders yet</p>
+          )}
+          {folders.map((folder) => {
+            const isIn = folder.mangaIds.includes(mangaId);
+            return (
+              <button
+                key={folder.id}
+                className={[s.folderPickerItem, isIn ? s.folderPickerItemActive : ""].join(" ")}
+                onClick={() =>
+                  isIn
+                    ? removeMangaFromFolder(folder.id, mangaId)
+                    : assignMangaToFolder(folder.id, mangaId)
+                }
+              >
+                <span className={s.folderPickerItemCheck}>{isIn ? "✓" : ""}</span>
+                {folder.name}
+              </button>
+            );
+          })}
+          <div className={s.folderPickerDivider} />
+          {creating ? (
+            <div className={s.folderPickerCreate}>
+              <input
+                autoFocus
+                className={s.folderPickerInput}
+                placeholder="Folder name…"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreate();
+                  if (e.key === "Escape") { setCreating(false); setNewName(""); }
+                }}
+              />
+              <button className={s.folderPickerConfirm} onClick={handleCreate} disabled={!newName.trim()}>
+                Add
+              </button>
+              <button className={s.folderPickerCancel} onClick={() => { setCreating(false); setNewName(""); }}>
+                <X size={12} weight="light" />
+              </button>
+            </div>
+          ) : (
+            <button className={s.folderPickerNewBtn} onClick={() => setCreating(true)}>
+              + New folder
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function SeriesDetail() {
   const activeManga     = useStore((state) => state.activeManga);
   const setActiveManga  = useStore((state) => state.setActiveManga);
@@ -54,6 +155,7 @@ export default function SeriesDetail() {
   const [jumpOpen, setJumpOpen]         = useState(false);
   const [jumpInput, setJumpInput]       = useState("");
   const [viewMode, setViewMode]         = useState<"list" | "grid">("list");
+  const [deletingAll, setDeletingAll]   = useState(false);
 
   const sortDir = settings.chapterSortDir;
 
@@ -104,15 +206,14 @@ export default function SeriesDetail() {
   const readCount = chapters.filter((c) => c.isRead).length;
   const totalCount = chapters.length;
   const progressPct = totalCount > 0 ? (readCount / totalCount) * 100 : 0;
+  const downloadedCount = chapters.filter((c) => c.isDownloaded).length;
 
   const continueChapter = useMemo(() => {
     if (!chapters.length) return null;
     const asc = [...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
     const anyRead = asc.some((c) => c.isRead);
-    // In-progress: started but not finished
     const inProgress = asc.find((c) => !c.isRead && (c.lastPageRead ?? 0) > 0);
     if (inProgress) return { chapter: inProgress, type: "continue" as const };
-    // If any chapter is read, user is continuing — find next unread
     const firstUnread = asc.find((c) => !c.isRead);
     if (firstUnread) return { chapter: firstUnread, type: anyRead ? "continue" : "start" as const };
     return { chapter: asc[0], type: "reread" as const };
@@ -151,6 +252,15 @@ export default function SeriesDetail() {
   async function deleteDownloaded(chapterId: number) {
     await gql(DELETE_DOWNLOADED_CHAPTERS, { ids: [chapterId] }).catch(console.error);
     setChapters((prev) => prev.map((c) => c.id === chapterId ? { ...c, isDownloaded: false } : c));
+  }
+
+  async function deleteAllDownloads() {
+    const ids = chapters.filter((c) => c.isDownloaded).map((c) => c.id);
+    if (!ids.length) return;
+    setDeletingAll(true);
+    await gql(DELETE_DOWNLOADED_CHAPTERS, { ids }).catch(console.error);
+    setChapters((prev) => prev.map((c) => ({ ...c, isDownloaded: false })));
+    setDeletingAll(false);
   }
 
   async function enqueueMultiple(chapterIds: number[]) {
@@ -279,6 +389,8 @@ export default function SeriesDetail() {
           )}
         </div>
 
+        {/* Folder picker moved to chapter list header */}
+
         {continueChapter && (
           <button
             className={s.readBtn}
@@ -327,6 +439,18 @@ export default function SeriesDetail() {
                   <ArrowsClockwise size={12} weight="light" />
                   Switch source
                 </button>
+
+                {/* Delete all downloads */}
+                {downloadedCount > 0 && (
+                  <button
+                    className={s.deleteAllBtn}
+                    onClick={deleteAllDownloads}
+                    disabled={deletingAll}
+                  >
+                    <Trash size={12} weight="light" />
+                    {deletingAll ? "Deleting…" : `Delete all downloads (${downloadedCount})`}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -365,6 +489,9 @@ export default function SeriesDetail() {
           </div>
 
           <div className={s.listHeaderRight}>
+            {/* Folder picker */}
+            {activeManga && <FolderPicker mangaId={activeManga.id} />}
+
             {/* Jump to chapter */}
             {chapters.length > 1 && (
               <div className={s.jumpWrap}>
@@ -440,6 +567,18 @@ export default function SeriesDetail() {
                       <span>Download all</span>
                       <span className={s.dlItemSub}>{sortedChapters.filter((c) => !c.isDownloaded).length} not downloaded</span>
                     </button>
+                    {downloadedCount > 0 && (
+                      <>
+                        <div style={{ height: 1, background: "var(--border-dim)", margin: "var(--sp-1) var(--sp-2)" }} />
+                        <button className={[s.dlItem, s.dlItemDanger].join(" ")}
+                          onClick={() => { deleteAllDownloads(); setDlOpen(false); }}
+                          disabled={deletingAll}
+                        >
+                          <span>{deletingAll ? "Deleting…" : "Delete all downloads"}</span>
+                          <span className={s.dlItemSub}>{downloadedCount} downloaded</span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

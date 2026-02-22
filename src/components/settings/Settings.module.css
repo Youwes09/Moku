@@ -372,3 +372,90 @@
 }
 .dangerBtn:hover:not(:disabled) { background: var(--color-error-bg); }
 .dangerBtn:disabled { opacity: 0.3; cursor: default; }
+
+/* ── Folder management (Settings FoldersTab) ────────────────────────── */
+.folderCreateRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3) var(--sp-3);
+}
+
+.folderCreateBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  padding: 5px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--t-base), border-color var(--t-base);
+}
+.folderCreateBtn:hover:not(:disabled) {
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+.folderCreateBtn:disabled { opacity: 0.3; cursor: default; }
+
+.folderList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.folderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 9px var(--sp-3);
+  border-radius: var(--radius-md);
+  transition: background var(--t-fast);
+}
+.folderRow:hover { background: var(--bg-raised); }
+
+.folderRowName {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.folderRowCount {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wide);
+  margin-right: var(--sp-1);
+}
+
+.folderTabToggle {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-dim);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
+}
+.folderTabToggle:hover {
+  color: var(--text-muted);
+  border-color: var(--border-strong);
+}
+.folderTabToggleOn {
+  background: var(--accent-muted);
+  border-color: var(--accent-dim);
+  color: var(--accent-fg);
+}
+.folderTabToggleOn:hover {
+  background: var(--accent-muted);
+  color: var(--accent-fg);
+}

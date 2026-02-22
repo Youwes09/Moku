@@ -15,29 +15,32 @@
   display: flex;
   align-items: center;
   justify-content: center;
-
   margin-bottom: var(--sp-3);
-
   overflow: visible;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--radius-lg);
+  transition: opacity var(--t-base), transform var(--t-base);
+  padding: 0;
 }
+.logo:hover { opacity: 0.8; transform: scale(0.96); }
+.logo:active { transform: scale(0.92); }
 
 .logoIcon {
   width: 80px;
   height: 80px;
-
   background-color: var(--accent);
-
   mask-image: url("../../assets/moku-icon.svg");
   mask-repeat: no-repeat;
   mask-position: center;
   mask-size: contain;
-
   -webkit-mask-image: url("../../assets/moku-icon.svg");
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-position: center;
   -webkit-mask-size: contain;
-
   filter: drop-shadow(0 0 8px rgba(107, 143, 107, 0.35));
+  pointer-events: none;
 }
 
 .nav {
@@ -51,54 +54,28 @@
 }
 
 .tab {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
   border-radius: var(--radius-md);
   color: var(--text-faint);
   transition: color var(--t-base), background var(--t-base);
 }
-
-.tab:hover {
-  color: var(--text-muted);
-  background: var(--bg-raised);
-}
-
-.tabActive {
-  color: var(--accent-fg);
-  background: var(--accent-muted);
-}
-
-.tabActive:hover {
-  color: var(--accent-fg);
-  background: var(--accent-muted);
-}
+.tab:hover { color: var(--text-muted); background: var(--bg-raised); }
+.tabActive { color: var(--accent-fg); background: var(--accent-muted); }
+.tabActive:hover { color: var(--accent-fg); background: var(--accent-muted); }
 
 .bottom {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  padding: var(--sp-3) var(--sp-2) 0;
+  display: flex; flex-direction: column; align-items: center;
+  width: 100%; padding: var(--sp-3) var(--sp-2) 0;
   border-top: 1px solid var(--border-dim);
   margin-top: var(--sp-3);
 }
 
 .settingsBtn {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
   border-radius: var(--radius-md);
   color: var(--text-faint);
   transition: color var(--t-base), background var(--t-base), transform var(--t-slow);
 }
-
-.settingsBtn:hover {
-  color: var(--text-muted);
-  background: var(--bg-raised);
-  transform: rotate(30deg);
-}
+.settingsBtn:hover { color: var(--text-muted); background: var(--bg-raised); transform: rotate(30deg); }

@@ -5,7 +5,7 @@ import { DEFAULT_KEYBINDS, type Keybinds } from "../lib/keybinds";
 
 export type PageStyle        = "single" | "double" | "longstrip";
 export type FitMode          = "width" | "height" | "screen" | "original";
-export type LibraryFilter    = "all" | "library" | "downloaded";
+export type LibraryFilter    = "all" | "library" | "downloaded" | string; // string = folder id
 export type NavPage          = "library" | "sources" | "downloads" | "extensions" | "history" | "search";
 export type ReadingDirection = "ltr" | "rtl";
 export type ChapterSortDir   = "desc" | "asc";
@@ -24,6 +24,13 @@ export interface ActiveDownload {
   chapterId: number;
   mangaId: number;
   progress: number;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  mangaIds: number[];
+  showTab: boolean;
 }
 
 export interface Settings {
@@ -51,6 +58,7 @@ export interface Settings {
   preferredExtensionLang: string;
   keybinds: Keybinds;
   storageLimitGb: number | null;
+  folders: Folder[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -78,6 +86,7 @@ export const DEFAULT_SETTINGS: Settings = {
   preferredExtensionLang: "en",
   keybinds: DEFAULT_KEYBINDS,
   storageLimitGb: null,
+  folders: [],
 };
 
 interface Store {
@@ -110,11 +119,23 @@ interface Store {
   settings: Settings;
   updateSettings: (patch: Partial<Settings>) => void;
   resetKeybinds: () => void;
+  // Folder helpers
+  addFolder: (name: string) => string;
+  removeFolder: (id: string) => void;
+  renameFolder: (id: string, name: string) => void;
+  toggleFolderTab: (id: string) => void;
+  assignMangaToFolder: (folderId: string, mangaId: number) => void;
+  removeMangaFromFolder: (folderId: string, mangaId: number) => void;
+  getMangaFolders: (mangaId: number) => Folder[];
+}
+
+function genId(): string {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 export const useStore = create<Store>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       navPage: "library",
       setNavPage: (navPage) => set({ navPage }),
       activeManga: null,
@@ -152,6 +173,63 @@ export const useStore = create<Store>()(
         set((s) => ({ settings: { ...s.settings, ...patch } })),
       resetKeybinds: () =>
         set((s) => ({ settings: { ...s.settings, keybinds: DEFAULT_KEYBINDS } })),
+
+      // ── Folder actions ──────────────────────────────────────────────────────
+      addFolder: (name) => {
+        const id = genId();
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            folders: [...s.settings.folders, { id, name: name.trim(), mangaIds: [], showTab: false }],
+          },
+        }));
+        return id;
+      },
+      removeFolder: (id) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            folders: s.settings.folders.filter((f) => f.id !== id),
+          },
+        })),
+      renameFolder: (id, name) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            folders: s.settings.folders.map((f) => f.id === id ? { ...f, name: name.trim() } : f),
+          },
+        })),
+      toggleFolderTab: (id) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            folders: s.settings.folders.map((f) => f.id === id ? { ...f, showTab: !f.showTab } : f),
+          },
+        })),
+      assignMangaToFolder: (folderId, mangaId) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            folders: s.settings.folders.map((f) =>
+              f.id === folderId && !f.mangaIds.includes(mangaId)
+                ? { ...f, mangaIds: [...f.mangaIds, mangaId] }
+                : f
+            ),
+          },
+        })),
+      removeMangaFromFolder: (folderId, mangaId) =>
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            folders: s.settings.folders.map((f) =>
+              f.id === folderId
+                ? { ...f, mangaIds: f.mangaIds.filter((id) => id !== mangaId) }
+                : f
+            ),
+          },
+        })),
+      getMangaFolders: (mangaId) =>
+        get().settings.folders.filter((f) => f.mangaIds.includes(mangaId)),
     }),
     {
       name: "moku-store",
@@ -167,6 +245,7 @@ export const useStore = create<Store>()(
         settings: {
           ...DEFAULT_SETTINGS,
           ...(persisted as any)?.settings,
+          folders: (persisted as any)?.settings?.folders ?? [],
           keybinds: {
             ...DEFAULT_KEYBINDS,
             ...(persisted as any)?.settings?.keybinds,

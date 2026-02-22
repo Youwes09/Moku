@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives } from "@phosphor-icons/react";
+import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { gql } from "../../lib/client";
 import { GET_DOWNLOADS_PATH } from "../../lib/queries";
 import { useStore } from "../../store";
+import type { Folder } from "../../store";
 import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind, type Keybinds } from "../../lib/keybinds";
 import type { Settings, FitMode } from "../../store";
 import s from "./Settings.module.css";
 
-type Tab = "general" | "reader" | "library" | "performance" | "keybinds" | "storage" | "about";
+type Tab = "general" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "about";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "general",     label: "General",     icon: <Gear size={14} weight="light" /> },
@@ -17,6 +18,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "performance", label: "Performance", icon: <Sliders size={14} weight="light" /> },
   { id: "keybinds",    label: "Keybinds",    icon: <Keyboard size={14} weight="light" /> },
   { id: "storage",     label: "Storage",     icon: <HardDrives size={14} weight="light" /> },
+  { id: "folders",     label: "Folders",     icon: <FolderSimple size={14} weight="light" /> },
   { id: "about",       label: "About",       icon: <Info size={14} weight="light" /> },
 ];
 
@@ -566,6 +568,127 @@ function StorageTab({ settings, update }: { settings: Settings; update: (p: Part
   );
 }
 
+// ── Folders tab ───────────────────────────────────────────────────────────────
+
+function FoldersTab() {
+  const folders            = useStore((s) => s.settings.folders);
+  const addFolder          = useStore((s) => s.addFolder);
+  const removeFolder       = useStore((s) => s.removeFolder);
+  const renameFolder       = useStore((s) => s.renameFolder);
+  const toggleFolderTab    = useStore((s) => s.toggleFolderTab);
+
+  const [newName, setNewName]         = useState("");
+  const [editingId, setEditingId]     = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+
+  function handleCreate() {
+    const name = newName.trim();
+    if (!name) return;
+    addFolder(name);
+    setNewName("");
+  }
+
+  function startEdit(folder: Folder) {
+    setEditingId(folder.id);
+    setEditingName(folder.name);
+  }
+
+  function commitEdit() {
+    if (editingId && editingName.trim()) {
+      renameFolder(editingId, editingName.trim());
+    }
+    setEditingId(null);
+    setEditingName("");
+  }
+
+  return (
+    <div className={s.panel}>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Manage Folders</p>
+        <p className={s.toggleDesc} style={{ padding: "0 var(--sp-3) var(--sp-3)", display: "block" }}>
+          Assign manga to folders from the series detail page. Toggle the tab icon to show a folder as a filter tab in the library.
+        </p>
+
+        {/* Create new folder */}
+        <div className={s.folderCreateRow}>
+          <input
+            className={s.textInput}
+            placeholder="New folder name…"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
+            style={{ flex: 1, width: "auto" }}
+          />
+          <button
+            className={s.folderCreateBtn}
+            onClick={handleCreate}
+            disabled={!newName.trim()}
+          >
+            <Plus size={13} weight="bold" />
+            Create
+          </button>
+        </div>
+
+        {/* Folder list */}
+        {folders.length === 0 ? (
+          <p className={s.storageLoading}>No folders yet. Create one above.</p>
+        ) : (
+          <div className={s.folderList}>
+            {folders.map((folder) => (
+              <div key={folder.id} className={s.folderRow}>
+                {editingId === folder.id ? (
+                  <>
+                    <input
+                      autoFocus
+                      className={s.textInput}
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitEdit();
+                        if (e.key === "Escape") { setEditingId(null); }
+                      }}
+                      onBlur={commitEdit}
+                      style={{ flex: 1, width: "auto" }}
+                    />
+                    <button className={s.kbReset} onClick={commitEdit} title="Save">✓</button>
+                  </>
+                ) : (
+                  <>
+                    <FolderSimple size={14} weight="light" style={{ color: "var(--text-faint)", flexShrink: 0 }} />
+                    <span className={s.folderRowName}>{folder.name}</span>
+                    <span className={s.folderRowCount}>{folder.mangaIds.length} manga</span>
+                    {/* Show as tab toggle */}
+                    <button
+                      className={[s.folderTabToggle, folder.showTab ? s.folderTabToggleOn : ""].join(" ")}
+                      onClick={() => toggleFolderTab(folder.id)}
+                      title={folder.showTab ? "Shown as library tab — click to hide" : "Click to show as library tab"}
+                    >
+                      {folder.showTab ? "Tab on" : "Tab off"}
+                    </button>
+                    <button
+                      className={s.kbReset}
+                      onClick={() => startEdit(folder)}
+                      title="Rename"
+                    >
+                      <Pencil size={12} weight="light" />
+                    </button>
+                    <button
+                      className={[s.kbReset, s.folderDeleteBtn].join(" ")}
+                      onClick={() => removeFolder(folder.id)}
+                      title="Delete folder"
+                    >
+                      <Trash size={12} weight="light" />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function AboutTab() {
   return (
@@ -594,7 +717,6 @@ export default function SettingsModal() {
   const backdropRef        = useRef<HTMLDivElement>(null);
   const contentBodyRef     = useRef<HTMLDivElement>(null);
 
-  // Scroll to top on every tab switch
   useEffect(() => {
     contentBodyRef.current?.scrollTo({ top: 0 });
   }, [tab]);
@@ -638,6 +760,7 @@ export default function SettingsModal() {
             {tab === "performance" && <PerformanceTab settings={settings} update={updateSettings} />}
             {tab === "keybinds"    && <KeybindsTab    settings={settings} update={updateSettings} reset={resetKeybinds} />}
             {tab === "storage"     && <StorageTab     settings={settings} update={updateSettings} />}
+            {tab === "folders"     && <FoldersTab />}
             {tab === "about"       && <AboutTab />}
           </div>
         </div>

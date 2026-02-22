@@ -694,3 +694,183 @@
   display: flex; align-items: center; justify-content: center;
   padding: var(--sp-2);
 }
+
+/* ── Folder picker (icon button in list header) ──────────────────────── */
+.folderPickerWrap {
+  position: relative;
+}
+
+/* Matches dlToggleBtn / viewToggleBtn style */
+.folderPickerBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-dim);
+  color: var(--text-muted);
+  background: none;
+  cursor: pointer;
+  transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
+}
+.folderPickerBtn:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+  background: var(--bg-raised);
+}
+/* Active state when manga is assigned to at least one folder */
+.folderPickerBtnActive {
+  color: var(--accent-fg);
+  border-color: var(--accent-dim);
+  background: var(--accent-muted);
+}
+.folderPickerBtnActive:hover {
+  background: var(--accent-muted);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.folderPickerMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  padding: var(--sp-1);
+  z-index: 200;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  animation: scaleIn 0.1s ease both;
+  transform-origin: top right;
+}
+
+.folderPickerEmpty {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.folderPickerItem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 6px var(--sp-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.folderPickerItem:hover { background: var(--bg-overlay); }
+.folderPickerItemActive { color: var(--accent-fg); }
+
+.folderPickerItemCheck {
+  width: 12px;
+  font-size: var(--text-xs);
+  color: var(--accent-fg);
+  flex-shrink: 0;
+}
+
+.folderPickerDivider {
+  height: 1px;
+  background: var(--border-dim);
+  margin: var(--sp-1) var(--sp-2);
+}
+
+.folderPickerCreate {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 4px var(--sp-2);
+}
+
+.folderPickerInput {
+  flex: 1;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  outline: none;
+  min-width: 0;
+}
+.folderPickerInput:focus { border-color: var(--border-focus); }
+
+.folderPickerConfirm {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-dim);
+  background: var(--accent-muted);
+  color: var(--accent-fg);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.folderPickerConfirm:disabled { opacity: 0.4; cursor: default; }
+
+.folderPickerCancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--t-base), border-color var(--t-base);
+}
+.folderPickerCancel:hover { color: var(--text-muted); border-color: var(--border-dim); }
+
+.folderPickerNewBtn {
+  width: 100%;
+  padding: 6px var(--sp-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.folderPickerNewBtn:hover { color: var(--text-secondary); background: var(--bg-overlay); }
+
+/* ── Delete all downloads button (in details section) ─────────────────── */
+.deleteAllBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  margin-top: var(--sp-2);
+  padding: 7px var(--sp-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--color-error);
+  background: none;
+  border: 1px solid var(--color-error);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--t-base);
+}
+.deleteAllBtn:hover:not(:disabled) { background: var(--color-error-bg); }
+.deleteAllBtn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Danger item in dl dropdown ─────────────────────────────────────── */
+.dlItemDanger {
+  color: var(--color-error) !important;
+}
+.dlItemDanger:hover:not(:disabled) {
+  background: var(--color-error-bg) !important;
+}

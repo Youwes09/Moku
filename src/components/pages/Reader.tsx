@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from "react";
 import {
   X, CaretLeft, CaretRight, ArrowLeft, ArrowRight,
   Square, Rows, Download, ArrowsLeftRight,
@@ -13,8 +13,53 @@ import { useStore, type FitMode } from "../../store";
 import { matchesKeybind, toggleFullscreen } from "../../lib/keybinds";
 import s from "./Reader.module.css";
 
+// ── LRU image cache ───────────────────────────────────────────────────────────
+// Keeps browser memory in check by revoking object-URLs for chapters that
+// have scrolled far away.  We cache by chapterId (not URL) so that we can
+// drop a whole chapter at once.
+const MAX_CACHED_CHAPTERS = 6;
+
+// Track insertion order so we can evict the oldest chapter.
+const chapterCacheOrder: number[] = [];
+
+function touchChapterOrder(chapterId: number) {
+  const idx = chapterCacheOrder.indexOf(chapterId);
+  if (idx !== -1) chapterCacheOrder.splice(idx, 1);
+  chapterCacheOrder.push(chapterId);
+}
+
+function evictOldestChapter(
+  pageCache: React.MutableRefObject<Map<number, string[]>>,
+  keepIds: Set<number>,
+): number | null {
+  for (let i = 0; i < chapterCacheOrder.length; i++) {
+    const id = chapterCacheOrder[i];
+    if (!keepIds.has(id)) {
+      chapterCacheOrder.splice(i, 1);
+      pageCache.current.delete(id);
+      return id;
+    }
+  }
+  return null;
+}
+
+/** Fire-and-forget: create an Image and let the browser cache it. */
 function preloadImage(url: string) {
-  const img = new Image(); img.src = url;
+  const img = new Image();
+  img.src = url;
+}
+
+/**
+ * Decode a single image fully before resolving.
+ * Used to avoid showing a half-painted page.
+ */
+function decodeImage(url: string): Promise<void> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload  = () => { img.decode ? img.decode().then(resolve, resolve) : resolve(); };
+    img.onerror = () => resolve(); // don't block on error
+    img.src = url;
+  });
 }
 
 function measureAspect(url: string): Promise<number> {
@@ -146,9 +191,15 @@ export default function Reader() {
   const uiRef           = useRef<HTMLDivElement>(null);
 
   // Track which chapters are being fetched so we don't double-fire
-  const fetchingRef     = useRef<Set<number>>(new Set());
+  const fetchingRef       = useRef<Set<number>>(new Set());
   // Whether we've already appended the next chapter into the strip
-  const appendedRef     = useRef<Set<number>>(new Set());
+  const appendedRef       = useRef<Set<number>>(new Set());
+  // The chapter id whose pages are currently being loaded (prevents stale sets)
+  const loadingChapterRef = useRef<number | null>(null);
+  // Mirror of stripChapters in a ref so the scroll handler never closes over stale state
+  const stripChaptersRef  = useRef<StripChapter[]>([]);
+  // Scroll anchor: captured just before a head-trim so useLayoutEffect can restore position
+  const scrollAnchorRef   = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
 
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
@@ -157,6 +208,9 @@ export default function Reader() {
   const [uiVisible, setUiVisible]   = useState(true);
   const [markedRead, setMarkedRead] = useState<Set<number>>(new Set());
   const [pageGroups, setPageGroups] = useState<number[][]>([]);
+  // True only after the first page of the new chapter has been decoded,
+  // preventing any flash of the previous chapter's image.
+  const [pageReady, setPageReady]   = useState(false);
 
   /**
    * The infinite strip: an ordered list of chapter chunks.
@@ -169,6 +223,24 @@ export default function Reader() {
    * currently reading (for topbar display) without triggering a full reload.
    */
   const [visibleChapterId, setVisibleChapterId] = useState<number | null>(null);
+
+  // Keep the ref mirror in sync so the scroll handler always sees current strip state
+  useEffect(() => { stripChaptersRef.current = stripChapters; }, [stripChapters]);
+
+  // Restore scroll position synchronously after a head-trim, before the browser paints
+  useLayoutEffect(() => {
+    const anchor = scrollAnchorRef.current;
+    if (!anchor || !containerRef.current) return;
+    scrollAnchorRef.current = null;
+    const gained = containerRef.current.scrollHeight - anchor.scrollHeight;
+    // gained is negative when we removed nodes (scrollHeight shrank)
+    // We want scrollTop to decrease by the same amount so the visible content stays put.
+    // But since we removed nodes from the top, scrollHeight already shrank —
+    // we just need to subtract the removed pixel height from scrollTop.
+    if (gained < 0) {
+      containerRef.current.scrollTop = Math.max(0, anchor.scrollTop + gained);
+    }
+  }, [stripChapters]);
 
   const {
     activeManga, activeChapter, activeChapterList,
@@ -212,7 +284,10 @@ export default function Reader() {
   // ── Fetch helpers ────────────────────────────────────────────────────────────
   const fetchPages = useCallback(async (chapterId: number): Promise<string[]> => {
     const cached = pageCache.current.get(chapterId);
-    if (cached) return cached;
+    if (cached) {
+      touchChapterOrder(chapterId);
+      return cached;
+    }
     if (fetchingRef.current.has(chapterId)) {
       // Poll until another in-flight fetch resolves
       return new Promise((resolve) => {
@@ -228,6 +303,12 @@ export default function Reader() {
     );
     const urls = d.fetchChapterPages.pages.map(thumbUrl);
     pageCache.current.set(chapterId, urls);
+    touchChapterOrder(chapterId);
+    // Evict oldest chapters if we're over the limit, but always keep the
+    // immediately adjacent chapters so navigation is instant.
+    while (pageCache.current.size > MAX_CACHED_CHAPTERS) {
+      evictOldestChapter(pageCache, new Set([chapterId]));
+    }
     fetchingRef.current.delete(chapterId);
     return urls;
   }, []);
@@ -235,13 +316,25 @@ export default function Reader() {
   // ── Load pages ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!activeChapter) return;
-    setLoading(true); setError(null); setPageGroups([]);
+    setLoading(true); setError(null); setPageGroups([]); setPageReady(false);
     // Reset strip state for new chapter navigation (non-scroll transitions)
     appendedRef.current = new Set();
 
-    fetchPages(activeChapter.id)
-      .then((urls) => {
+    const targetId = activeChapter.id;
+    loadingChapterRef.current = targetId;
+
+    fetchPages(targetId)
+      .then(async (urls) => {
+        // Discard result if the user has already navigated to a different chapter
+        if (loadingChapterRef.current !== targetId) return;
+
+        // Decode the first page before committing so no previous chapter flashes
+        await decodeImage(urls[0]);
+
+        if (loadingChapterRef.current !== targetId) return;
+
         setPageUrls(urls);
+        setPageReady(true);
         if (style === "longstrip" && autoNext) {
           setStripChapters([{
             chapterId: activeChapter.id,
@@ -256,7 +349,9 @@ export default function Reader() {
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (loadingChapterRef.current === targetId) setLoading(false);
+      });
   }, [activeChapter?.id]);
 
   // ── Double-page grouping ─────────────────────────────────────────────────────
@@ -303,11 +398,16 @@ export default function Reader() {
   }, [pageUrls, style, settings.offsetDoubleSpreads, rtl]);
 
   // ── Preload ─────────────────────────────────────────────────────────────────
+  // Eagerly decode pages ahead; fire-and-forget preload for pages behind.
   useEffect(() => {
-    for (let i = 1; i <= (settings.preloadPages ?? 3); i++) {
+    const ahead = settings.preloadPages ?? 3;
+    for (let i = 1; i <= ahead; i++) {
       const url = pageUrls[pageNumber - 1 + i];
-      if (url) preloadImage(url);
+      if (url) decodeImage(url); // uses browser cache — no duplicate network request
     }
+    // Also keep one page behind warm
+    const behindUrl = pageUrls[pageNumber - 2];
+    if (behindUrl) preloadImage(behindUrl);
   }, [pageNumber, pageUrls, settings.preloadPages]);
 
   // ── Adjacent chapters ────────────────────────────────────────────────────────
@@ -323,6 +423,11 @@ export default function Reader() {
   }, [activeChapter, activeChapterList]);
 
   useEffect(() => {
+    const pinned = new Set<number>();
+    if (activeChapter)  pinned.add(activeChapter.id);
+    if (adjacent.next)  pinned.add(adjacent.next.id);
+    if (adjacent.prev)  pinned.add(adjacent.prev.id);
+
     const preload = (id: number) => {
       fetchPages(id)
         .then((urls) => urls.slice(0, 3).forEach(preloadImage))
@@ -330,6 +435,13 @@ export default function Reader() {
     };
     if (adjacent.next) preload(adjacent.next.id);
     if (adjacent.prev) preload(adjacent.prev.id);
+
+    // After preloads are kicked off, evict anything beyond MAX_CACHED_CHAPTERS
+    // that isn't pinned as adjacent or current.
+    while (pageCache.current.size > MAX_CACHED_CHAPTERS) {
+      const evicted = evictOldestChapter(pageCache, pinned);
+      if (evicted === null) break; // nothing left to evict
+    }
   }, [adjacent.next?.id, adjacent.prev?.id]);
 
   const lastPage = pageUrls.length;
@@ -394,20 +506,33 @@ export default function Reader() {
   const goForward = useCallback(() => {
     if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
     if (pageNumber < lastPage) {
-      setPageNumber(pageNumber + 1);
+      const nextUrl = pageUrls[pageNumber]; // pageNumber is 1-based, so index is pageNumber
+      if (nextUrl) {
+        decodeImage(nextUrl).then(() => setPageNumber(pageNumber + 1));
+      } else {
+        setPageNumber(pageNumber + 1);
+      }
     } else if (adjacent.next) {
       setPageNumber(1);
       openReader(adjacent.next, activeChapterList);
     } else {
       closeReader();
     }
-  }, [pageNumber, lastPage, adjacent, activeChapterList, style, pageGroups, advanceGroup]);
+  }, [pageNumber, lastPage, pageUrls, adjacent, activeChapterList, style, pageGroups, advanceGroup]);
 
   const goBack = useCallback(() => {
     if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
-    if (pageNumber > 1) setPageNumber(pageNumber - 1);
-    else if (adjacent.prev) openReader(adjacent.prev, activeChapterList);
-  }, [pageNumber, adjacent, activeChapterList, style, pageGroups, advanceGroup]);
+    if (pageNumber > 1) {
+      const prevUrl = pageUrls[pageNumber - 2]; // 0-based index of previous page
+      if (prevUrl) {
+        decodeImage(prevUrl).then(() => setPageNumber(pageNumber - 1));
+      } else {
+        setPageNumber(pageNumber - 1);
+      }
+    } else if (adjacent.prev) {
+      openReader(adjacent.prev, activeChapterList);
+    }
+  }, [pageNumber, pageUrls, adjacent, activeChapterList, style, pageGroups, advanceGroup]);
 
   const goNext = rtl ? goBack  : goForward;
   const goPrev = rtl ? goForward : goBack;
@@ -494,24 +619,27 @@ export default function Reader() {
 
         // ── Infinite append ──────────────────────────────────────────────────
         if (!autoNext) {
-          // Classic behavior: jump to next chapter at the very end of scroll
           const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
           if (atBottom && adjacent.next) openReader(adjacent.next, activeChapterList);
           return;
         }
 
+        const strip = stripChaptersRef.current;
+
         // Silently update visibleChapterId as we scroll into each chunk
-        for (const chunk of stripChapters) {
+        for (const chunk of strip) {
           const chunkEnd = chunk.startGlobalIdx + chunk.urls.length;
           if (n - 1 >= chunk.startGlobalIdx && n - 1 < chunkEnd) {
             if (chunk.chapterId !== visibleChapterId) {
               setVisibleChapterId(chunk.chapterId);
-              // Mark as read when we scroll into a new chapter
-              if (!markedRead.has(chunk.chapterId) && settings.autoMarkRead) {
-                const prevChunk = stripChapters[stripChapters.indexOf(chunk) - 1];
+              if (settings.autoMarkRead) {
+                const prevChunk = strip[strip.indexOf(chunk) - 1];
                 if (prevChunk) {
-                  setMarkedRead((r) => new Set(r).add(prevChunk.chapterId));
-                  gql(MARK_CHAPTER_READ, { id: prevChunk.chapterId, isRead: true }).catch(console.error);
+                  setMarkedRead((r) => {
+                    if (r.has(prevChunk.chapterId)) return r;
+                    gql(MARK_CHAPTER_READ, { id: prevChunk.chapterId, isRead: true }).catch(console.error);
+                    return new Set(r).add(prevChunk.chapterId);
+                  });
                 }
               }
             }
@@ -519,12 +647,11 @@ export default function Reader() {
           }
         }
 
-        // Append next chapter 300px before we hit the bottom of the last chunk
+        // Append next chapter when within 300px of the bottom
         const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 300;
         if (!nearBottom) return;
 
-        // What's the last chapter currently in the strip?
-        const lastChunk = stripChapters[stripChapters.length - 1];
+        const lastChunk = strip[strip.length - 1];
         if (!lastChunk) return;
 
         const lastChunkIdx = activeChapterList.findIndex((c) => c.id === lastChunk.chapterId);
@@ -533,20 +660,26 @@ export default function Reader() {
         const nextChEntry = activeChapterList[lastChunkIdx + 1];
         if (!nextChEntry || appendedRef.current.has(nextChEntry.id)) return;
 
-        // Mark immediately so concurrent scroll events don't double-append
         appendedRef.current.add(nextChEntry.id);
 
-        // Fetch (likely already cached from preload) then append to strip
         fetchPages(nextChEntry.id).then((urls) => {
           setStripChapters((prev) => {
             const lastInPrev = prev[prev.length - 1];
-            const newStart = lastInPrev
-              ? lastInPrev.startGlobalIdx + lastInPrev.urls.length
-              : 0;
-            return [
+            const newStart = lastInPrev ? lastInPrev.startGlobalIdx + lastInPrev.urls.length : 0;
+            const next = [
               ...prev,
               { chapterId: nextChEntry.id, chapterName: nextChEntry.name, urls, startGlobalIdx: newStart },
             ];
+
+            const MAX_STRIP_CHAPTERS = 3;
+            if (next.length > MAX_STRIP_CHAPTERS) {
+              const toRemove = next.length - MAX_STRIP_CHAPTERS;
+              // Snapshot scroll position now, inside the state updater, before React
+              // removes the nodes. useLayoutEffect will restore it after the DOM mutation.
+              scrollAnchorRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight };
+              return next.slice(toRemove);
+            }
+            return next;
           });
         }).catch(console.error);
       });
@@ -557,7 +690,7 @@ export default function Reader() {
       el.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [style, autoNext, stripChapters, activeChapterList, activeChapter?.id, adjacent.next, fetchPages]);
+  }, [style, autoNext, activeChapterList, activeChapter?.id, adjacent.next, fetchPages, visibleChapterId]);
 
   // Reset scroll position when switching chapters in non-longstrip modes
   useEffect(() => {
@@ -781,13 +914,15 @@ export default function Reader() {
             )}
           </>
         ) : (
-          <img
-            key={pageNumber}
-            src={pageUrls[pageNumber - 1]}
-            alt={`Page ${pageNumber}`}
-            className={imgCls}
-            decoding="async"
-          />
+          pageReady && (
+            <img
+              key={pageNumber}
+              src={pageUrls[pageNumber - 1]}
+              alt={`Page ${pageNumber}`}
+              className={imgCls}
+              decoding="async"
+            />
+          )
         )}
       </div>
 

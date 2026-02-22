@@ -163,6 +163,24 @@ export const DELETE_DOWNLOADED_CHAPTERS = `
   }
 `;
 
+export const GET_DOWNLOADED_CHAPTERS_PAGES = `
+  query GetDownloadedChaptersPages {
+    chapters(condition: { isDownloaded: true }) {
+      nodes {
+        pageCount
+      }
+    }
+  }
+`;
+
+export const GET_DOWNLOADS_PATH = `
+  query GetDownloadsPath {
+    settings {
+      downloadsPath
+    }
+  }
+`;
+
 // ── Downloads ─────────────────────────────────────────────────────────────────
 
 export const GET_DOWNLOAD_STATUS = `

@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { X, Book, Image, Sliders, Info, Keyboard, Gear } from "@phosphor-icons/react";
+import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives } from "@phosphor-icons/react";
+import { invoke } from "@tauri-apps/api/core";
+import { gql } from "../../lib/client";
+import { GET_DOWNLOADS_PATH } from "../../lib/queries";
 import { useStore } from "../../store";
 import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind, type Keybinds } from "../../lib/keybinds";
 import type { Settings, FitMode } from "../../store";
 import s from "./Settings.module.css";
 
-type Tab = "general" | "reader" | "library" | "performance" | "keybinds" | "about";
+type Tab = "general" | "reader" | "library" | "performance" | "keybinds" | "storage" | "about";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "general",     label: "General",     icon: <Gear size={14} weight="light" /> },
@@ -13,6 +16,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "library",     label: "Library",     icon: <Image size={14} weight="light" /> },
   { id: "performance", label: "Performance", icon: <Sliders size={14} weight="light" /> },
   { id: "keybinds",    label: "Keybinds",    icon: <Keyboard size={14} weight="light" /> },
+  { id: "storage",     label: "Storage",     icon: <HardDrives size={14} weight="light" /> },
   { id: "about",       label: "About",       icon: <Info size={14} weight="light" /> },
 ];
 
@@ -397,6 +401,172 @@ function KeybindsTab({ settings, update, reset }: {
   );
 }
 
+// ── Storage helpers ───────────────────────────────────────────────────────────
+
+function fmtBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(i >= 2 ? 1 : 0)} ${units[i]}`;
+}
+
+interface StorageInfo {
+  manga_bytes: number;
+  total_bytes: number;
+  free_bytes:  number;
+  path:        string;
+}
+
+function StorageBar({ used, limit, total }: { used: number; limit: number | null; total: number }) {
+  const cap      = limit ?? total;
+  const pctUsed  = cap > 0 ? Math.min(100, (used / cap) * 100) : 0;
+  const critical = pctUsed > 90;
+  const warning  = pctUsed > 75;
+
+  return (
+    <div className={s.storageBarWrap}>
+      <div className={s.storageBar}>
+        <div
+          className={[s.storageBarFill, critical ? s.storageBarCritical : warning ? s.storageBarWarn : ""].join(" ")}
+          style={{ width: `${pctUsed}%` }}
+        />
+      </div>
+      <div className={s.storageBarLabels}>
+        <span className={s.storageBarUsed}>{fmtBytes(used)} used</span>
+        <span className={s.storageBarFree}>{fmtBytes(Math.max(0, cap - used))} free</span>
+      </div>
+      {limit !== null && total > 0 && (
+        <p className={s.storageBarNote}>Limit {fmtBytes(limit)} of {fmtBytes(total)} total</p>
+      )}
+    </div>
+  );
+}
+
+function StorageTab({ settings, update }: { settings: Settings; update: (p: Partial<Settings>) => void }) {
+  const [info, setInfo]         = useState<StorageInfo | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [cleared, setCleared]   = useState(false);
+
+  const limitGb    = settings.storageLimitGb ?? null;
+  const limitBytes = limitGb !== null ? limitGb * 1024 ** 3 : null;
+
+  async function fetchInfo() {
+    setLoading(true);
+    setError(null);
+    try {
+      const pathData = await gql<{ settings: { downloadsPath: string } }>(GET_DOWNLOADS_PATH);
+      const result = await invoke<StorageInfo>("get_storage_info", {
+        downloadsPath: pathData.settings.downloadsPath,
+      });
+      setInfo(result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { fetchInfo(); }, []);
+
+  function handleClearCache() {
+    setClearing(true);
+    caches.keys()
+      .then((names) => Promise.all(names.map((n) => caches.delete(n))))
+      .catch(() => {})
+      .finally(() => {
+        setClearing(false);
+        setCleared(true);
+        setTimeout(() => setCleared(false), 2500);
+        fetchInfo();
+      });
+  }
+
+  const mangaBytes = info?.manga_bytes ?? 0;
+  const totalBytes = info?.total_bytes ?? 0;
+  const freeBytes  = info?.free_bytes  ?? 0;
+
+  return (
+    <div className={s.panel}>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Disk Usage</p>
+        {loading && <p className={s.storageLoading}>Reading filesystem…</p>}
+        {error   && <p className={s.storageLoading} style={{ color: "var(--color-error)" }}>{error}</p>}
+        {!loading && !error && info && (
+          <>
+            <StorageBar used={mangaBytes} limit={limitBytes} total={totalBytes} />
+            <div className={s.storageLegend}>
+              <div className={s.storageLegendRow}>
+                <span className={[s.storageDot, s.storageDotManga].join(" ")} />
+                <span className={s.storageLegendLabel}>Downloaded manga</span>
+                <span className={s.storageLegendVal}>{fmtBytes(mangaBytes)}</span>
+              </div>
+              <div className={s.storageLegendRow}>
+                <span className={[s.storageDot, s.storageDotFree].join(" ")} />
+                <span className={s.storageLegendLabel}>Drive free</span>
+                <span className={s.storageLegendVal}>{fmtBytes(freeBytes)}</span>
+              </div>
+              <div className={s.storageLegendRow}>
+                <span className={[s.storageDot, s.storageDotApp].join(" ")} />
+                <span className={s.storageLegendLabel}>Drive total</span>
+                <span className={s.storageLegendVal}>{fmtBytes(totalBytes)}</span>
+              </div>
+            </div>
+            <p className={s.storagePathNote}>{info.path}</p>
+          </>
+        )}
+      </div>
+
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Storage Limit</p>
+        <div className={s.stepRow}>
+          <div className={s.toggleInfo}>
+            <span className={s.toggleLabel}>Limit download storage</span>
+            <span className={s.toggleDesc}>
+              {limitGb === null
+                ? "No limit — uses full drive capacity"
+                : `Warn when downloads exceed ${limitGb} GB`}
+            </span>
+          </div>
+          {limitGb === null ? (
+            <button className={s.setLimitBtn} onClick={() => update({ storageLimitGb: 10 })}>
+              Set limit
+            </button>
+          ) : (
+            <div className={s.stepControls}>
+              <button className={s.stepBtn}
+                onClick={() => update({ storageLimitGb: Math.max(1, limitGb - 1) })}
+                disabled={limitGb <= 1}>&#8722;</button>
+              <span className={s.stepVal}>{limitGb} GB</span>
+              <button className={s.stepBtn}
+                onClick={() => update({ storageLimitGb: limitGb + 1 })}>+</button>
+              <button className={s.kbReset} onClick={() => update({ storageLimitGb: null })} title="Remove limit">↺</button>
+            </div>
+          )}
+        </div>
+        {totalBytes > 0 && limitGb !== null && limitBytes !== null && limitBytes > freeBytes && (
+          <p className={s.storageLimitHint}>Limit exceeds available free space ({fmtBytes(freeBytes)})</p>
+        )}
+      </div>
+
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Cache</p>
+        <div className={s.stepRow}>
+          <div className={s.toggleInfo}>
+            <span className={s.toggleLabel}>Image cache</span>
+            <span className={s.toggleDesc}>Cached page images stored by the webview</span>
+          </div>
+          <button className={s.dangerBtn} onClick={handleClearCache} disabled={clearing}>
+            {cleared ? "Cleared" : clearing ? "Clearing…" : "Clear cache"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function AboutTab() {
   return (
     <div className={s.panel}>
@@ -467,6 +637,7 @@ export default function SettingsModal() {
             {tab === "library"     && <LibraryTab     settings={settings} update={updateSettings} />}
             {tab === "performance" && <PerformanceTab settings={settings} update={updateSettings} />}
             {tab === "keybinds"    && <KeybindsTab    settings={settings} update={updateSettings} reset={resetKeybinds} />}
+            {tab === "storage"     && <StorageTab     settings={settings} update={updateSettings} />}
             {tab === "about"       && <AboutTab />}
           </div>
         </div>

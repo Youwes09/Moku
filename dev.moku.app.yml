@@ -1,0 +1,90 @@
+app-id: dev.moku.app
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: moku
+separate-locales: false
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --share=network
+  - --filesystem=xdg-data/moku:create
+  - --talk-name=org.freedesktop.Flatpak
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/moku/cargo
+    RUSTFLAGS: ''
+
+modules:
+
+  - name: openjdk
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/jre
+      - tar -xf jdk.tar.gz -C /app/jre --strip-components=1
+    sources:
+      - type: file
+        url: https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jre_x64_linux_hotspot_21.0.3_9.tar.gz
+        sha256: f1af100c4afca2035f446967323230150cfe5872b5a664d98c86963e5c066e0d
+        dest-filename: jdk.tar.gz
+
+  - name: tachidesk-server
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/tachidesk /app/bin
+      - cp Suwayomi-Server.jar /app/tachidesk/
+      - |
+        cat > /app/bin/tachidesk-server << 'EOF'
+        #!/bin/sh
+        exec /app/jre/bin/java -jar /app/tachidesk/Suwayomi-Server.jar "$@"
+        EOF
+      - chmod +x /app/bin/tachidesk-server
+    sources:
+      - type: file
+        url: https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/suwayomi-server-v2.1.1867.jar
+        sha256: 51e307c2581e4e1a002991ab3e3a77503c8b074c42695987a984a7382d0ac5af
+        dest-filename: Suwayomi-Server.jar
+
+  - name: moku
+    buildsystem: simple
+
+    build-options:
+      env:
+        CARGO_HOME: /run/build/moku/cargo
+        XDG_DATA_HOME: /run/build/moku/xdg-data
+        TAURI_SKIP_DEVSERVER_CHECK: 'true'
+        PKG_CONFIG_PATH: /usr/lib/pkgconfig:/usr/share/pkgconfig
+
+    build-commands:
+      - tar -xzf frontend-dist.tar.gz
+      - . /usr/lib/sdk/rust-stable/enable.sh && PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/share/pkgconfig cargo build --release --manifest-path src-tauri/Cargo.toml
+      - install -Dm755 src-tauri/target/release/moku /app/bin/moku
+      - install -Dm644 packaging/dev.moku.app.desktop /app/share/applications/dev.moku.app.desktop
+      - install -Dm644 src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/dev.moku.app.png
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/dev.moku.app.png
+      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/dev.moku.app.png
+      - install -Dm644 packaging/dev.moku.app.metainfo.xml /app/share/metainfo/dev.moku.app.metainfo.xml
+
+    sources:
+      - type: dir
+        path: .
+      - type: file
+        path: packaging/frontend-dist.tar.gz
+        sha256: 386b393cd29f84064a3abef926237cb8a028da49c930a24ead7ad8a67d671a9c
+      - packaging/cargo-sources.json
+      - type: inline
+        dest: src-tauri/.cargo
+        dest-filename: config.toml
+        contents: |
+          [source.crates-io]
+          replace-with = "vendored-sources"
+
+          [source.vendored-sources]
+          directory = "/run/build/moku/cargo/vendor"

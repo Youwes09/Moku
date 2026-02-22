@@ -279,6 +279,84 @@
 .kbReset:hover:not(:disabled) { color: var(--text-muted); border-color: var(--border-dim); }
 .kbReset:disabled { opacity: 0.2; cursor: default; }
 
+/* ─── Storage ── */
+.storageLoading {
+  font-size: var(--text-sm); color: var(--text-faint);
+  padding: var(--sp-3) var(--sp-3);
+}
+
+.storageBarWrap { padding: var(--sp-2) var(--sp-3) var(--sp-1); }
+
+.storageBar {
+  width: 100%; height: 7px;
+  background: var(--bg-overlay); border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.storageBarFill {
+  height: 100%; border-radius: var(--radius-full);
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.storageBarWarn     { background: #d97706; }
+.storageBarCritical { background: var(--color-error); }
+
+.storageBarLabels {
+  display: flex; justify-content: space-between;
+  margin-top: var(--sp-2);
+  font-family: var(--font-ui); font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+}
+.storageBarUsed { color: var(--text-secondary); }
+.storageBarFree { color: var(--text-faint); }
+
+.storageBarNote {
+  font-size: var(--text-xs); color: var(--text-faint);
+  margin-top: var(--sp-1);
+}
+
+.storageLegend {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.storageLegendRow {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 6px 0;
+  font-size: var(--text-sm);
+}
+
+.storageDot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.storageDotManga   { background: var(--accent); }
+.storageDotApp     { background: var(--border-strong); }
+.storageDotFree    { background: var(--bg-overlay); border: 1px solid var(--border-strong); }
+
+.storageLegendLabel { flex: 1; color: var(--text-muted); }
+.storageLegendVal   { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: var(--tracking-wide); }
+
+.storageLimitHint {
+  font-size: var(--text-xs); color: #d97706;
+  padding: 0 var(--sp-3) var(--sp-2);
+}
+
+.setLimitBtn {
+  font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
+  padding: 5px 12px; border-radius: var(--radius-md);
+  background: none; border: 1px solid var(--border-strong);
+  color: var(--text-muted); cursor: pointer; flex-shrink: 0;
+  transition: color var(--t-base), border-color var(--t-base);
+}
+.setLimitBtn:hover { color: var(--text-primary); border-color: var(--border-focus); }
+
+.storagePathNote {
+  font-family: var(--font-ui); font-size: var(--text-xs);
+  color: var(--text-faint); letter-spacing: var(--tracking-wide);
+  padding: var(--sp-1) var(--sp-3) var(--sp-2);
+  word-break: break-all;
+}
+
 /* ─── About ── */
 .aboutBlock {
   padding: var(--sp-3); background: var(--bg-raised); border-radius: var(--radius-md);

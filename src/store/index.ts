@@ -50,6 +50,7 @@ export interface Settings {
   autoStartServer: boolean;
   preferredExtensionLang: string;
   keybinds: Keybinds;
+  storageLimitGb: number | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -76,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoStartServer: true,
   preferredExtensionLang: "en",
   keybinds: DEFAULT_KEYBINDS,
+  storageLimitGb: null,
 };
 
 interface Store {

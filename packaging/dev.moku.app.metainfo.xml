@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.moku.app</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Moku</name>
+  <summary>Manga reader powered by Suwayomi</summary>
+
+  <description>
+    <p>
+      Moku is a desktop manga reader built on top of Suwayomi-Server (Tachidesk),
+      providing a clean native interface for browsing, reading, and managing your
+      manga library across hundreds of sources.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">dev.moku.app.desktop</launchable>
+
+  <url type="homepage">https://github.com/shozikan/Moku</url>
+  <url type="bugtracker">https://github.com/shozikan/Moku/issues</url>
+
+  <provides>
+    <binary>moku</binary>
+  </provides>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2025-01-01">
+      <description>
+        <p>Initial release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

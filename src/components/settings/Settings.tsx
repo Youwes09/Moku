@@ -422,6 +422,12 @@ export default function SettingsModal() {
   const updateSettings     = useStore((s) => s.updateSettings);
   const resetKeybinds      = useStore((s) => s.resetKeybinds);
   const backdropRef        = useRef<HTMLDivElement>(null);
+  const contentBodyRef     = useRef<HTMLDivElement>(null);
+
+  // Scroll to top on every tab switch
+  useEffect(() => {
+    contentBodyRef.current?.scrollTo({ top: 0 });
+  }, [tab]);
 
   const handleBackdrop = useCallback(
     (e: React.MouseEvent) => { if (e.target === backdropRef.current) closeSettings(); },
@@ -455,7 +461,7 @@ export default function SettingsModal() {
             <p className={s.contentTitle}>{TABS.find((t) => t.id === tab)?.label}</p>
             <button className={s.closeBtn} onClick={closeSettings}><X size={15} weight="light" /></button>
           </div>
-          <div className={s.contentBody}>
+          <div className={s.contentBody} ref={contentBodyRef}>
             {tab === "general"     && <GeneralTab     settings={settings} update={updateSettings} />}
             {tab === "reader"      && <ReaderTab      settings={settings} update={updateSettings} />}
             {tab === "library"     && <LibraryTab     settings={settings} update={updateSettings} />}

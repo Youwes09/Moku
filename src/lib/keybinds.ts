@@ -1,52 +1,45 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
 export interface Keybinds {
-  pageRight:                 string;
-  pageLeft:                  string;
-  firstPage:                 string;
-  lastPage:                  string;
-  chapterRight:              string;
-  chapterLeft:               string;
-  exitReader:                string;
-  close:                     string;
-  toggleReadingDirection:    string;
-  togglePageStyle:           string;
-  toggleOffsetDoubleSpreads: string;
-  toggleFullscreen:          string;
-  openSettings:              string;
-  toggleSidebar:             string;
+  pageRight:              string;
+  pageLeft:               string;
+  firstPage:              string;
+  lastPage:               string;
+  chapterRight:           string;
+  chapterLeft:            string;
+  exitReader:             string;
+  toggleReadingDirection: string;
+  togglePageStyle:        string;
+  toggleFullscreen:       string;
+  openSettings:           string;
 }
 
 export const DEFAULT_KEYBINDS: Keybinds = {
-  pageRight:                 "ArrowRight",
-  pageLeft:                  "ArrowLeft",
-  firstPage:                 "ctrl+ArrowLeft",
-  lastPage:                  "ctrl+ArrowRight",
-  chapterRight:              "]",
-  chapterLeft:               "[",
-  exitReader:                "Backspace",
-  close:                     "Escape",
-  toggleReadingDirection:    "d",
-  togglePageStyle:           "q",
-  toggleOffsetDoubleSpreads: "u",
-  toggleFullscreen:          "f",
-  openSettings:              "o",
-  toggleSidebar:             "s",
+  pageRight:              "ArrowRight",
+  pageLeft:               "ArrowLeft",
+  firstPage:              "ctrl+ArrowLeft",
+  lastPage:               "ctrl+ArrowRight",
+  chapterRight:           "]",
+  chapterLeft:            "[",
+  exitReader:             "Backspace",
+  toggleReadingDirection: "d",
+  togglePageStyle:        "q",
+  toggleFullscreen:       "f",
+  openSettings:           "o",
 };
 
 export const KEYBIND_LABELS: Record<keyof Keybinds, string> = {
-  pageRight:                 "Turn page right",
-  pageLeft:                  "Turn page left",
-  firstPage:                 "First page",
-  lastPage:                  "Last page",
-  chapterRight:              "Change chapter right",
-  chapterLeft:               "Change chapter left",
-  exitReader:                "Exit reader",
-  close:                     "Close",
-  toggleReadingDirection:    "Toggle reading direction",
-  togglePageStyle:           "Toggle page style",
-  toggleOffsetDoubleSpreads: "Toggle double page offset",
-  toggleFullscreen:          "Toggle fullscreen",
-  openSettings:              "Show settings menu",
-  toggleSidebar:             "Toggle sidebar",
+  pageRight:              "Turn page right",
+  pageLeft:               "Turn page left",
+  firstPage:              "Jump to first page",
+  lastPage:               "Jump to last page",
+  chapterRight:           "Next chapter",
+  chapterLeft:            "Previous chapter",
+  exitReader:             "Exit reader",
+  toggleReadingDirection: "Toggle reading direction",
+  togglePageStyle:        "Toggle page style",
+  toggleFullscreen:       "Toggle fullscreen",
+  openSettings:           "Open settings",
 };
 
 export function eventToKeybind(e: KeyboardEvent): string {
@@ -62,4 +55,10 @@ export function eventToKeybind(e: KeyboardEvent): string {
 
 export function matchesKeybind(e: KeyboardEvent, bind: string): boolean {
   return eventToKeybind(e) === bind;
+}
+
+export async function toggleFullscreen(): Promise<void> {
+  const win = getCurrentWindow();
+  const isFs = await win.isFullscreen();
+  await win.setFullscreen(!isFs);
 }

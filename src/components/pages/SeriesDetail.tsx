@@ -3,6 +3,7 @@ import {
   ArrowLeft, BookmarkSimple, Download, CheckCircle,
   ArrowSquareOut, BookOpen, CircleNotch, Play,
   SortAscending, SortDescending, CaretDown, ArrowsClockwise,
+  List, SquaresFour,
 } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import {
@@ -52,6 +53,7 @@ export default function SeriesDetail() {
   const [ctx, setCtx]                   = useState<CtxState | null>(null);
   const [jumpOpen, setJumpOpen]         = useState(false);
   const [jumpInput, setJumpInput]       = useState("");
+  const [viewMode, setViewMode]         = useState<"list" | "grid">("list");
 
   const sortDir = settings.chapterSortDir;
 
@@ -334,20 +336,33 @@ export default function SeriesDetail() {
       {/* ── Chapter list ── */}
       <div className={s.listWrap}>
         <div className={s.listHeader}>
-          <button
-            className={s.sortBtn}
-            onClick={() => {
-              updateSettings({ chapterSortDir: sortDir === "desc" ? "asc" : "desc" });
-              setChapterPage(1);
-            }}
-            title={sortDir === "desc" ? "Newest first" : "Oldest first"}
-          >
-            {sortDir === "desc"
-              ? <SortDescending size={14} weight="light" />
-              : <SortAscending size={14} weight="light" />
-            }
-            <span>{sortDir === "desc" ? "Newest first" : "Oldest first"}</span>
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+            <button
+              className={s.sortBtn}
+              onClick={() => {
+                updateSettings({ chapterSortDir: sortDir === "desc" ? "asc" : "desc" });
+                setChapterPage(1);
+              }}
+              title={sortDir === "desc" ? "Newest first" : "Oldest first"}
+            >
+              {sortDir === "desc"
+                ? <SortDescending size={14} weight="light" />
+                : <SortAscending size={14} weight="light" />
+              }
+              <span>{sortDir === "desc" ? "Newest first" : "Oldest first"}</span>
+            </button>
+
+            <button
+              className={[s.viewToggleBtn, viewMode === "grid" ? s.viewToggleActive : ""].join(" ")}
+              onClick={() => setViewMode((v) => v === "list" ? "grid" : "list")}
+              title={viewMode === "list" ? "Switch to grid view" : "Switch to list view"}
+            >
+              {viewMode === "list"
+                ? <SquaresFour size={14} weight="light" />
+                : <List size={14} weight="light" />
+              }
+            </button>
+          </div>
 
           <div className={s.listHeaderRight}>
             {/* Jump to chapter */}
@@ -448,14 +463,55 @@ export default function SeriesDetail() {
           </div>
         </div>
 
-        <div className={s.list}>
+        <div className={viewMode === "grid" ? s.grid : s.list}>
           {loadingChapters && chapters.length === 0 ? (
-            Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className={s.rowSkeleton}>
-                <div className={["skeleton", s.skLine].join(" ")} style={{ width: "55%", height: 12 }} />
-                <div className={["skeleton", s.skLine].join(" ")} style={{ width: "25%", height: 11 }} />
-              </div>
-            ))
+            viewMode === "grid" ? (
+              Array.from({ length: 24 }).map((_, i) => (
+                <div key={i} className={s.gridCellSkeleton}>
+                  <div className="skeleton" style={{ width: "60%", height: 10, borderRadius: 3 }} />
+                </div>
+              ))
+            ) : (
+              Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className={s.rowSkeleton}>
+                  <div className={["skeleton", s.skLine].join(" ")} style={{ width: "55%", height: 12 }} />
+                  <div className={["skeleton", s.skLine].join(" ")} style={{ width: "25%", height: 11 }} />
+                </div>
+              ))
+            )
+          ) : viewMode === "grid" ? (
+            sortedChapters.map((ch) => {
+              const idxInSorted = sortedChapters.indexOf(ch);
+              const inProgress = !ch.isRead && (ch.lastPageRead ?? 0) > 0;
+              return (
+                <button
+                  key={ch.id}
+                  className={[
+                    s.gridCell,
+                    ch.isRead ? s.gridCellRead : "",
+                    inProgress ? s.gridCellInProgress : "",
+                    ch.isBookmarked ? s.gridCellBookmarked : "",
+                  ].filter(Boolean).join(" ")}
+                  onClick={() => openReader(ch, sortedChapters)}
+                  onContextMenu={(e) => openContextMenu(e, ch, idxInSorted)}
+                  title={ch.name}
+                >
+                  <span className={s.gridCellNum}>
+                    {ch.chapterNumber % 1 === 0
+                      ? ch.chapterNumber.toFixed(0)
+                      : ch.chapterNumber.toString()}
+                  </span>
+                  {ch.isRead && <span className={s.gridCellDot} />}
+                  {inProgress && <span className={s.gridCellProgress} style={{ width: `${Math.min(100, ((ch.lastPageRead ?? 0) / 1) * 100)}%` }} />}
+                  {ch.isBookmarked && <span className={s.gridCellBookmarkDot} />}
+                  {enqueueing.has(ch.id) && (
+                    <span className={s.gridCellSpinner}>
+                      <CircleNotch size={10} weight="light" className="anim-spin" />
+                    </span>
+                  )}
+                </button>
+              );
+            })
           ) : (
             pageChapters.map((ch) => {
               const idxInSorted = sortedChapters.indexOf(ch);

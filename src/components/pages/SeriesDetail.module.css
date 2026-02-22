@@ -574,3 +574,123 @@
   transition: color var(--t-base), background var(--t-base);
 }
 .jumpCancel:hover { color: var(--text-muted); background: var(--bg-raised); }
+/* ── View mode toggle ── */
+.viewToggleBtn {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  color: var(--text-faint);
+  background: none;
+  cursor: pointer;
+  transition: color var(--t-base), background var(--t-base), border-color var(--t-base);
+}
+.viewToggleBtn:hover { color: var(--text-muted); background: var(--bg-raised); border-color: var(--border-dim); }
+.viewToggleActive { color: var(--accent-fg) !important; background: var(--accent-muted) !important; border-color: var(--accent-dim) !important; }
+
+/* ── Chapter grid ── */
+.grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-3) var(--sp-4);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  gap: 5px;
+  align-content: start;
+}
+
+.gridCell {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  transition: border-color var(--t-fast), background var(--t-fast), transform var(--t-fast);
+}
+.gridCell:hover {
+  border-color: var(--accent);
+  background: var(--bg-overlay);
+  transform: scale(1.04);
+  z-index: 1;
+}
+
+/* Unread — subtle, inviting */
+.gridCellNum {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-secondary);
+  line-height: 1;
+  position: relative;
+  z-index: 1;
+}
+
+/* Read — dimmed, clearly consumed */
+.gridCellRead {
+  background: var(--bg-base);
+  border-color: var(--border-dim);
+}
+.gridCellRead .gridCellNum {
+  color: var(--text-faint);
+}
+.gridCellRead::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, transparent 60%, rgba(var(--accent-rgb, 100 130 255) / 0.08) 100%);
+  pointer-events: none;
+}
+
+/* In-progress — accent highlight on bottom edge */
+.gridCellInProgress {
+  border-color: var(--accent-dim);
+  background: var(--bg-raised);
+}
+.gridCellInProgress .gridCellNum {
+  color: var(--accent-fg);
+}
+.gridCellInProgress::before {
+  content: "";
+  position: absolute; bottom: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+/* Read indicator dot (top-right corner) */
+.gridCellDot {
+  position: absolute; top: 3px; right: 3px;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+/* Bookmark indicator dot */
+.gridCellBookmarked { border-color: var(--accent-dim); }
+.gridCellBookmarkDot {
+  position: absolute; top: 3px; left: 3px;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* Spinner overlay for enqueueing */
+.gridCellSpinner {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.3);
+  color: var(--text-faint);
+}
+
+/* Skeleton for grid loading state */
+.gridCellSkeleton {
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-dim);
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--sp-2);
+}

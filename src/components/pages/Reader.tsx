@@ -10,7 +10,7 @@ import {
   ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD,
 } from "../../lib/queries";
 import { useStore, type FitMode } from "../../store";
-import { matchesKeybind } from "../../lib/keybinds";
+import { matchesKeybind, toggleFullscreen } from "../../lib/keybinds";
 import s from "./Reader.module.css";
 
 function preloadImage(url: string) {
@@ -126,6 +126,16 @@ function ZoomPopover({
 }
 
 // ── Reader ────────────────────────────────────────────────────────────────────
+
+/** One chapter's worth of pages in the infinite strip */
+interface StripChapter {
+  chapterId: number;
+  chapterName: string;
+  urls: string[];
+  /** Global page index offset for pages in this strip chunk */
+  startGlobalIdx: number;
+}
+
 export default function Reader() {
   const containerRef    = useRef<HTMLDivElement>(null);
   const rafRef          = useRef(0);
@@ -135,6 +145,11 @@ export default function Reader() {
   const hideTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uiRef           = useRef<HTMLDivElement>(null);
 
+  // Track which chapters are being fetched so we don't double-fire
+  const fetchingRef     = useRef<Set<number>>(new Set());
+  // Whether we've already appended the next chapter into the strip
+  const appendedRef     = useRef<Set<number>>(new Set());
+
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
   const [dlOpen, setDlOpen]         = useState(false);
@@ -142,6 +157,18 @@ export default function Reader() {
   const [uiVisible, setUiVisible]   = useState(true);
   const [markedRead, setMarkedRead] = useState<Set<number>>(new Set());
   const [pageGroups, setPageGroups] = useState<number[][]>([]);
+
+  /**
+   * The infinite strip: an ordered list of chapter chunks.
+   * In non-longstrip modes this is unused — only pageUrls matters.
+   */
+  const [stripChapters, setStripChapters] = useState<StripChapter[]>([]);
+
+  /**
+   * In longstrip autoNext mode, this tracks which chapter the user is
+   * currently reading (for topbar display) without triggering a full reload.
+   */
+  const [visibleChapterId, setVisibleChapterId] = useState<number | null>(null);
 
   const {
     activeManga, activeChapter, activeChapterList,
@@ -182,19 +209,53 @@ export default function Reader() {
     containerRef.current?.focus({ preventScroll: true });
   }, [activeChapter?.id]);
 
+  // ── Fetch helpers ────────────────────────────────────────────────────────────
+  const fetchPages = useCallback(async (chapterId: number): Promise<string[]> => {
+    const cached = pageCache.current.get(chapterId);
+    if (cached) return cached;
+    if (fetchingRef.current.has(chapterId)) {
+      // Poll until another in-flight fetch resolves
+      return new Promise((resolve) => {
+        const interval = setInterval(() => {
+          const c = pageCache.current.get(chapterId);
+          if (c) { clearInterval(interval); resolve(c); }
+        }, 50);
+      });
+    }
+    fetchingRef.current.add(chapterId);
+    const d = await gql<{ fetchChapterPages: { pages: string[] } }>(
+      FETCH_CHAPTER_PAGES, { chapterId }
+    );
+    const urls = d.fetchChapterPages.pages.map(thumbUrl);
+    pageCache.current.set(chapterId, urls);
+    fetchingRef.current.delete(chapterId);
+    return urls;
+  }, []);
+
   // ── Load pages ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!activeChapter) return;
     setLoading(true); setError(null); setPageGroups([]);
-    const cached = pageCache.current.get(activeChapter.id);
-    if (cached) { setPageUrls(cached); setLoading(false); return; }
-    gql<{ fetchChapterPages: { pages: string[] } }>(FETCH_CHAPTER_PAGES, { chapterId: activeChapter.id })
-      .then((d) => {
-        const urls = d.fetchChapterPages.pages.map(thumbUrl);
-        pageCache.current.set(activeChapter.id, urls);
+    // Reset strip state for new chapter navigation (non-scroll transitions)
+    appendedRef.current = new Set();
+
+    fetchPages(activeChapter.id)
+      .then((urls) => {
         setPageUrls(urls);
+        if (style === "longstrip" && autoNext) {
+          setStripChapters([{
+            chapterId: activeChapter.id,
+            chapterName: activeChapter.name,
+            urls,
+            startGlobalIdx: 0,
+          }]);
+          setVisibleChapterId(activeChapter.id);
+        } else {
+          setStripChapters([]);
+          setVisibleChapterId(null);
+        }
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [activeChapter?.id]);
 
@@ -263,19 +324,42 @@ export default function Reader() {
 
   useEffect(() => {
     const preload = (id: number) => {
-      if (pageCache.current.has(id)) return;
-      gql<{ fetchChapterPages: { pages: string[] } }>(FETCH_CHAPTER_PAGES, { chapterId: id })
-        .then((d) => {
-          const urls = d.fetchChapterPages.pages.map(thumbUrl);
-          pageCache.current.set(id, urls);
-          urls.slice(0, 2).forEach(preloadImage);
-        }).catch(() => {});
+      fetchPages(id)
+        .then((urls) => urls.slice(0, 3).forEach(preloadImage))
+        .catch(() => {});
     };
     if (adjacent.next) preload(adjacent.next.id);
     if (adjacent.prev) preload(adjacent.prev.id);
   }, [adjacent.next?.id, adjacent.prev?.id]);
 
   const lastPage = pageUrls.length;
+
+  /**
+   * In infinite-strip mode, the topbar shows whichever chapter the user is
+   * currently scrolled into rather than the "root" chapter we opened with.
+   */
+  const displayChapter = useMemo(() => {
+    if (style !== "longstrip" || !autoNext || !visibleChapterId) return activeChapter;
+    return activeChapterList.find((c) => c.id === visibleChapterId) ?? activeChapter;
+  }, [style, autoNext, visibleChapterId, activeChapter, activeChapterList]);
+
+  /**
+   * In infinite-strip mode, the "last page" shown in the topbar is relative
+   * to the currently visible chapter chunk.
+   */
+  const visibleChunkLastPage = useMemo(() => {
+    if (style !== "longstrip" || !autoNext || stripChapters.length === 0) return lastPage;
+    const chunk = stripChapters.find((c) => c.chapterId === (visibleChapterId ?? activeChapter?.id));
+    return chunk ? chunk.urls.length : lastPage;
+  }, [style, autoNext, stripChapters, visibleChapterId, activeChapter?.id, lastPage]);
+
+  /** Page number within the currently visible chapter chunk (for topbar) */
+  const visibleChunkPage = useMemo(() => {
+    if (style !== "longstrip" || !autoNext || stripChapters.length === 0) return pageNumber;
+    const chunk = stripChapters.find((c) => c.chapterId === (visibleChapterId ?? activeChapter?.id));
+    if (!chunk) return pageNumber;
+    return Math.max(1, pageNumber - chunk.startGlobalIdx);
+  }, [style, autoNext, stripChapters, visibleChapterId, activeChapter?.id, pageNumber]);
 
   // ── Auto-mark read + history ─────────────────────────────────────────────────
   useEffect(() => {
@@ -356,27 +440,36 @@ export default function Reader() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === "INPUT") return;
+
+      // Escape: close overlays in priority order, then exit reader
       if (e.key === "Escape") {
-        if (zoomOpen) { e.preventDefault(); setZoomOpen(false); return; }
-        if (dlOpen)   { e.preventDefault(); setDlOpen(false); return; }
+        e.preventDefault();
+        if (zoomOpen) { setZoomOpen(false); return; }
+        if (dlOpen)   { setDlOpen(false);   return; }
+        closeReader();
+        return;
       }
-      if (matchesKeybind(e, kb.pageRight))                   { e.preventDefault(); goForward(); }
-      else if (matchesKeybind(e, kb.pageLeft))               { e.preventDefault(); goBack(); }
-      else if (matchesKeybind(e, kb.firstPage))              { e.preventDefault(); setPageNumber(1); }
-      else if (matchesKeybind(e, kb.lastPage))               { e.preventDefault(); setPageNumber(lastPage); }
-      else if (matchesKeybind(e, kb.chapterRight))           { e.preventDefault(); if (adjacent.next) openReader(adjacent.next, activeChapterList); }
-      else if (matchesKeybind(e, kb.chapterLeft))            { e.preventDefault(); if (adjacent.prev) openReader(adjacent.prev, activeChapterList); }
-      else if (matchesKeybind(e, kb.exitReader))             { e.preventDefault(); closeReader(); }
-      else if (matchesKeybind(e, kb.togglePageStyle))        { e.preventDefault(); cycleStyle(); }
+
+      if (matchesKeybind(e, kb.exitReader))             { e.preventDefault(); closeReader(); }
+      else if (matchesKeybind(e, kb.pageRight))         { e.preventDefault(); goForward(); }
+      else if (matchesKeybind(e, kb.pageLeft))          { e.preventDefault(); goBack(); }
+      else if (matchesKeybind(e, kb.firstPage))         { e.preventDefault(); setPageNumber(1); }
+      else if (matchesKeybind(e, kb.lastPage))          { e.preventDefault(); setPageNumber(lastPage); }
+      else if (matchesKeybind(e, kb.chapterRight))      { e.preventDefault(); if (adjacent.next) openReader(adjacent.next, activeChapterList); }
+      else if (matchesKeybind(e, kb.chapterLeft))       { e.preventDefault(); if (adjacent.prev) openReader(adjacent.prev, activeChapterList); }
+      else if (matchesKeybind(e, kb.togglePageStyle))   { e.preventDefault(); cycleStyle(); }
       else if (matchesKeybind(e, kb.toggleReadingDirection)) { e.preventDefault(); updateSettings({ readingDirection: rtl ? "ltr" : "rtl" }); }
-      else if (matchesKeybind(e, kb.openSettings))           { e.preventDefault(); openSettings(); }
+      else if (matchesKeybind(e, kb.toggleFullscreen))  { e.preventDefault(); toggleFullscreen().catch(console.error); }
+      else if (matchesKeybind(e, kb.openSettings))      { e.preventDefault(); openSettings(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [goForward, goBack, kb, style, rtl, lastPage, adjacent, activeChapterList, zoomOpen, dlOpen]);
 
   // ── Longstrip scroll tracker ─────────────────────────────────────────────────
-  // Tracks current page number and auto-advances to next chapter at end of scroll
+  // Tracks current page number. In autoNext mode, appends the next chapter's
+  // pages directly into the strip (no re-render / scroll reset) so the flow
+  // is one seamless ribbon of images.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || style !== "longstrip") return;
@@ -399,11 +492,63 @@ export default function Reader() {
         const n = closest + 1;
         if (n !== pageNumRef.current) setPageNumber(n);
 
-        // Auto-advance: within 80px of bottom and next chapter exists
-        if (autoNext && adjacent.next) {
-          const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
-          if (nearBottom) openReader(adjacent.next, activeChapterList);
+        // ── Infinite append ──────────────────────────────────────────────────
+        if (!autoNext) {
+          // Classic behavior: jump to next chapter at the very end of scroll
+          const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+          if (atBottom && adjacent.next) openReader(adjacent.next, activeChapterList);
+          return;
         }
+
+        // Silently update visibleChapterId as we scroll into each chunk
+        for (const chunk of stripChapters) {
+          const chunkEnd = chunk.startGlobalIdx + chunk.urls.length;
+          if (n - 1 >= chunk.startGlobalIdx && n - 1 < chunkEnd) {
+            if (chunk.chapterId !== visibleChapterId) {
+              setVisibleChapterId(chunk.chapterId);
+              // Mark as read when we scroll into a new chapter
+              if (!markedRead.has(chunk.chapterId) && settings.autoMarkRead) {
+                const prevChunk = stripChapters[stripChapters.indexOf(chunk) - 1];
+                if (prevChunk) {
+                  setMarkedRead((r) => new Set(r).add(prevChunk.chapterId));
+                  gql(MARK_CHAPTER_READ, { id: prevChunk.chapterId, isRead: true }).catch(console.error);
+                }
+              }
+            }
+            break;
+          }
+        }
+
+        // Append next chapter 300px before we hit the bottom of the last chunk
+        const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 300;
+        if (!nearBottom) return;
+
+        // What's the last chapter currently in the strip?
+        const lastChunk = stripChapters[stripChapters.length - 1];
+        if (!lastChunk) return;
+
+        const lastChunkIdx = activeChapterList.findIndex((c) => c.id === lastChunk.chapterId);
+        if (lastChunkIdx < 0 || lastChunkIdx >= activeChapterList.length - 1) return;
+
+        const nextChEntry = activeChapterList[lastChunkIdx + 1];
+        if (!nextChEntry || appendedRef.current.has(nextChEntry.id)) return;
+
+        // Mark immediately so concurrent scroll events don't double-append
+        appendedRef.current.add(nextChEntry.id);
+
+        // Fetch (likely already cached from preload) then append to strip
+        fetchPages(nextChEntry.id).then((urls) => {
+          setStripChapters((prev) => {
+            const lastInPrev = prev[prev.length - 1];
+            const newStart = lastInPrev
+              ? lastInPrev.startGlobalIdx + lastInPrev.urls.length
+              : 0;
+            return [
+              ...prev,
+              { chapterId: nextChEntry.id, chapterName: nextChEntry.name, urls, startGlobalIdx: newStart },
+            ];
+          });
+        }).catch(console.error);
       });
     };
 
@@ -412,17 +557,38 @@ export default function Reader() {
       el.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [style, autoNext, adjacent.next?.id, activeChapterList]);
+  }, [style, autoNext, stripChapters, activeChapterList, activeChapter?.id, adjacent.next, fetchPages]);
 
   // Reset scroll position when switching chapters in non-longstrip modes
   useEffect(() => {
     if (style !== "longstrip" && containerRef.current) containerRef.current.scrollTop = 0;
   }, [pageNumber, style]);
 
-  // When switching to longstrip, reset scroll to top
+  // When switching to longstrip, reset scroll to top and rebuild strip from current chapter
   useEffect(() => {
-    if (style === "longstrip" && containerRef.current) containerRef.current.scrollTop = 0;
-  }, [activeChapter?.id, style]);
+    if (style === "longstrip" && containerRef.current) {
+      containerRef.current.scrollTop = 0;
+      if (activeChapter && pageUrls.length > 0) {
+        appendedRef.current = new Set();
+        if (autoNext) {
+          setStripChapters([{
+            chapterId: activeChapter.id,
+            chapterName: activeChapter.name,
+            urls: pageUrls,
+            startGlobalIdx: 0,
+          }]);
+          setVisibleChapterId(activeChapter.id);
+        } else {
+          // Plain longstrip — no multi-chapter strip
+          setStripChapters([]);
+          setVisibleChapterId(null);
+        }
+      }
+    } else if (style !== "longstrip") {
+      setStripChapters([]);
+      setVisibleChapterId(null);
+    }
+  }, [activeChapter?.id, style, autoNext]);
 
   function handleTap(e: React.MouseEvent) {
     if (style === "longstrip") return;
@@ -492,9 +658,9 @@ export default function Reader() {
         <span className={s.chLabel}>
           <span className={s.chTitle}>{activeManga?.title}</span>
           <span className={s.chSep}>/</span>
-          <span>{activeChapter?.name}</span>
+          <span>{displayChapter?.name}</span>
         </span>
-        <span className={s.pageLabel}>{pageNumber} / {lastPage || "…"}</span>
+        <span className={s.pageLabel}>{visibleChunkPage} / {visibleChunkLastPage || "…"}</span>
         <button
           className={s.iconBtn}
           onClick={() => adjacent.next && openReader(adjacent.next, activeChapterList)}
@@ -590,17 +756,30 @@ export default function Reader() {
         }}
       >
         {style === "longstrip" ? (
-          pageUrls.map((url, i) => (
-            <img
-              key={`${activeChapter?.id}-${i}`}
-              src={url}
-              alt={`Page ${i + 1}`}
-              data-page={i + 1}
-              className={[imgCls, settings.pageGap ? s.stripGap : ""].join(" ")}
-              loading={i < 3 ? "eager" : "lazy"}
-              decoding="async"
-            />
-          ))
+          <>
+            {(autoNext && stripChapters.length > 0 ? stripChapters : [{
+              chapterId: activeChapter?.id ?? 0,
+              chapterName: activeChapter?.name ?? "",
+              urls: pageUrls,
+              startGlobalIdx: 0,
+            }]).map((chunk) =>
+              chunk.urls.map((url, i) => {
+                const globalIdx = chunk.startGlobalIdx + i;
+                return (
+                  <img
+                    key={`${chunk.chapterId}-${i}`}
+                    src={url}
+                    alt={`${chunk.chapterName} – Page ${i + 1}`}
+                    data-page={globalIdx + 1}
+                    data-chapter={chunk.chapterId}
+                    className={[imgCls, settings.pageGap ? s.stripGap : ""].join(" ")}
+                    loading={globalIdx < 3 ? "eager" : "lazy"}
+                    decoding="async"
+                  />
+                );
+              })
+            )}
+          </>
         ) : (
           <img
             key={pageNumber}

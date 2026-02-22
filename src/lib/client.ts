@@ -1,8 +1,24 @@
-const SUWAYOMI = "http://127.0.0.1:4567";
-const GQL = `${SUWAYOMI}/api/graphql`;
+const DEFAULT_URL = "http://127.0.0.1:4567";
+
+function getServerUrl(): string {
+  // Read from persisted Zustand store if available, fall back to default
+  try {
+    const raw = localStorage.getItem("moku-settings");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const url = parsed?.state?.settings?.serverUrl;
+      if (typeof url === "string" && url.trim()) return url.replace(/\/$/, "");
+    }
+  } catch {}
+  return DEFAULT_URL;
+}
+
+function gqlUrl(): string { return `${getServerUrl()}/api/graphql`; }
 
 export function thumbUrl(path: string): string {
-  return `${SUWAYOMI}${path}`;
+  if (!path) return "";
+  if (path.startsWith("http")) return path;
+  return `${getServerUrl()}${path}`;
 }
 
 interface GQLResponse<T> {
@@ -28,7 +44,7 @@ export async function gql<T>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
-  const res = await fetchWithRetry(GQL, {
+  const res = await fetchWithRetry(gqlUrl(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables }),

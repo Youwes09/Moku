@@ -10,14 +10,15 @@ import type { DownloadStatus } from "../../lib/types";
 import s from "./DownloadQueue.module.css";
 
 export default function DownloadQueue() {
-  const [status, setStatus]         = useState<DownloadStatus | null>(null);
-  const [loading, setLoading]       = useState(true);
+  const [status, setStatus]             = useState<DownloadStatus | null>(null);
+  const [loading, setLoading]           = useState(true);
   const [togglingPlay, setTogglingPlay] = useState(false);
-  const [clearing, setClearing]     = useState(false);
-  const [dequeueing, setDequeueing] = useState<Set<number>>(new Set());
-  const setActiveDownloads          = useStore((s) => s.setActiveDownloads);
+  const [clearing, setClearing]         = useState(false);
+  const [dequeueing, setDequeueing]     = useState<Set<number>>(new Set());
+  const setActiveDownloads              = useStore((s) => s.setActiveDownloads);
 
-  // Apply status to local state + global store
+  // Apply status to local state + global store.
+  // Completion toasting is handled globally in App.tsx — no duplication here.
   const applyStatus = useCallback((ds: DownloadStatus) => {
     setStatus(ds);
     setActiveDownloads(
@@ -47,7 +48,6 @@ export default function DownloadQueue() {
   async function togglePlay() {
     if (togglingPlay) return;
     setTogglingPlay(true);
-    // Optimistic flip so button responds instantly
     const wasRunning = status?.state === "STARTED";
     setStatus((prev) => prev ? { ...prev, state: wasRunning ? "STOPPED" : "STARTED" } : prev);
     try {
@@ -60,7 +60,7 @@ export default function DownloadQueue() {
       }
     } catch (e) {
       console.error(e);
-      poll(); // resync on error
+      poll();
     } finally {
       setTogglingPlay(false);
     }
@@ -69,7 +69,6 @@ export default function DownloadQueue() {
   async function clear() {
     if (clearing) return;
     setClearing(true);
-    // Optimistic clear
     setStatus((prev) => prev ? { ...prev, queue: [] } : prev);
     setActiveDownloads([]);
     try {
@@ -77,7 +76,7 @@ export default function DownloadQueue() {
       applyStatus(d.clearDownloader.downloadStatus);
     } catch (e) {
       console.error(e);
-      poll(); // resync on error
+      poll();
     } finally {
       setClearing(false);
     }
@@ -86,13 +85,11 @@ export default function DownloadQueue() {
   async function dequeue(chapterId: number) {
     if (dequeueing.has(chapterId)) return;
     setDequeueing((prev) => new Set(prev).add(chapterId));
-    // Optimistic remove
     setStatus((prev) =>
       prev ? { ...prev, queue: prev.queue.filter((i) => i.chapter.id !== chapterId) } : prev
     );
     try {
       await gql(DEQUEUE_DOWNLOAD, { chapterId });
-      // Sync authoritative state after dequeue
       poll();
     } catch (e) {
       console.error(e);
@@ -118,7 +115,6 @@ export default function DownloadQueue() {
       <div className={s.header}>
         <h1 className={s.heading}>Downloads</h1>
         <div className={s.headerActions}>
-          {/* Play / Pause toggle */}
           <button
             className={[s.iconBtn, togglingPlay ? s.iconBtnLoading : ""].join(" ").trim()}
             onClick={togglePlay}
@@ -134,7 +130,6 @@ export default function DownloadQueue() {
             )}
           </button>
 
-          {/* Clear queue */}
           <button
             className={[s.iconBtn, clearing ? s.iconBtnLoading : ""].join(" ").trim()}
             onClick={clear}
@@ -169,10 +164,10 @@ export default function DownloadQueue() {
       ) : (
         <div className={s.list}>
           {queue.map((item, i) => {
-            const isActive  = i === 0 && isRunning;
-            const pages     = item.chapter.pageCount ?? 0;
-            const done      = pagesDownloaded(item.progress, pages);
-            const manga     = item.chapter.manga;
+            const isActive   = i === 0 && isRunning;
+            const pages      = item.chapter.pageCount ?? 0;
+            const done       = pagesDownloaded(item.progress, pages);
+            const manga      = item.chapter.manga;
             const isRemoving = dequeueing.has(item.chapter.id);
 
             return (
@@ -193,17 +188,13 @@ export default function DownloadQueue() {
                 )}
 
                 <div className={s.info}>
-                  {manga?.title && (
-                    <span className={s.mangaTitle}>{manga.title}</span>
-                  )}
+                  {manga?.title && <span className={s.mangaTitle}>{manga.title}</span>}
                   <span className={s.chapterName}>{item.chapter.name}</span>
-
                   {pages > 0 && (
                     <span className={s.pagesLabel}>
                       {isActive ? `${done} / ${pages} pages` : `${pages} pages`}
                     </span>
                   )}
-
                   {isActive && (
                     <div className={s.progressWrap}>
                       <div

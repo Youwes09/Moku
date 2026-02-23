@@ -77,53 +77,86 @@ function DownloadModal({
   remaining,
   onClose,
 }: {
-  chapter: { id: number; name: string };
-  remaining: { id: number }[];
+  chapter: { id: number; name: string; isDownloaded?: boolean };
+  remaining: { id: number; isDownloaded?: boolean }[];
   onClose: () => void;
 }) {
+  const addToast = useStore((s) => s.addToast);
   const [nextN, setNextN] = useState(5);
   const [busy, setBusy]   = useState(false);
 
-  const run = async (fn: () => Promise<unknown>) => {
+  // Only offer chapters that aren't already downloaded
+  const queueable = remaining.filter((c) => !c.isDownloaded);
+
+  const run = async (fn: () => Promise<unknown>, toastBody: string) => {
     setBusy(true);
-    await fn().catch(console.error);
+    try {
+      await fn();
+      addToast({ kind: "download", title: "Download queued", body: toastBody });
+    } catch (e) {
+      addToast({ kind: "error", title: "Queue failed", body: e instanceof Error ? e.message : String(e) });
+    }
     setBusy(false);
     onClose();
   };
+
+  const thisAlreadyDl = !!chapter.isDownloaded;
 
   return (
     <div className={s.dlBackdrop} onClick={onClose}>
       <div className={s.dlModal} onClick={(e) => e.stopPropagation()}>
         <p className={s.dlTitle}>Download</p>
-        <button className={s.dlOption} disabled={busy}
-          onClick={() => run(() => gql(ENQUEUE_DOWNLOAD, { chapterId: chapter.id }))}>
+        <button
+          className={s.dlOption}
+          disabled={busy || thisAlreadyDl}
+          onClick={() => run(
+            () => gql(ENQUEUE_DOWNLOAD, { chapterId: chapter.id }),
+            thisAlreadyDl ? "" : chapter.name,
+          )}
+        >
           This chapter
-          <span className={s.dlSub}>{chapter.name}</span>
+          <span className={s.dlSub}>
+            {thisAlreadyDl ? "Already downloaded" : chapter.name}
+          </span>
         </button>
         <div className={s.dlRow}>
-          <button className={s.dlOption} disabled={busy || !remaining.length}
-            onClick={() => run(() => gql(ENQUEUE_CHAPTERS_DOWNLOAD, {
-              chapterIds: remaining.slice(0, nextN).map((c) => c.id),
-            }))}>
+          <button
+            className={s.dlOption}
+            disabled={busy || queueable.length === 0}
+            onClick={() => run(
+              () => gql(ENQUEUE_CHAPTERS_DOWNLOAD, {
+                chapterIds: queueable.slice(0, nextN).map((c) => c.id),
+              }),
+              `${Math.min(nextN, queueable.length)} chapters queued`,
+            )}
+          >
             Next chapters
-            <span className={s.dlSub}>{Math.min(nextN, remaining.length)} queued</span>
+            <span className={s.dlSub}>{Math.min(nextN, queueable.length)} not yet downloaded</span>
           </button>
           <div className={s.dlStepper} onClick={(e) => e.stopPropagation()}>
-            <button className={s.dlStepBtn}
+            <button
+              className={s.dlStepBtn}
               onClick={() => setNextN((n) => Math.max(1, n - 1))}
-              disabled={nextN <= 1}>−</button>
+              disabled={nextN <= 1}
+            >−</button>
             <span className={s.dlStepVal}>{nextN}</span>
-            <button className={s.dlStepBtn}
-              onClick={() => setNextN((n) => Math.min(remaining.length || 1, n + 1))}
-              disabled={nextN >= remaining.length}>+</button>
+            <button
+              className={s.dlStepBtn}
+              onClick={() => setNextN((n) => Math.min(queueable.length || 1, n + 1))}
+              disabled={nextN >= queueable.length}
+            >+</button>
           </div>
         </div>
-        <button className={s.dlOption} disabled={busy || !remaining.length}
-          onClick={() => run(() => gql(ENQUEUE_CHAPTERS_DOWNLOAD, {
-            chapterIds: remaining.map((c) => c.id),
-          }))}>
+        <button
+          className={s.dlOption}
+          disabled={busy || queueable.length === 0}
+          onClick={() => run(
+            () => gql(ENQUEUE_CHAPTERS_DOWNLOAD, { chapterIds: queueable.map((c) => c.id) }),
+            `${queueable.length} chapter${queueable.length !== 1 ? "s" : ""} queued`,
+          )}
+        >
           All remaining
-          <span className={s.dlSub}>{remaining.length} chapters</span>
+          <span className={s.dlSub}>{queueable.length} not yet downloaded</span>
         </button>
       </div>
     </div>
@@ -909,6 +942,7 @@ export default function Reader() {
         style={cssVars}
         tabIndex={-1}
         onClick={handleTap}
+        onWheel={(e) => { if (e.ctrlKey) e.preventDefault(); }}
         onKeyDown={(e) => {
           if (e.key === " " && style === "longstrip") {
             e.preventDefault();

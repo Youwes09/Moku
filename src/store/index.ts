@@ -20,6 +20,14 @@ export interface HistoryEntry {
   readAt: number;
 }
 
+export interface Toast {
+  id: string;
+  kind: "success" | "error" | "info" | "download";
+  title: string;
+  body?: string;
+  duration?: number;
+}
+
 export interface ActiveDownload {
   chapterId: number;
   mangaId: number;
@@ -119,6 +127,9 @@ interface Store {
   history: HistoryEntry[];
   addHistory: (entry: HistoryEntry) => void;
   clearHistory: () => void;
+  toasts: Toast[];
+  addToast: (toast: Omit<Toast, "id">) => void;
+  dismissToast: (id: string) => void;
   settings: Settings;
   updateSettings: (patch: Partial<Settings>) => void;
   resetKeybinds: () => void;
@@ -177,6 +188,13 @@ export const useStore = create<Store>()(
           return { history: [entry, ...deduped].slice(0, 300) };
         }),
       clearHistory: () => set({ history: [] }),
+      toasts: [],
+      addToast: (toast) =>
+        set((s) => ({
+          toasts: [...s.toasts, { ...toast, id: Math.random().toString(36).slice(2) }].slice(-5),
+        })),
+      dismissToast: (id) =>
+        set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
       settings: DEFAULT_SETTINGS,
       updateSettings: (patch) =>
         set((s) => ({ settings: { ...s.settings, ...patch } })),

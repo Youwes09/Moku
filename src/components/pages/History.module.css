@@ -38,6 +38,44 @@
 }
 .clearBtn:hover { color: var(--color-error); background: var(--color-error-bg); }
 
+.statsBar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-6);
+  border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0;
+  background: var(--bg-raised);
+}
+
+.statItem {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.statVal {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--accent-fg);
+  letter-spacing: var(--tracking-tight);
+}
+
+.statLabel {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wide);
+}
+
+.statDivider {
+  width: 1px;
+  height: 12px;
+  background: var(--border-dim);
+  flex-shrink: 0;
+}
+
 .list { flex: 1; overflow-y: auto; padding: var(--sp-4) var(--sp-6); }
 
 .group { margin-bottom: var(--sp-5); }

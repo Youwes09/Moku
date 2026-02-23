@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
   ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle,
-  ArrowSquareOut, BookOpen, CircleNotch, Play,
+  ArrowSquareOut, CircleNotch, Play,
   SortAscending, SortDescending, CaretDown, ArrowsClockwise,
   List, SquaresFour, FolderSimplePlus, X, Trash, DownloadSimple,
 } from "@phosphor-icons/react";
@@ -16,6 +16,8 @@ import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
 import MigrateModal from "./MigrateModal";
 import type { Manga, Chapter } from "../../lib/types";
 import s from "./SeriesDetail.module.css";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatDate(ts: string | null | undefined): string {
   if (!ts) return "";
@@ -33,7 +35,8 @@ interface CtxState {
 
 const CHAPTERS_PER_PAGE = 25;
 
-// ── Download dropdown with range picker ──────────────────────────────────────
+// ── Download dropdown ─────────────────────────────────────────────────────────
+
 interface DownloadDropdownProps {
   sortedChapters: Chapter[];
   continueChapter: { chapter: Chapter; type: string } | null;
@@ -91,12 +94,9 @@ function DownloadDropdown({
   return (
     <div className={s.dlDropdown} ref={ref}>
 
-      {/* ── Next N from current ── */}
       {continueChapter && continueIdx >= 0 && (
         <>
-          <p className={s.dlSectionLabel}>
-            From Ch.{continueChapter.chapter.chapterNumber}
-          </p>
+          <p className={s.dlSectionLabel}>From Ch.{continueChapter.chapter.chapterNumber}</p>
           <div className={s.dlNextRow}>
             {[5, 10, 25].map((n) => {
               const avail = sortedChapters
@@ -119,7 +119,6 @@ function DownloadDropdown({
         </>
       )}
 
-      {/* ── Custom range ── */}
       <button className={s.dlItem} onClick={() => setShowRange((p) => !p)}>
         <span>Custom range…</span>
         <span className={s.dlItemSub}>Enter chapter numbers</span>
@@ -153,14 +152,11 @@ function DownloadDropdown({
 
       <div className={s.dlDivider} />
 
-      {/* ── Standard options ── */}
-      <button className={s.dlItem}
-        onClick={() => onEnqueue(unreadNotDl.map((c) => c.id))}>
+      <button className={s.dlItem} onClick={() => onEnqueue(unreadNotDl.map((c) => c.id))}>
         <span>Unread chapters</span>
         <span className={s.dlItemSub}>{unreadNotDl.length} remaining</span>
       </button>
-      <button className={s.dlItem}
-        onClick={() => onEnqueue(allNotDl.map((c) => c.id))}>
+      <button className={s.dlItem} onClick={() => onEnqueue(allNotDl.map((c) => c.id))}>
         <span>Download all</span>
         <span className={s.dlItemSub}>{allNotDl.length} not yet downloaded</span>
       </button>
@@ -182,18 +178,20 @@ function DownloadDropdown({
   );
 }
 
-// ── Folder picker (icon button for list header) ───────────────────────────────
+// ── Folder picker ─────────────────────────────────────────────────────────────
+
 function FolderPicker({ mangaId }: { mangaId: number }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen]         = useState(false);
+  const [newName, setNewName]   = useState("");
+  const [creating, setCreating] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
   const folders               = useStore((st) => st.settings.folders);
   const assignMangaToFolder   = useStore((st) => st.assignMangaToFolder);
   const removeMangaFromFolder = useStore((st) => st.removeMangaFromFolder);
   const addFolder             = useStore((st) => st.addFolder);
-  const [newName, setNewName]   = useState("");
-  const [creating, setCreating] = useState(false);
 
-  const assigned = folders.filter((f) => f.mangaIds.includes(mangaId));
+  const assigned    = folders.filter((f) => f.mangaIds.includes(mangaId));
   const hasAssigned = assigned.length > 0;
 
   useEffect(() => {
@@ -283,31 +281,39 @@ function FolderPicker({ mangaId }: { mangaId: number }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function SeriesDetail() {
-  const activeManga     = useStore((state) => state.activeManga);
-  const setActiveManga  = useStore((state) => state.setActiveManga);
-  const openReader      = useStore((state) => state.openReader);
-  const settings        = useStore((state) => state.settings);
-  const updateSettings  = useStore((state) => state.updateSettings);
 
-  const [manga, setManga]               = useState<Manga | null>(activeManga);
-  const [chapters, setChapters]         = useState<Chapter[]>([]);
-  const [loadingManga, setLoadingManga] = useState(true);
+export default function SeriesDetail() {
+  const activeManga         = useStore((state) => state.activeManga);
+  const setActiveManga      = useStore((state) => state.setActiveManga);
+  const openReader          = useStore((state) => state.openReader);
+  const settings            = useStore((state) => state.settings);
+  const updateSettings      = useStore((state) => state.updateSettings);
+  const addToast            = useStore((state) => state.addToast);
+  const setLibraryTagFilter = useStore((state) => state.setLibraryTagFilter);
+  const setLibraryFilter    = useStore((state) => state.setLibraryFilter);
+
+  const [manga, setManga]                   = useState<Manga | null>(activeManga);
+  const [chapters, setChapters]             = useState<Chapter[]>([]);
+  const [loadingManga, setLoadingManga]     = useState(false);
   const [loadingChapters, setLoadingChapters] = useState(true);
-  const [enqueueing, setEnqueueing]     = useState<Set<number>>(new Set());
-  const [dlOpen, setDlOpen]             = useState(false);
-  const [detailsOpen, setDetailsOpen]   = useState(false);
-  const [migrateOpen, setMigrateOpen]   = useState(false);
+  const [enqueueing, setEnqueueing]         = useState<Set<number>>(new Set());
+  const [dlOpen, setDlOpen]                 = useState(false);
+  const [detailsOpen, setDetailsOpen]       = useState(false);
+  const [migrateOpen, setMigrateOpen]       = useState(false);
   const [togglingLibrary, setTogglingLibrary] = useState(false);
-  const [chapterPage, setChapterPage]   = useState(1);
-  const [ctx, setCtx]                   = useState<CtxState | null>(null);
-  const [jumpOpen, setJumpOpen]         = useState(false);
-  const [jumpInput, setJumpInput]       = useState("");
-  const [viewMode, setViewMode]         = useState<"list" | "grid">("list");
-  const [deletingAll, setDeletingAll]   = useState(false);
+  const [chapterPage, setChapterPage]       = useState(1);
+  const [ctx, setCtx]                       = useState<CtxState | null>(null);
+  const [jumpOpen, setJumpOpen]             = useState(false);
+  const [jumpInput, setJumpInput]           = useState("");
+  const [viewMode, setViewMode]             = useState<"list" | "grid">("list");
+  const [deletingAll, setDeletingAll]       = useState(false);
+  const [refreshing, setRefreshing]         = useState(false);
+  const [descExpanded, setDescExpanded]     = useState(false);
+  const [genresExpanded, setGenresExpanded] = useState(false);
 
   const sortDir = settings.chapterSortDir;
 
+  // Load extended manga details
   useEffect(() => {
     if (!activeManga) return;
     setLoadingManga(true);
@@ -326,6 +332,7 @@ export default function SeriesDetail() {
       });
   }, []);
 
+  // Load chapters: show cache immediately, then silently refresh from source
   useEffect(() => {
     if (!activeManga) return;
     setLoadingChapters(true);
@@ -333,40 +340,48 @@ export default function SeriesDetail() {
     setChapterPage(1);
 
     loadChapters(activeManga.id)
+      .then((cached) =>
+        gql(FETCH_CHAPTERS, { mangaId: activeManga.id })
+          .then(() => loadChapters(activeManga.id))
+          .then((fresh) => {
+            // Suppress no-op: if count unchanged the state is already correct
+            void (fresh.length === cached.length);
+          })
+          .catch(console.error)
+      )
       .catch(console.error)
       .finally(() => setLoadingChapters(false));
-
-    gql(FETCH_CHAPTERS, { mangaId: activeManga.id })
-      .then(() => loadChapters(activeManga.id))
-      .catch(console.error);
   }, [activeManga?.id]);
+
+  // ── Derived state ──────────────────────────────────────────────────────────
 
   const sortedChapters = useMemo(() =>
     sortDir === "desc" ? [...chapters].reverse() : [...chapters],
     [chapters, sortDir]
   );
 
-  const totalPages = Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE);
-  const pageChapters = sortedChapters.slice(
+  const totalPages    = Math.ceil(sortedChapters.length / CHAPTERS_PER_PAGE);
+  const pageChapters  = sortedChapters.slice(
     (chapterPage - 1) * CHAPTERS_PER_PAGE,
     chapterPage * CHAPTERS_PER_PAGE
   );
-
-  const readCount = chapters.filter((c) => c.isRead).length;
-  const totalCount = chapters.length;
-  const progressPct = totalCount > 0 ? (readCount / totalCount) * 100 : 0;
+  const readCount      = chapters.filter((c) => c.isRead).length;
+  const totalCount     = chapters.length;
+  const progressPct    = totalCount > 0 ? (readCount / totalCount) * 100 : 0;
   const downloadedCount = chapters.filter((c) => c.isDownloaded).length;
 
   const continueChapter = useMemo(() => {
     if (!chapters.length) return null;
     const asc = [...chapters].sort((a, b) => a.sourceOrder - b.sourceOrder);
-    const anyRead = asc.some((c) => c.isRead);
+    const anyRead    = asc.some((c) => c.isRead);
     const inProgress = asc.find((c) => !c.isRead && (c.lastPageRead ?? 0) > 0);
     if (inProgress) return { chapter: inProgress, type: "continue" as const };
     const firstUnread = asc.find((c) => !c.isRead);
     if (firstUnread) return { chapter: firstUnread, type: anyRead ? "continue" : "start" as const };
     return { chapter: asc[0], type: "reread" as const };
   }, [chapters]);
+
+  // ── Actions ────────────────────────────────────────────────────────────────
 
   async function toggleLibrary() {
     if (!manga) return;
@@ -381,7 +396,19 @@ export default function SeriesDetail() {
     e.stopPropagation();
     setEnqueueing((prev) => new Set(prev).add(chapter.id));
     await gql(ENQUEUE_DOWNLOAD, { chapterId: chapter.id }).catch(console.error);
+    addToast({ kind: "download", title: "Download queued", body: chapter.name });
     setEnqueueing((prev) => { const n = new Set(prev); n.delete(chapter.id); return n; });
+    if (activeManga) loadChapters(activeManga.id);
+  }
+
+  async function enqueueMultiple(chapterIds: number[]) {
+    if (!chapterIds.length) return;
+    await gql(ENQUEUE_CHAPTERS_DOWNLOAD, { chapterIds }).catch(console.error);
+    addToast({
+      kind: "download",
+      title: "Download queued",
+      body: `${chapterIds.length} chapter${chapterIds.length !== 1 ? "s" : ""} added to queue`,
+    });
     if (activeManga) loadChapters(activeManga.id);
   }
 
@@ -390,13 +417,20 @@ export default function SeriesDetail() {
     setChapters((prev) => prev.map((c) => c.id === chapterId ? { ...c, isRead } : c));
   }
 
-  async function markAllAboveRead(indexInSorted: number) {
-    const targets = sortedChapters.slice(0, indexInSorted + 1);
-    const ids = targets.filter((c) => !c.isRead).map((c) => c.id);
+  async function markBulk(ids: number[], isRead: boolean) {
     if (!ids.length) return;
-    await gql(MARK_CHAPTERS_READ, { ids, isRead: true }).catch(console.error);
-    setChapters((prev) => prev.map((c) => ids.includes(c.id) ? { ...c, isRead: true } : c));
+    await gql(MARK_CHAPTERS_READ, { ids, isRead }).catch(console.error);
+    setChapters((prev) => prev.map((c) => ids.includes(c.id) ? { ...c, isRead } : c));
   }
+
+  const markAllAboveRead    = (i: number) =>
+    markBulk(sortedChapters.slice(0, i + 1).filter((c) => !c.isRead).map((c) => c.id), true);
+  const markAllBelowRead    = (i: number) =>
+    markBulk(sortedChapters.slice(i).filter((c) => !c.isRead).map((c) => c.id), true);
+  const markAllAboveUnread  = (i: number) =>
+    markBulk(sortedChapters.slice(0, i + 1).filter((c) => c.isRead).map((c) => c.id), false);
+  const markAllBelowUnread  = (i: number) =>
+    markBulk(sortedChapters.slice(i).filter((c) => c.isRead).map((c) => c.id), false);
 
   async function deleteDownloaded(chapterId: number) {
     await gql(DELETE_DOWNLOADED_CHAPTERS, { ids: [chapterId] }).catch(console.error);
@@ -412,37 +446,67 @@ export default function SeriesDetail() {
     setDeletingAll(false);
   }
 
-  async function enqueueMultiple(chapterIds: number[]) {
-    await gql(ENQUEUE_CHAPTERS_DOWNLOAD, { chapterIds }).catch(console.error);
-    if (activeManga) loadChapters(activeManga.id);
+  async function refreshChapters() {
+    if (!activeManga || refreshing) return;
+    setRefreshing(true);
+    await gql(FETCH_CHAPTERS, { mangaId: activeManga.id })
+      .then(() => loadChapters(activeManga.id))
+      .then(() => addToast({ kind: "success", title: "Chapters refreshed" }))
+      .catch((e) => addToast({ kind: "error", title: "Refresh failed", body: e?.message ?? String(e) }))
+      .finally(() => setRefreshing(false));
   }
 
+  // ── FIX: restored missing function declaration ─────────────────────────────
   function openContextMenu(e: React.MouseEvent, chapter: Chapter, indexInSorted: number) {
     e.preventDefault();
     setCtx({ x: e.clientX, y: e.clientY, chapter, indexInSorted });
   }
 
   function buildCtxItems(ch: Chapter, indexInSorted: number): ContextMenuEntry[] {
+    const aboveItems  = sortedChapters.slice(0, indexInSorted + 1);
+    const belowItems  = sortedChapters.slice(indexInSorted);
+    const unreadAbove = aboveItems.filter((c) => !c.isRead).length;
+    const unreadBelow = belowItems.filter((c) => !c.isRead).length;
+    const readAbove   = aboveItems.filter((c) => c.isRead).length;
+    const readBelow   = belowItems.filter((c) => c.isRead).length;
+    const lastIdx     = sortedChapters.length - 1;
+
     return [
       {
         label: ch.isRead ? "Mark as unread" : "Mark as read",
-        icon: ch.isRead
-          ? <Circle size={13} weight="light" />
-          : <CheckCircle size={13} weight="light" />,
+        icon: ch.isRead ? <Circle size={13} weight="light" /> : <CheckCircle size={13} weight="light" />,
         onClick: () => markRead(ch.id, !ch.isRead),
       },
+      { separator: true },
       {
-        label: "Mark all above as read",
+        label: "Mark above as read",
         icon: <CheckCircle size={13} weight="duotone" />,
         onClick: () => markAllAboveRead(indexInSorted),
-        disabled: indexInSorted === 0,
+        disabled: indexInSorted === 0 || unreadAbove === 0,
+      },
+      {
+        label: "Mark above as unread",
+        icon: <Circle size={13} weight="duotone" />,
+        onClick: () => markAllAboveUnread(indexInSorted),
+        disabled: indexInSorted === 0 || readAbove === 0,
+      },
+      { separator: true },
+      {
+        label: "Mark below as read",
+        icon: <CheckCircle size={13} weight="duotone" />,
+        onClick: () => markAllBelowRead(indexInSorted),
+        disabled: indexInSorted === lastIdx || unreadBelow === 0,
+      },
+      {
+        label: "Mark below as unread",
+        icon: <Circle size={13} weight="duotone" />,
+        onClick: () => markAllBelowUnread(indexInSorted),
+        disabled: indexInSorted === lastIdx || readBelow === 0,
       },
       { separator: true },
       {
         label: ch.isDownloaded ? "Delete download" : "Download",
-        icon: ch.isDownloaded
-          ? <Trash size={13} weight="light" />
-          : <Download size={13} weight="light" />,
+        icon: ch.isDownloaded ? <Trash size={13} weight="light" /> : <Download size={13} weight="light" />,
         onClick: () => ch.isDownloaded
           ? deleteDownloaded(ch.id)
           : gql(ENQUEUE_DOWNLOAD, { chapterId: ch.id }).catch(console.error),
@@ -474,14 +538,19 @@ export default function SeriesDetail() {
     ];
   }
 
+  // ── Early exit ─────────────────────────────────────────────────────────────
+
   if (!activeManga) return null;
 
   const statusLabel = manga?.status
     ? manga.status.charAt(0) + manga.status.slice(1).toLowerCase()
     : null;
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className={s.root} onContextMenu={(e) => e.preventDefault()}>
+
       {/* ── Sidebar ── */}
       <div className={s.sidebar}>
         <button className={s.back} onClick={() => setActiveManga(null)}>
@@ -512,22 +581,54 @@ export default function SeriesDetail() {
             )}
 
             {statusLabel && (
-              <span className={[s.statusBadge, manga?.status === "ONGOING" ? s.statusOngoing : s.statusEnded].join(" ").trim()}>
+              <span className={[
+                s.statusBadge,
+                manga?.status === "ONGOING" ? s.statusOngoing : s.statusEnded,
+              ].join(" ").trim()}>
                 {statusLabel}
               </span>
             )}
 
             {manga?.genre && manga.genre.length > 0 && (
               <div className={s.genres}>
-                {manga.genre.map((g) => <span key={g} className={s.genre}>{g}</span>)}
+                {(genresExpanded ? manga.genre : manga.genre.slice(0, 5)).map((g) => (
+                  <button
+                    key={g}
+                    className={[s.genre, s.genreClickable].join(" ")}
+                    title={`Filter library by "${g}"`}
+                    onClick={() => {
+                      setLibraryTagFilter([g]);
+                      setLibraryFilter("library");
+                      setActiveManga(null);
+                    }}
+                  >
+                    {g}
+                  </button>
+                ))}
+                {manga.genre.length > 5 && (
+                  <button className={s.genreToggle} onClick={() => setGenresExpanded((p) => !p)}>
+                    {genresExpanded ? "less" : `+${manga.genre.length - 5}`}
+                  </button>
+                )}
               </div>
             )}
 
-            {manga?.description && <p className={s.description}>{manga.description}</p>}
+            {manga?.description && (
+              <div className={s.descriptionWrap}>
+                <p className={[s.description, descExpanded ? s.descriptionExpanded : ""].join(" ")}>
+                  {manga.description}
+                </p>
+                {manga.description.length > 120 && (
+                  <button className={s.descToggle} onClick={() => setDescExpanded((p) => !p)}>
+                    {descExpanded ? "Less" : "More"}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Progress bar */}
+        {/* Progress */}
         {totalCount > 0 && (
           <div className={s.progressSection}>
             <div className={s.progressHeader}>
@@ -557,8 +658,6 @@ export default function SeriesDetail() {
           )}
         </div>
 
-        {/* Folder picker moved to chapter list header */}
-
         {continueChapter && (
           <button
             className={s.readBtn}
@@ -580,9 +679,34 @@ export default function SeriesDetail() {
 
         <p className={s.chapterCount}>
           {totalCount} {totalCount === 1 ? "chapter" : "chapters"}
+          {readCount > 0 && ` · ${readCount} read`}
         </p>
 
-        {/* ── Details (collapsible) ── */}
+        {/* Quick mark-all */}
+        {totalCount > 0 && (
+          <div className={s.markAllRow}>
+            <button
+              className={s.markAllBtn}
+              onClick={() => markAllAboveRead(sortedChapters.length - 1)}
+              disabled={readCount === totalCount}
+              title="Mark all chapters as read"
+            >
+              <CheckCircle size={12} weight="light" />
+              All read
+            </button>
+            <button
+              className={s.markAllBtn}
+              onClick={() => markAllAboveUnread(sortedChapters.length - 1)}
+              disabled={readCount === 0}
+              title="Mark all chapters as unread"
+            >
+              <Circle size={12} weight="light" />
+              All unread
+            </button>
+          </div>
+        )}
+
+        {/* Details (collapsible) */}
         {!loadingManga && manga?.source && (
           <div className={s.detailsSection}>
             <button className={s.detailsToggle} onClick={() => setDetailsOpen((p) => !p)}>
@@ -607,8 +731,6 @@ export default function SeriesDetail() {
                   <ArrowsClockwise size={12} weight="light" />
                   Switch source
                 </button>
-
-                {/* Delete all downloads */}
                 {downloadedCount > 0 && (
                   <button
                     className={s.deleteAllBtn}
@@ -657,7 +779,14 @@ export default function SeriesDetail() {
           </div>
 
           <div className={s.listHeaderRight}>
-            {/* Folder picker */}
+            <button
+              className={s.viewToggleBtn}
+              onClick={refreshChapters}
+              disabled={refreshing}
+              title="Refresh chapters from source"
+            >
+              <ArrowsClockwise size={14} weight="light" className={refreshing ? "anim-spin" : ""} />
+            </button>
             {activeManga && <FolderPicker mangaId={activeManga.id} />}
 
             {/* Jump to chapter */}
@@ -752,8 +881,7 @@ export default function SeriesDetail() {
               ))
             )
           ) : viewMode === "grid" ? (
-            sortedChapters.map((ch) => {
-              const idxInSorted = sortedChapters.indexOf(ch);
+            sortedChapters.map((ch, idxInSorted) => {
               const inProgress = !ch.isRead && (ch.lastPageRead ?? 0) > 0;
               return (
                 <button
@@ -788,10 +916,14 @@ export default function SeriesDetail() {
             pageChapters.map((ch) => {
               const idxInSorted = sortedChapters.indexOf(ch);
               return (
-                <button
+                // div instead of button so the nested download/delete buttons are valid HTML
+                <div
                   key={ch.id}
+                  role="button"
+                  tabIndex={0}
                   className={[s.row, ch.isRead ? s.rowRead : ""].join(" ").trim()}
                   onClick={() => openReader(ch, sortedChapters)}
+                  onKeyDown={(e) => e.key === "Enter" && openReader(ch, sortedChapters)}
                   onContextMenu={(e) => openContextMenu(e, ch, idxInSorted)}
                 >
                   <div className={s.chLeft}>
@@ -809,19 +941,32 @@ export default function SeriesDetail() {
                     {ch.isBookmarked && (
                       <BookmarkSimple size={12} weight="fill" className={s.bookmarkIcon} />
                     )}
-                    {ch.isRead ? (
+                    {/* Read indicator — always shown when read */}
+                    {ch.isRead && (
                       <CheckCircle size={14} weight="light" className={s.readIcon} />
-                    ) : ch.isDownloaded ? (
-                      <BookOpen size={14} weight="light" className={s.downloadedIcon} />
+                    )}
+                    {/* Download / status indicator — independent of read state */}
+                    {ch.isDownloaded ? (
+                      <button
+                        className={s.dlBtn}
+                        onClick={(e) => { e.stopPropagation(); deleteDownloaded(ch.id); }}
+                        title="Delete download"
+                      >
+                        <Trash size={13} weight="light" />
+                      </button>
                     ) : enqueueing.has(ch.id) ? (
                       <CircleNotch size={14} weight="light" className={[s.enqueuingIcon, "anim-spin"].join(" ")} />
                     ) : (
-                      <button className={s.dlBtn} onClick={(e) => enqueue(ch, e)} title="Download">
+                      <button
+                        className={s.dlBtn}
+                        onClick={(e) => enqueue(ch, e)}
+                        title="Download"
+                      >
                         <Download size={13} weight="light" />
                       </button>
                     )}
                   </div>
-                </button>
+                </div>
               );
             })
           )}

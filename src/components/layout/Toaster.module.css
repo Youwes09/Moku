@@ -1,0 +1,85 @@
+.toaster {
+  position: fixed;
+  bottom: var(--sp-5);
+  right: var(--sp-5);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  pointer-events: none;
+  max-width: 320px;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-base);
+  background: var(--bg-raised);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.08);
+  pointer-events: all;
+  animation: toastIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  min-width: 220px;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(24px) scale(0.96); }
+  to   { opacity: 1; transform: translateX(0)    scale(1); }
+}
+
+/* Kind variants */
+.toast_success { border-color: var(--accent-dim); }
+.toast_success .toastIcon { color: var(--accent-fg); }
+
+.toast_error { border-color: var(--color-error); }
+.toast_error .toastIcon { color: var(--color-error); }
+
+.toast_download .toastIcon { color: var(--accent-fg); }
+.toast_info .toastIcon { color: var(--text-muted); }
+
+.toastIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-faint);
+}
+
+.toastBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toastTitle {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-weight: var(--weight-medium);
+  line-height: 1.3;
+}
+
+.toastSub {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wide);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toastClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  flex-shrink: 0;
+  margin-top: 1px;
+  transition: color var(--t-base), background var(--t-base);
+}
+.toastClose:hover { color: var(--text-muted); background: var(--bg-overlay); }

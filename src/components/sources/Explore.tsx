@@ -448,7 +448,8 @@ function ExploreFeed({ onDrill }: { onDrill: (d: DrillState) => void }) {
       .finally(() => setLoadingPopular(false));
   }, []);
 
-  // Once library loaded AND sources ready, search each frecency genre across sources
+  const FOUNDATIONAL_GENRES = ["Action", "Romance", "Fantasy", "Adventure", "Comedy", "Drama", "Sci-fi", "Horror"];
+
   const frecencyGenres = useMemo(() => {
     const mangaScores = new Map<number, number>();
     const mangaReadAt = new Map<number, number>();
@@ -468,6 +469,10 @@ function ExploreFeed({ onDrill }: { onDrill: (d: DrillState) => void }) {
       allManga.filter((m) => m.inLibrary).forEach((m) =>
         (m.genre ?? []).forEach((g) =>
           genreWeights.set(g, (genreWeights.get(g) ?? 0) + 1)));
+    }
+    // If still empty (new user, no library), fall back to foundational genres
+    if (genreWeights.size === 0) {
+      return FOUNDATIONAL_GENRES.slice(0, 5);
     }
     return Array.from(genreWeights.entries())
       .sort((a, b) => b[1] - a[1])

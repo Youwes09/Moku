@@ -28,10 +28,18 @@ function dayLabel(ts: number): string {
   return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 }
 
-// ── Session grouping ──────────────────────────────────────────────────────────
-// Consecutive entries for the same manga within SESSION_GAP_MS are collapsed
-// into one session card showing the chapter range read.
+// Estimate reading time: ~8 seconds per page, counted from chapter entries
+// Each unique chapter read ≈ pageCount pages (fallback 30 if unknown)
+function formatReadTime(minutes: number): string {
+  if (minutes < 1)   return "< 1 min";
+  if (minutes < 60)  return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0)       return `${h}h`;
+  return `${h}h ${m}m`;
+}
 
+// ── Session grouping ──────────────────────────────────────────────────────────
 const SESSION_GAP_MS = 30 * 60 * 1000; // 30 min
 
 export interface ReadingSession {
@@ -97,7 +105,8 @@ export default function History() {
   const history        = useStore((s) => s.history);
   const clearHistory   = useStore((s) => s.clearHistory);
   const setActiveManga = useStore((s) => s.setActiveManga);
-  const setNavPage     = useStore((s) => s.setNavPage);
+  const openReader     = useStore((s) => s.openReader);
+  const activeChapterList = useStore((s) => s.activeChapterList);
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
@@ -111,9 +120,28 @@ export default function History() {
   const sessions = useMemo(() => buildSessions(filtered), [filtered]);
   const groups   = useMemo(() => groupSessionsByDay(sessions), [sessions]);
 
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    if (!history.length) return null;
+    // Unique chapters read
+    const uniqueChapters = new Set(history.map((e) => e.chapterId)).size;
+    // Unique manga read
+    const uniqueManga = new Set(history.map((e) => e.mangaId)).size;
+    // Estimated read time: average ~45 pages/chapter at ~6s/page = ~4.5 min/chapter
+    const estimatedMinutes = Math.round(uniqueChapters * 4.5);
+    return { uniqueChapters, uniqueManga, estimatedMinutes };
+  }, [history]);
+
   function resumeReading(session: ReadingSession) {
-    setActiveManga({ id: session.mangaId, title: session.mangaTitle, thumbnailUrl: session.thumbnailUrl } as any);
-    setNavPage("library");
+    // If the chapter list is available in store (user already visited this manga),
+    // open the reader directly for a snappier experience
+    const chapterInList = activeChapterList.find((c) => c.id === session.latestChapterId);
+    if (chapterInList && activeChapterList.length > 0) {
+      openReader(chapterInList, activeChapterList);
+    } else {
+      // Fall back to opening SeriesDetail — it will show the continue button
+      setActiveManga({ id: session.mangaId, title: session.mangaTitle, thumbnailUrl: session.thumbnailUrl } as any);
+    }
   }
 
   return (
@@ -136,6 +164,25 @@ export default function History() {
           )}
         </div>
       </div>
+
+      {stats && (
+        <div className={s.statsBar}>
+          <span className={s.statItem}>
+            <span className={s.statVal}>{stats.uniqueChapters}</span>
+            <span className={s.statLabel}>chapters read</span>
+          </span>
+          <span className={s.statDivider} />
+          <span className={s.statItem}>
+            <span className={s.statVal}>{stats.uniqueManga}</span>
+            <span className={s.statLabel}>series</span>
+          </span>
+          <span className={s.statDivider} />
+          <span className={s.statItem}>
+            <span className={s.statVal}>{formatReadTime(stats.estimatedMinutes)}</span>
+            <span className={s.statLabel}>est. read time</span>
+          </span>
+        </div>
+      )}
 
       {history.length === 0 ? (
         <div className={s.empty}>

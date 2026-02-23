@@ -98,6 +98,16 @@
   letter-spacing: var(--tracking-wide);
 }
 
+.genreClickable {
+  cursor: pointer;
+  transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
+}
+.genreClickable:hover {
+  color: var(--accent-fg);
+  border-color: var(--accent-dim);
+  background: var(--accent-muted);
+}
+
 .sourceLabel {
   font-family: var(--font-ui);
   font-size: var(--text-2xs);
@@ -111,10 +121,51 @@
   color: var(--text-muted);
   line-height: var(--leading-base);
   display: -webkit-box;
-  -webkit-line-clamp: 8;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+.descriptionExpanded {
+  -webkit-line-clamp: unset;
+  display: block;
+  overflow: visible;
+}
+
+.descriptionWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.descToggle {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--accent-fg);
+  letter-spacing: var(--tracking-wide);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  opacity: 0.7;
+  transition: opacity var(--t-base);
+}
+.descToggle:hover { opacity: 1; }
+
+.genreToggle {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  letter-spacing: var(--tracking-wide);
+  cursor: pointer;
+  transition: color var(--t-base), border-color var(--t-base);
+}
+.genreToggle:hover { color: var(--accent-fg); border-color: var(--accent-dim); }
 
 /* ── Progress ── */
 .progressSection {
@@ -230,9 +281,38 @@
   color: var(--text-faint);
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
-  margin-top: auto;
   padding-top: var(--sp-2);
 }
+
+/* ── Sidebar mark-all quick actions ── */
+.markAllRow {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.markAllBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px var(--sp-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-dim);
+  background: none;
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  cursor: pointer;
+  transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
+}
+.markAllBtn:hover:not(:disabled) {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+  background: var(--bg-raised);
+}
+.markAllBtn:disabled { opacity: 0.3; cursor: default; }
 
 /* ── Chapter list ── */
 .listWrap {

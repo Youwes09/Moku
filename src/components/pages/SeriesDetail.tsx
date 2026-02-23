@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
-  ArrowLeft, BookmarkSimple, Download, CheckCircle,
+  ArrowLeft, BookmarkSimple, Download, CheckCircle, Circle,
   ArrowSquareOut, BookOpen, CircleNotch, Play,
   SortAscending, SortDescending, CaretDown, ArrowsClockwise,
-  List, SquaresFour, FolderSimplePlus, X, Trash,
+  List, SquaresFour, FolderSimplePlus, X, Trash, DownloadSimple,
 } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import {
@@ -277,16 +277,23 @@ export default function SeriesDetail() {
     return [
       {
         label: ch.isRead ? "Mark as unread" : "Mark as read",
+        icon: ch.isRead
+          ? <Circle size={13} weight="light" />
+          : <CheckCircle size={13} weight="light" />,
         onClick: () => markRead(ch.id, !ch.isRead),
       },
       {
         label: "Mark all above as read",
+        icon: <CheckCircle size={13} weight="duotone" />,
         onClick: () => markAllAboveRead(indexInSorted),
         disabled: indexInSorted === 0,
       },
       { separator: true },
       {
         label: ch.isDownloaded ? "Delete download" : "Download",
+        icon: ch.isDownloaded
+          ? <Trash size={13} weight="light" />
+          : <Download size={13} weight="light" />,
         onClick: () => ch.isDownloaded
           ? deleteDownloaded(ch.id)
           : gql(ENQUEUE_DOWNLOAD, { chapterId: ch.id }).catch(console.error),
@@ -295,6 +302,7 @@ export default function SeriesDetail() {
       { separator: true },
       {
         label: "Download all from here",
+        icon: <DownloadSimple size={13} weight="light" />,
         onClick: () => {
           const fromHere = sortedChapters
             .slice(indexInSorted)

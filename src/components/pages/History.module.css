@@ -12,16 +12,25 @@
   color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase;
 }
 .headerRight { display: flex; align-items: center; gap: var(--sp-2); }
+
 .searchWrap { position: relative; display: flex; align-items: center; }
 .searchIcon { position: absolute; left: 9px; color: var(--text-faint); pointer-events: none; }
 .search {
   background: var(--bg-raised); border: 1px solid var(--border-dim);
-  border-radius: var(--radius-md); padding: 5px 10px 5px 26px;
+  border-radius: var(--radius-md); padding: 5px 28px 5px 26px;
   color: var(--text-primary); font-size: var(--text-sm); width: 180px; outline: none;
   transition: border-color var(--t-base);
 }
 .search::placeholder { color: var(--text-faint); }
 .search:focus { border-color: var(--border-strong); }
+.searchClear {
+  position: absolute; right: 7px;
+  color: var(--text-faint); font-size: 14px; line-height: 1;
+  background: none; border: none; cursor: pointer; padding: 2px;
+  transition: color var(--t-base);
+}
+.searchClear:hover { color: var(--text-muted); }
+
 .clearBtn {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: var(--radius-md);
@@ -47,11 +56,24 @@
 .row:hover { background: var(--bg-raised); border-color: var(--border-dim); }
 .row:hover .playIcon { opacity: 1; }
 
+/* Thumb with session count badge */
+.thumbWrap { position: relative; flex-shrink: 0; }
 .thumb {
   width: 36px; height: 52px; border-radius: var(--radius-sm);
-  object-fit: cover; flex-shrink: 0; background: var(--bg-raised);
+  object-fit: cover; display: block; background: var(--bg-raised);
   border: 1px solid var(--border-dim);
 }
+.sessionBadge {
+  position: absolute; bottom: -4px; right: -6px;
+  background: var(--accent-muted); border: 1px solid var(--accent-dim);
+  color: var(--accent-fg);
+  font-family: var(--font-ui); font-size: 9px; font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 4px; border-radius: 6px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
 .info { flex: 1; display: flex; flex-direction: column; gap: 3px; overflow: hidden; min-width: 0; }
 .mangaTitle {
   font-size: var(--text-base); font-weight: var(--weight-medium);
@@ -59,11 +81,19 @@
 }
 .chapterName {
   font-size: var(--text-sm); color: var(--text-muted);
-  display: flex; align-items: center; gap: var(--sp-2);
+  display: flex; align-items: center; gap: var(--sp-1); min-width: 0;
+}
+.chapterRange {
+  display: flex; align-items: center; gap: 5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-muted); font-size: var(--text-sm);
+}
+.rangeSep {
+  color: var(--text-faint); font-size: 10px; flex-shrink: 0;
 }
 .pageBadge {
   font-family: var(--font-ui); font-size: var(--text-2xs);
-  color: var(--text-faint); letter-spacing: var(--tracking-wide);
+  color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0;
 }
 .time {
   font-family: var(--font-ui); font-size: var(--text-xs);

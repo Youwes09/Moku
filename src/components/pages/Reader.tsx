@@ -206,7 +206,7 @@ export default function Reader() {
   const [dlOpen, setDlOpen]         = useState(false);
   const [zoomOpen, setZoomOpen]     = useState(false);
   const [uiVisible, setUiVisible]   = useState(true);
-  const [markedRead, setMarkedRead] = useState<Set<number>>(new Set());
+  const markedReadRef = useRef<Set<number>>(new Set());
   const [pageGroups, setPageGroups] = useState<number[][]>([]);
   // True only after the first page of the new chapter has been decoded,
   // preventing any flash of the previous chapter's image.
@@ -319,6 +319,7 @@ export default function Reader() {
     setLoading(true); setError(null); setPageGroups([]); setPageReady(false);
     // Reset strip state for new chapter navigation (non-scroll transitions)
     appendedRef.current = new Set();
+    markedReadRef.current = new Set();
 
     const targetId = activeChapter.id;
     loadingChapterRef.current = targetId;
@@ -483,11 +484,13 @@ export default function Reader() {
         chapterName: activeChapter.name, pageNumber, readAt: Date.now(),
       });
     }
-    if (settings.autoMarkRead && pageNumber === lastPage && !markedRead.has(activeChapter.id)) {
-      setMarkedRead((p) => new Set(p).add(activeChapter.id));
-      gql(MARK_CHAPTER_READ, { id: activeChapter.id, isRead: true }).catch(console.error);
+    if (settings.autoMarkRead && pageNumber === lastPage) {
+      if (!markedReadRef.current.has(activeChapter.id)) {
+        markedReadRef.current.add(activeChapter.id);
+        gql(MARK_CHAPTER_READ, { id: activeChapter.id, isRead: true }).catch(console.error);
+      }
     }
-  }, [pageNumber, lastPage, activeChapter?.id]);
+  }, [pageNumber, lastPage, activeChapter?.id, settings.autoMarkRead]);
 
   // ── Navigation ──────────────────────────────────────────────────────────────
   const advanceGroup = useCallback((forward: boolean) => {
@@ -652,11 +655,10 @@ export default function Reader() {
               if (settings.autoMarkRead) {
                 const prevChunk = strip[strip.indexOf(chunk) - 1];
                 if (prevChunk) {
-                  setMarkedRead((r) => {
-                    if (r.has(prevChunk.chapterId)) return r;
+                  if (!markedReadRef.current.has(prevChunk.chapterId)) {
+                    markedReadRef.current.add(prevChunk.chapterId);
                     gql(MARK_CHAPTER_READ, { id: prevChunk.chapterId, isRead: true }).catch(console.error);
-                    return new Set(r).add(prevChunk.chapterId);
-                  });
+                  }
                 }
               }
             }

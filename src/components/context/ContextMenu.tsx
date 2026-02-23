@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import s from "./ContextMenu.module.css";
 
@@ -30,36 +30,62 @@ interface Props {
 }
 
 export default function ContextMenu({ x, y, items, onClose }: Props) {
-  const menuRef = useRef<HTMLDivElement>(null);
+  const menuRef     = useRef<HTMLDivElement>(null);
+  const [focused, setFocused] = useState<number>(-1);
 
-  // Close on outside click or Escape
+  // Build list of actionable (non-separator, non-disabled) indices for keyboard nav
+  const actionable = items
+    .map((_, i) => i)
+    .filter((i) => !("separator" in items[i]) && !(items[i] as ContextMenuItem).disabled);
+
   useEffect(() => {
     function onDown(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocused((prev) => {
+          const cur = actionable.indexOf(prev);
+          return actionable[(cur + 1) % actionable.length] ?? actionable[0];
+        });
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocused((prev) => {
+          const cur = actionable.indexOf(prev);
+          return actionable[(cur - 1 + actionable.length) % actionable.length] ?? actionable[0];
+        });
+        return;
+      }
+      if (e.key === "Enter" && focused >= 0) {
+        e.preventDefault();
+        const item = items[focused] as ContextMenuItem;
+        if (item && !item.disabled) { item.onClick(); onClose(); }
+        return;
+      }
     }
-    // Use capture so we intercept before other handlers
     document.addEventListener("mousedown", onDown, true);
     document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onDown, true);
       document.removeEventListener("keydown", onKey, true);
     };
-  }, [onClose]);
+  }, [onClose, focused, actionable, items]);
 
-  // Adjust position so menu doesn't clip outside viewport.
-  // Compensate for CSS zoom (applied via document.documentElement.style.zoom)
-  // because clientX/Y are pre-zoom pixels while `position:fixed` is post-zoom.
-  const style = useCallback(() => {
+  // Focus first item on open
+  useEffect(() => {
+    if (actionable.length) setFocused(actionable[0]);
+  }, []);
+
+  const getPosition = useCallback(() => {
     const zoom   = parseFloat(document.documentElement.style.zoom || "1") / 100 || 1;
     const scaledX = x / zoom;
     const scaledY = y / zoom;
     const menuW  = 200;
-    const menuH  = items.length * 36;
+    const menuH  = items.length * 34;
     const vw     = window.innerWidth  / zoom;
     const vh     = window.innerHeight / zoom;
     const left   = scaledX + menuW > vw ? scaledX - menuW : scaledX;
@@ -71,7 +97,7 @@ export default function ContextMenu({ x, y, items, onClose }: Props) {
     <div
       ref={menuRef}
       className={s.menu}
-      style={style()}
+      style={getPosition()}
       onContextMenu={(e) => e.preventDefault()}
     >
       {items.map((item, i) => {
@@ -79,14 +105,24 @@ export default function ContextMenu({ x, y, items, onClose }: Props) {
           return <div key={i} className={s.separator} />;
         }
         const mi = item as ContextMenuItem;
+        const isFocused = focused === i;
         return (
           <button
             key={i}
-            className={[s.item, mi.danger ? s.itemDanger : "", mi.disabled ? s.itemDisabled : ""].join(" ").trim()}
+            className={[
+              s.item,
+              mi.danger    ? s.itemDanger    : "",
+              mi.disabled  ? s.itemDisabled  : "",
+              isFocused    ? s.itemFocused   : "",
+            ].filter(Boolean).join(" ")}
             onClick={() => { if (!mi.disabled) { mi.onClick(); onClose(); } }}
+            onMouseEnter={() => !mi.disabled && setFocused(i)}
+            onMouseLeave={() => setFocused(-1)}
             disabled={mi.disabled}
           >
-            {mi.icon && <span className={s.itemIcon}>{mi.icon}</span>}
+            <span className={[s.itemIconWrap, mi.danger ? s.itemIconDanger : ""].filter(Boolean).join(" ")}>
+              {mi.icon ?? null}
+            </span>
             <span className={s.itemLabel}>{mi.label}</span>
           </button>
         );

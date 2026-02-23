@@ -1,66 +1,118 @@
 import { useMemo, useState } from "react";
-import { ClockCounterClockwise, Trash, MagnifyingGlass, Play } from "@phosphor-icons/react";
+import { ClockCounterClockwise, Trash, MagnifyingGlass, Play, Books } from "@phosphor-icons/react";
 import { thumbUrl } from "../../lib/client";
 import { useStore, type HistoryEntry } from "../../store";
 import s from "./History.module.css";
 
+// ── Time helpers ──────────────────────────────────────────────────────────────
+
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
   const m = Math.floor(diff / 60000);
-  if (m < 1)   return "Just now";
-  if (m < 60)  return `${m}m ago`;
+  if (m < 1)  return "Just now";
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24)  return `${h}h ago`;
+  if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  if (d < 7)   return `${d}d ago`;
+  if (d < 7)  return `${d}d ago`;
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// Group entries by day
-function groupByDay(entries: HistoryEntry[]): { label: string; items: HistoryEntry[] }[] {
-  const groups = new Map<string, HistoryEntry[]>();
-  for (const e of entries) {
-    const d   = new Date(e.readAt);
-    const now = new Date();
-    let label: string;
-    if (d.toDateString() === now.toDateString()) label = "Today";
-    else {
-      const yesterday = new Date(now);
-      yesterday.setDate(now.getDate() - 1);
-      if (d.toDateString() === yesterday.toDateString()) label = "Yesterday";
-      else label = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+function dayLabel(ts: number): string {
+  const d   = new Date(ts);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return "Today";
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+}
+
+// ── Session grouping ──────────────────────────────────────────────────────────
+// Consecutive entries for the same manga within SESSION_GAP_MS are collapsed
+// into one session card showing the chapter range read.
+
+const SESSION_GAP_MS = 30 * 60 * 1000; // 30 min
+
+export interface ReadingSession {
+  mangaId:           number;
+  mangaTitle:        string;
+  thumbnailUrl:      string;
+  latestChapterId:   number;
+  latestChapterName: string;
+  latestPageNumber:  number;
+  firstChapterName:  string;
+  chapterCount:      number;
+  readAt:            number;
+}
+
+function buildSessions(entries: HistoryEntry[]): ReadingSession[] {
+  if (!entries.length) return [];
+  const sessions: ReadingSession[] = [];
+  let i = 0;
+  while (i < entries.length) {
+    const anchor = entries[i];
+    const group: HistoryEntry[] = [anchor];
+    let j = i + 1;
+    while (j < entries.length) {
+      const next = entries[j];
+      if (next.mangaId === anchor.mangaId && anchor.readAt - next.readAt <= SESSION_GAP_MS) {
+        group.push(next);
+        j++;
+      } else {
+        break;
+      }
     }
+    const latest = group[0];
+    const oldest = group[group.length - 1];
+    sessions.push({
+      mangaId:           latest.mangaId,
+      mangaTitle:        latest.mangaTitle,
+      thumbnailUrl:      latest.thumbnailUrl,
+      latestChapterId:   latest.chapterId,
+      latestChapterName: latest.chapterName,
+      latestPageNumber:  latest.pageNumber,
+      firstChapterName:  oldest.chapterName,
+      chapterCount:      group.length,
+      readAt:            latest.readAt,
+    });
+    i = j;
+  }
+  return sessions;
+}
+
+function groupSessionsByDay(sessions: ReadingSession[]): { label: string; items: ReadingSession[] }[] {
+  const groups = new Map<string, ReadingSession[]>();
+  for (const sess of sessions) {
+    const label = dayLabel(sess.readAt);
     if (!groups.has(label)) groups.set(label, []);
-    groups.get(label)!.push(e);
+    groups.get(label)!.push(sess);
   }
   return Array.from(groups.entries()).map(([label, items]) => ({ label, items }));
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function History() {
-  const history       = useStore((s) => s.history);
-  const clearHistory  = useStore((s) => s.clearHistory);
+  const history        = useStore((s) => s.history);
+  const clearHistory   = useStore((s) => s.clearHistory);
   const setActiveManga = useStore((s) => s.setActiveManga);
   const setNavPage     = useStore((s) => s.setNavPage);
   const [search, setSearch] = useState("");
 
-  const filtered = useMemo(() =>
-    search.trim()
-      ? history.filter((e) =>
-          e.mangaTitle.toLowerCase().includes(search.toLowerCase()) ||
-          e.chapterName.toLowerCase().includes(search.toLowerCase()))
-      : history,
-    [history, search]
-  );
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return history;
+    return history.filter(
+      (e) => e.mangaTitle.toLowerCase().includes(q) || e.chapterName.toLowerCase().includes(q)
+    );
+  }, [history, search]);
 
-  const groups = useMemo(() => groupByDay(filtered), [filtered]);
+  const sessions = useMemo(() => buildSessions(filtered), [filtered]);
+  const groups   = useMemo(() => groupSessionsByDay(sessions), [sessions]);
 
-  function resumeReading(entry: HistoryEntry) {
-    // Navigate to manga detail — user can continue from there
-    setActiveManga({
-      id: entry.mangaId,
-      title: entry.mangaTitle,
-      thumbnailUrl: entry.thumbnailUrl,
-    } as any);
+  function resumeReading(session: ReadingSession) {
+    setActiveManga({ id: session.mangaId, title: session.mangaTitle, thumbnailUrl: session.thumbnailUrl } as any);
     setNavPage("library");
   }
 
@@ -73,6 +125,9 @@ export default function History() {
             <MagnifyingGlass size={12} className={s.searchIcon} weight="light" />
             <input className={s.search} placeholder="Search history…"
               value={search} onChange={(e) => setSearch(e.target.value)} />
+            {search && (
+              <button className={s.searchClear} onClick={() => setSearch("")} title="Clear">×</button>
+            )}
           </div>
           {history.length > 0 && (
             <button className={s.clearBtn} onClick={clearHistory} title="Clear all history">
@@ -85,11 +140,12 @@ export default function History() {
       {history.length === 0 ? (
         <div className={s.empty}>
           <ClockCounterClockwise size={32} weight="light" className={s.emptyIcon} />
-          <p className={s.emptyText}>No reading history yet.</p>
-          <p className={s.emptyHint}>Chapters you read will appear here.</p>
+          <p className={s.emptyText}>No reading history yet</p>
+          <p className={s.emptyHint}>Chapters you read will appear here</p>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : sessions.length === 0 ? (
         <div className={s.empty}>
+          <Books size={28} weight="light" className={s.emptyIcon} />
           <p className={s.emptyText}>No results for "{search}"</p>
         </div>
       ) : (
@@ -97,20 +153,38 @@ export default function History() {
           {groups.map(({ label, items }) => (
             <div key={label} className={s.group}>
               <p className={s.groupLabel}>{label}</p>
-              {items.map((entry) => (
-                <button key={`${entry.chapterId}-${entry.readAt}`}
-                  className={s.row} onClick={() => resumeReading(entry)}>
-                  <img src={thumbUrl(entry.thumbnailUrl)} alt={entry.mangaTitle}
-                    className={s.thumb} />
+              {items.map((session) => (
+                <button
+                  key={`${session.latestChapterId}-${session.readAt}`}
+                  className={s.row}
+                  onClick={() => resumeReading(session)}
+                >
+                  <div className={s.thumbWrap}>
+                    <img src={thumbUrl(session.thumbnailUrl)} alt={session.mangaTitle} className={s.thumb} />
+                    {session.chapterCount > 1 && (
+                      <span className={s.sessionBadge}>{session.chapterCount}</span>
+                    )}
+                  </div>
                   <div className={s.info}>
-                    <span className={s.mangaTitle}>{entry.mangaTitle}</span>
-                    <span className={s.chapterName}>{entry.chapterName}
-                      {entry.pageNumber > 1 && (
-                        <span className={s.pageBadge}>p.{entry.pageNumber}</span>
+                    <span className={s.mangaTitle}>{session.mangaTitle}</span>
+                    <span className={s.chapterName}>
+                      {session.chapterCount > 1 ? (
+                        <span className={s.chapterRange}>
+                          {session.firstChapterName}
+                          <span className={s.rangeSep}>→</span>
+                          {session.latestChapterName}
+                        </span>
+                      ) : (
+                        <>
+                          {session.latestChapterName}
+                          {session.latestPageNumber > 1 && (
+                            <span className={s.pageBadge}>p.{session.latestPageNumber}</span>
+                          )}
+                        </>
                       )}
                     </span>
                   </div>
-                  <span className={s.time}>{timeAgo(entry.readAt)}</span>
+                  <span className={s.time}>{timeAgo(session.readAt)}</span>
                   <Play size={12} weight="fill" className={s.playIcon} />
                 </button>
               ))}

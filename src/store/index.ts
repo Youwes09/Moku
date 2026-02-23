@@ -164,6 +164,14 @@ export const useStore = create<Store>()(
       history: [],
       addHistory: (entry) =>
         set((s) => {
+          const existing = s.history.findIndex((h) => h.chapterId === entry.chapterId);
+          if (existing === 0) {
+            // Same chapter is already at the top — just update pageNumber and readAt in place
+            const updated = [...s.history];
+            updated[0] = { ...updated[0], pageNumber: entry.pageNumber, readAt: entry.readAt };
+            return { history: updated };
+          }
+          // New chapter or chapter not at top — remove old entry, prepend fresh
           const deduped = s.history.filter((h) => h.chapterId !== entry.chapterId);
           return { history: [entry, ...deduped].slice(0, 300) };
         }),

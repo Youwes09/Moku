@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback, memo, useRef } from "react";
-import { MagnifyingGlass, Books, DownloadSimple, X, Folder, Trash } from "@phosphor-icons/react";
+import { MagnifyingGlass, Books, DownloadSimple, X, Folder, Trash, BookOpen, BookmarkSimple } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { gql, thumbUrl } from "../../lib/client";
 import { GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS } from "../../lib/queries";
@@ -158,10 +158,15 @@ export default function Library() {
 
   function buildCtxItems(m: Manga): ContextMenuEntry[] {
     return [
-      { label: "Open", onClick: () => setActiveManga(m) },
+      {
+        label: "Open",
+        icon: <BookOpen size={13} weight="light" />,
+        onClick: () => setActiveManga(m),
+      },
       { separator: true },
       {
         label: m.inLibrary ? "Remove from library" : "Add to library",
+        icon: <BookmarkSimple size={13} weight={m.inLibrary ? "fill" : "light"} />,
         danger: m.inLibrary,
         onClick: () => m.inLibrary
           ? removeFromLibrary(m)
@@ -171,9 +176,9 @@ export default function Library() {
       },
       {
         label: "Delete all downloads",
+        icon: <Trash size={13} weight="light" />,
         danger: true,
         disabled: !(m.downloadCount && m.downloadCount > 0),
-        icon: <Trash size={13} weight="light" />,
         onClick: () => deleteAllDownloads(m),
       },
     ];

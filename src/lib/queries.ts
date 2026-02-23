@@ -250,23 +250,49 @@ export const DEQUEUE_DOWNLOAD = `
 
 export const START_DOWNLOADER = `
   mutation StartDownloader {
-    startDownloader {
-      downloadStatus { state }
+    startDownloader(input: {}) {
+      downloadStatus {
+        state
+        queue {
+          progress
+          state
+          chapter {
+            id
+            name
+            pageCount
+            mangaId
+            manga { id title thumbnailUrl }
+          }
+        }
+      }
     }
   }
 `;
 
 export const STOP_DOWNLOADER = `
   mutation StopDownloader {
-    stopDownloader {
-      downloadStatus { state }
+    stopDownloader(input: {}) {
+      downloadStatus {
+        state
+        queue {
+          progress
+          state
+          chapter {
+            id
+            name
+            pageCount
+            mangaId
+            manga { id title thumbnailUrl }
+          }
+        }
+      }
     }
   }
 `;
 
 export const CLEAR_DOWNLOADER = `
   mutation ClearDownloader {
-    clearDownloader {
+    clearDownloader(input: {}) {
       downloadStatus {
         state
         queue {

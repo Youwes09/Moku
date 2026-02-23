@@ -347,6 +347,18 @@ function PerformanceTab({ settings, update }: { settings: Settings; update: (p: 
           checked={settings.compactSidebar}
           onChange={(v) => update({ compactSidebar: v })} />
       </div>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Reader</p>
+        <Stepper
+          label="Input debounce"
+          description="Delay (ms) before page-turn input is processed. Increase if the reader feels laggy or skips pages. Set to 0 to disable."
+          value={settings.readerDebounceMs ?? 120}
+          min={0}
+          max={500}
+          step={20}
+          onChange={(v) => update({ readerDebounceMs: v })}
+        />
+      </div>
     </div>
   );
 }
@@ -716,6 +728,8 @@ export default function SettingsModal() {
   const resetKeybinds      = useStore((s) => s.resetKeybinds);
   const backdropRef        = useRef<HTMLDivElement>(null);
   const contentBodyRef     = useRef<HTMLDivElement>(null);
+
+
 
   useEffect(() => {
     contentBodyRef.current?.scrollTo({ top: 0 });

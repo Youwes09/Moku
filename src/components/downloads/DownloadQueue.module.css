@@ -34,9 +34,19 @@
   color: var(--text-muted);
   transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
 }
-
-.iconBtn:hover { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-raised); }
+.iconBtn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); background: var(--bg-raised); }
 .iconBtn:disabled { opacity: 0.3; cursor: default; }
+/* Loading state — accent tint so it's visually distinct */
+.iconBtnLoading {
+  border-color: var(--accent-dim);
+  color: var(--accent-fg);
+  background: var(--accent-muted);
+}
+.iconBtnLoading:hover:not(:disabled) {
+  border-color: var(--accent-dim);
+  color: var(--accent-fg);
+  background: var(--accent-muted);
+}
 
 .statusBar {
   display: flex;
@@ -55,6 +65,7 @@
   border-radius: 50%;
   background: var(--text-faint);
   flex-shrink: 0;
+  transition: background var(--t-base);
 }
 
 .statusDotActive {
@@ -68,6 +79,7 @@
   color: var(--text-muted);
   flex: 1;
   letter-spacing: var(--tracking-wide);
+  transition: color var(--t-base);
 }
 
 .statusCount {
@@ -87,10 +99,13 @@
   background: var(--bg-raised);
   border: 1px solid var(--border-dim);
   border-radius: var(--radius-md);
-  transition: border-color var(--t-fast);
+  transition: border-color var(--t-fast), opacity var(--t-base);
 }
 
 .rowActive { border-color: var(--accent-dim); }
+
+/* Fade out rows being removed */
+.rowRemoving { opacity: 0.4; pointer-events: none; }
 
 /* Thumbnail */
 .thumb {
@@ -185,8 +200,8 @@
   color: var(--text-faint);
   transition: color var(--t-base), background var(--t-base);
 }
-
-.removeBtn:hover { color: var(--color-error); background: var(--color-error-bg); }
+.removeBtn:hover:not(:disabled) { color: var(--color-error); background: var(--color-error-bg); }
+.removeBtn:disabled { opacity: 0.5; cursor: default; }
 
 .empty {
   display: flex;

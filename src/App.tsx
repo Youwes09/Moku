@@ -16,7 +16,7 @@ export default function App() {
   const setActiveDownloads = useStore((s) => s.setActiveDownloads);
 
   useEffect(() => {
-    document.documentElement.style.zoom = `${settings.uiScale}%`;
+    document.documentElement.style.zoom = `${settings.uiScale * 1.5}%`;
   }, [settings.uiScale]);
 
   useEffect(() => {

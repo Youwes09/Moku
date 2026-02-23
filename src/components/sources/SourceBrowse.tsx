@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from "react";
-import { ArrowLeft, MagnifyingGlass, ArrowLeft as Prev, ArrowRight as Next } from "@phosphor-icons/react";
+import { ArrowLeft, MagnifyingGlass, ArrowLeft as Prev, ArrowRight as Next, BookmarkSimple, FolderSimplePlus, Folder } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
-import { FETCH_SOURCE_MANGA } from "../../lib/queries";
+import { FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
+import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
 import { useStore } from "../../store";
 import type { Manga } from "../../lib/types";
 import s from "./SourceBrowse.module.css";
@@ -11,8 +12,12 @@ type BrowseType = "POPULAR" | "LATEST" | "SEARCH";
 export default function SourceBrowse() {
   const activeSource = useStore((state) => state.activeSource);
   const setActiveSource = useStore((state) => state.setActiveSource);
-  const setActiveManga = useStore((state) => state.setActiveManga);
-  const setNavPage = useStore((state) => state.setNavPage);
+  const setActiveManga      = useStore((state) => state.setActiveManga);
+  const setNavPage          = useStore((state) => state.setNavPage);
+  const folders             = useStore((state) => state.settings.folders);
+  const addFolder           = useStore((state) => state.addFolder);
+  const assignMangaToFolder = useStore((state) => state.assignMangaToFolder);
+  const [ctx, setCtx]       = useState<{ x: number; y: number; manga: Manga } | null>(null);
 
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +66,45 @@ export default function SourceBrowse() {
   function openManga(m: Manga) {
     setActiveManga(m);
     setNavPage("library");
+  }
+
+  function openCtx(e: React.MouseEvent, m: Manga) {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtx({ x: e.clientX, y: e.clientY, manga: m });
+  }
+
+  function buildCtxItems(m: Manga): ContextMenuEntry[] {
+    return [
+      {
+        label: m.inLibrary ? "In Library" : "Add to library",
+        icon: <BookmarkSimple size={13} weight={m.inLibrary ? "fill" : "light"} />,
+        disabled: m.inLibrary,
+        onClick: () => gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
+          .then(() => setMangas((prev) => prev.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x)))
+          .catch(console.error),
+      },
+      ...(folders.length > 0 ? [
+        { separator: true } as ContextMenuEntry,
+        ...folders.map((f): ContextMenuEntry => ({
+          label: f.mangaIds.includes(m.id) ? `✓ ${f.name}` : f.name,
+          icon: <Folder size={13} weight={f.mangaIds.includes(m.id) ? "fill" : "light"} />,
+          onClick: () => assignMangaToFolder(f.id, m.id),
+        })),
+      ] : []),
+      { separator: true },
+      {
+        label: "New folder & add",
+        icon: <FolderSimplePlus size={13} weight="light" />,
+        onClick: () => {
+          const name = prompt("Folder name:");
+          if (name?.trim()) {
+            const id = addFolder(name.trim());
+            assignMangaToFolder(id, m.id);
+          }
+        },
+      },
+    ];
   }
 
   if (!activeSource) return null;
@@ -120,7 +164,7 @@ export default function SourceBrowse() {
       ) : (
         <div className={s.grid}>
           {mangas.map((m) => (
-            <button key={m.id} className={s.card} onClick={() => openManga(m)}>
+            <button key={m.id} className={s.card} onClick={() => openManga(m)} onContextMenu={(e) => openCtx(e, m)}>
               <div className={s.coverWrap}>
                 <img src={thumbUrl(m.thumbnailUrl)} alt={m.title} className={s.cover} />
                 {m.inLibrary && <span className={s.inLibraryBadge}>In Library</span>}
@@ -151,6 +195,14 @@ export default function SourceBrowse() {
             <Next size={13} weight="light" />
           </button>
         </div>
+      )}
+      {ctx && (
+        <ContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          items={buildCtxItems(ctx.manga)}
+          onClose={() => setCtx(null)}
+        />
       )}
     </div>
   );

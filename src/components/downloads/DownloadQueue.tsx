@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Play, Pause, Trash, CircleNotch, X } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import {
@@ -10,41 +10,103 @@ import type { DownloadStatus } from "../../lib/types";
 import s from "./DownloadQueue.module.css";
 
 export default function DownloadQueue() {
-  const [status, setStatus] = useState<DownloadStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const setActiveDownloads = useStore((s) => s.setActiveDownloads);
+  const [status, setStatus]         = useState<DownloadStatus | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [togglingPlay, setTogglingPlay] = useState(false);
+  const [clearing, setClearing]     = useState(false);
+  const [dequeueing, setDequeueing] = useState<Set<number>>(new Set());
+  const setActiveDownloads          = useStore((s) => s.setActiveDownloads);
+
+  // Apply status to local state + global store
+  const applyStatus = useCallback((ds: DownloadStatus) => {
+    setStatus(ds);
+    setActiveDownloads(
+      ds.queue.map((item) => ({
+        chapterId: item.chapter.id,
+        mangaId:   item.chapter.mangaId,
+        progress:  item.progress,
+      }))
+    );
+  }, [setActiveDownloads]);
 
   async function poll() {
     gql<{ downloadStatus: DownloadStatus }>(GET_DOWNLOAD_STATUS)
-      .then((d) => {
-        setStatus(d.downloadStatus);
-        setActiveDownloads(
-          d.downloadStatus.queue.map((item) => ({
-            chapterId: item.chapter.id,
-            mangaId: item.chapter.mangaId,
-            progress: item.progress,
-          }))
-        );
-      })
+      .then((d) => applyStatus(d.downloadStatus))
       .catch(console.error)
       .finally(() => setLoading(false));
   }
 
   useEffect(() => {
     poll();
-    const id = setInterval(poll, 1500);
+    const id = setInterval(poll, 2000);
     return () => clearInterval(id);
   }, []);
 
-  async function start() { await gql(START_DOWNLOADER).catch(console.error); poll(); }
-  async function stop()  { await gql(STOP_DOWNLOADER).catch(console.error);  poll(); }
-  async function clear() { await gql(CLEAR_DOWNLOADER).catch(console.error); poll(); }
-  async function dequeue(chapterId: number) {
-    await gql(DEQUEUE_DOWNLOAD, { chapterId }).catch(console.error);
-    poll();
+  // ── Actions ─────────────────────────────────────────────────────────────────
+
+  async function togglePlay() {
+    if (togglingPlay) return;
+    setTogglingPlay(true);
+    // Optimistic flip so button responds instantly
+    const wasRunning = status?.state === "STARTED";
+    setStatus((prev) => prev ? { ...prev, state: wasRunning ? "STOPPED" : "STARTED" } : prev);
+    try {
+      if (wasRunning) {
+        const d = await gql<{ stopDownloader: { downloadStatus: DownloadStatus } }>(STOP_DOWNLOADER);
+        applyStatus(d.stopDownloader.downloadStatus);
+      } else {
+        const d = await gql<{ startDownloader: { downloadStatus: DownloadStatus } }>(START_DOWNLOADER);
+        applyStatus(d.startDownloader.downloadStatus);
+      }
+    } catch (e) {
+      console.error(e);
+      poll(); // resync on error
+    } finally {
+      setTogglingPlay(false);
+    }
   }
 
-  const queue = status?.queue ?? [];
+  async function clear() {
+    if (clearing) return;
+    setClearing(true);
+    // Optimistic clear
+    setStatus((prev) => prev ? { ...prev, queue: [] } : prev);
+    setActiveDownloads([]);
+    try {
+      const d = await gql<{ clearDownloader: { downloadStatus: DownloadStatus } }>(CLEAR_DOWNLOADER);
+      applyStatus(d.clearDownloader.downloadStatus);
+    } catch (e) {
+      console.error(e);
+      poll(); // resync on error
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  async function dequeue(chapterId: number) {
+    if (dequeueing.has(chapterId)) return;
+    setDequeueing((prev) => new Set(prev).add(chapterId));
+    // Optimistic remove
+    setStatus((prev) =>
+      prev ? { ...prev, queue: prev.queue.filter((i) => i.chapter.id !== chapterId) } : prev
+    );
+    try {
+      await gql(DEQUEUE_DOWNLOAD, { chapterId });
+      // Sync authoritative state after dequeue
+      poll();
+    } catch (e) {
+      console.error(e);
+      poll();
+    } finally {
+      setDequeueing((prev) => {
+        const next = new Set(prev);
+        next.delete(chapterId);
+        return next;
+      });
+    }
+  }
+
+  const queue     = status?.queue ?? [];
   const isRunning = status?.state === "STARTED";
 
   function pagesDownloaded(progress: number, pageCount: number): number {
@@ -56,24 +118,45 @@ export default function DownloadQueue() {
       <div className={s.header}>
         <h1 className={s.heading}>Downloads</h1>
         <div className={s.headerActions}>
-          {isRunning ? (
-            <button className={s.iconBtn} onClick={stop} title="Pause">
+          {/* Play / Pause toggle */}
+          <button
+            className={[s.iconBtn, togglingPlay ? s.iconBtnLoading : ""].join(" ").trim()}
+            onClick={togglePlay}
+            disabled={togglingPlay || (queue.length === 0 && !isRunning)}
+            title={isRunning ? "Pause" : "Resume"}
+          >
+            {togglingPlay ? (
+              <CircleNotch size={14} weight="light" className="anim-spin" />
+            ) : isRunning ? (
               <Pause size={14} weight="fill" />
-            </button>
-          ) : (
-            <button className={s.iconBtn} onClick={start} disabled={queue.length === 0} title="Resume">
+            ) : (
               <Play size={14} weight="fill" />
-            </button>
-          )}
-          <button className={s.iconBtn} onClick={clear} disabled={queue.length === 0} title="Clear queue">
-            <Trash size={14} weight="regular" />
+            )}
+          </button>
+
+          {/* Clear queue */}
+          <button
+            className={[s.iconBtn, clearing ? s.iconBtnLoading : ""].join(" ").trim()}
+            onClick={clear}
+            disabled={clearing || queue.length === 0}
+            title="Clear queue"
+          >
+            {clearing ? (
+              <CircleNotch size={14} weight="light" className="anim-spin" />
+            ) : (
+              <Trash size={14} weight="regular" />
+            )}
           </button>
         </div>
       </div>
 
       <div className={s.statusBar}>
         <div className={[s.statusDot, isRunning ? s.statusDotActive : ""].join(" ").trim()} />
-        <span className={s.statusText}>{isRunning ? "Downloading" : "Paused"}</span>
+        <span className={s.statusText}>
+          {togglingPlay
+            ? (isRunning ? "Pausing…" : "Starting…")
+            : isRunning ? "Downloading" : "Paused"}
+        </span>
         <span className={s.statusCount}>{queue.length} queued</span>
       </div>
 
@@ -86,15 +169,16 @@ export default function DownloadQueue() {
       ) : (
         <div className={s.list}>
           {queue.map((item, i) => {
-            const isActive = i === 0 && isRunning;
-            const pages = item.chapter.pageCount ?? 0;
-            const done = pagesDownloaded(item.progress, pages);
-            const manga = item.chapter.manga;
+            const isActive  = i === 0 && isRunning;
+            const pages     = item.chapter.pageCount ?? 0;
+            const done      = pagesDownloaded(item.progress, pages);
+            const manga     = item.chapter.manga;
+            const isRemoving = dequeueing.has(item.chapter.id);
 
             return (
               <div
                 key={item.chapter.id}
-                className={[s.row, isActive ? s.rowActive : ""].join(" ").trim()}
+                className={[s.row, isActive ? s.rowActive : "", isRemoving ? s.rowRemoving : ""].join(" ").trim()}
               >
                 {manga?.thumbnailUrl && (
                   <div className={s.thumb}>
@@ -136,9 +220,12 @@ export default function DownloadQueue() {
                     <button
                       className={s.removeBtn}
                       onClick={() => dequeue(item.chapter.id)}
+                      disabled={isRemoving}
                       title="Remove from queue"
                     >
-                      <X size={12} weight="light" />
+                      {isRemoving
+                        ? <CircleNotch size={11} weight="light" className="anim-spin" />
+                        : <X size={12} weight="light" />}
                     </button>
                   )}
                 </div>

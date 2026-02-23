@@ -874,3 +874,100 @@
 .dlItemDanger:hover:not(:disabled) {
   background: var(--color-error-bg) !important;
 }
+/* ── Download dropdown extended: Next-N quick buttons + range picker ─────── */
+.dlSectionLabel {
+  padding: 6px var(--sp-3) 2px;
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.dlNextRow {
+  display: flex;
+  gap: 4px;
+  padding: 2px var(--sp-2) var(--sp-2);
+}
+
+.dlNextBtn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-dim);
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+.dlNextBtn:hover:not(:disabled) {
+  background: var(--accent-muted);
+  border-color: var(--accent-dim);
+  color: var(--accent-fg);
+}
+.dlNextBtn:disabled { opacity: 0.3; cursor: default; }
+
+.dlNextSub {
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+
+.dlDivider {
+  height: 1px;
+  background: var(--border-dim);
+  margin: var(--sp-1) var(--sp-2);
+}
+
+.dlRangeRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--sp-2) var(--sp-2);
+}
+
+.dlRangeInput {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  outline: none;
+  text-align: center;
+  transition: border-color var(--t-base);
+}
+.dlRangeInput:focus { border-color: var(--border-focus); }
+.dlRangeInput::placeholder { color: var(--text-faint); }
+
+.dlRangeSep {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  flex-shrink: 0;
+}
+
+.dlRangeGo {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-dim);
+  background: var(--accent-muted);
+  color: var(--accent-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--t-base);
+  white-space: nowrap;
+}
+.dlRangeGo:hover:not(:disabled) { background: var(--accent-dim); }
+.dlRangeGo:disabled { opacity: 0.3; cursor: default; }

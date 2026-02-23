@@ -17,15 +17,21 @@
   justify-content: center;
   margin-bottom: var(--sp-3);
   overflow: visible;
+  /* Explicit reset — prevents browser from injecting a default button background */
   background: none;
   border: none;
+  outline: none;
   cursor: pointer;
   border-radius: var(--radius-lg);
   transition: opacity var(--t-base), transform var(--t-base);
   padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
 }
 .logo:hover { opacity: 0.8; transform: scale(0.96); }
 .logo:active { transform: scale(0.92); }
+/* Kill the focus ring that can render as a coloured glow on some GTK themes */
+.logo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .logoIcon {
   width: 80px;
@@ -58,10 +64,21 @@
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--radius-md);
   color: var(--text-faint);
+  /* Explicit resets — the green overlay was browser default button styles bleeding through */
+  background: none;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
   transition: color var(--t-base), background var(--t-base);
 }
 .tab:hover { color: var(--text-muted); background: var(--bg-raised); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--radius-md); }
+
 .tabActive { color: var(--accent-fg); background: var(--accent-muted); }
+/* Prevent hover state from overriding active colour */
 .tabActive:hover { color: var(--accent-fg); background: var(--accent-muted); }
 
 .bottom {
@@ -76,6 +93,15 @@
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--radius-md);
   color: var(--text-faint);
+  /* Same explicit resets */
+  background: none;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
   transition: color var(--t-base), background var(--t-base), transform var(--t-slow);
 }
 .settingsBtn:hover { color: var(--text-muted); background: var(--bg-raised); transform: rotate(30deg); }
+.settingsBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

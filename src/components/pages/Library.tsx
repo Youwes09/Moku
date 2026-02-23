@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo, useCallback, memo, useRef } from "react";
-import { MagnifyingGlass, Books, DownloadSimple, X, Folder, Trash, BookOpen, BookmarkSimple } from "@phosphor-icons/react";
+import { MagnifyingGlass, Books, DownloadSimple, X, Folder, FolderSimplePlus, Trash, BookOpen, BookmarkSimple } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { gql, thumbUrl } from "../../lib/client";
-import { GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS } from "../../lib/queries";
+import { GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD } from "../../lib/queries";
 import { useStore } from "../../store";
 import type { Manga, Chapter } from "../../lib/types";
 import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
@@ -50,6 +50,7 @@ export default function Library() {
   const [error, setError]         = useState<string | null>(null);
   const [search, setSearch]       = useState("");
   const [ctx, setCtx]             = useState<{ x: number; y: number; manga: Manga } | null>(null);
+  const [emptyCtx, setEmptyCtx]   = useState<{ x: number; y: number } | null>(null);
   const scrollRef                 = useRef<HTMLDivElement>(null);
 
   const setActiveManga      = useStore((state) => state.setActiveManga);
@@ -58,7 +59,10 @@ export default function Library() {
   const settings            = useStore((state) => state.settings);
   const libraryTagFilter    = useStore((state) => state.libraryTagFilter);
   const setLibraryTagFilter = useStore((state) => state.setLibraryTagFilter);
-  const folders             = useStore((state) => state.settings.folders);
+  const folders                = useStore((state) => state.settings.folders);
+  const addFolder              = useStore((state) => state.addFolder);
+  const assignMangaToFolder    = useStore((state) => state.assignMangaToFolder);
+  const removeMangaFromFolder  = useStore((state) => state.removeMangaFromFolder);
 
   useEffect(() => {
     gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY)
@@ -99,8 +103,6 @@ export default function Library() {
   }, [allManga, libraryFilter, search, libraryTagFilter, folders, isBuiltinFilter]);
 
   // ── Virtualizer setup ──────────────────────────────────────────────────────
-  // We need to know columns to chunk filtered into rows.
-  // Use a ResizeObserver on the scroll container to get real width.
   const [containerWidth, setContainerWidth] = useState(800);
 
   useEffect(() => {
@@ -142,9 +144,17 @@ export default function Library() {
   async function deleteAllDownloads(manga: Manga) {
     try {
       const data = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: manga.id });
-      const ids = data.chapters.nodes.filter((c) => c.isDownloaded).map((c) => c.id);
+      const downloadedChapters = data.chapters.nodes.filter((c) => c.isDownloaded);
+      const ids = downloadedChapters.map((c) => c.id);
       if (!ids.length) return;
+
+      // Delete the downloaded files
       await gql(DELETE_DOWNLOADED_CHAPTERS, { ids });
+
+      // Also remove these chapters from the download queue (fix #12)
+      // Fire-and-forget — queue removal is best-effort
+      await Promise.allSettled(ids.map((id) => gql(DEQUEUE_DOWNLOAD, { chapterId: id })));
+
       setAllManga((prev) => prev.map((m) => m.id === manga.id ? { ...m, downloadCount: 0 } : m));
     } catch (e) { console.error(e); }
   }
@@ -157,6 +167,17 @@ export default function Library() {
   }
 
   function buildCtxItems(m: Manga): ContextMenuEntry[] {
+    const mangaFolderEntries: ContextMenuEntry[] = folders.map((f) => {
+      const inFolder = f.mangaIds.includes(m.id);
+      return {
+        label: inFolder ? `✓ ${f.name}` : f.name,
+        icon: <Folder size={13} weight={inFolder ? "fill" : "light"} />,
+        onClick: () => inFolder
+          ? removeMangaFromFolder(f.id, m.id)
+          : assignMangaToFolder(f.id, m.id),
+      };
+    });
+
     return [
       {
         label: "Open",
@@ -180,6 +201,35 @@ export default function Library() {
         danger: true,
         disabled: !(m.downloadCount && m.downloadCount > 0),
         onClick: () => deleteAllDownloads(m),
+      },
+      ...(folders.length > 0 ? [
+        { separator: true } as ContextMenuEntry,
+        ...mangaFolderEntries,
+      ] : []),
+      { separator: true },
+      {
+        label: "New folder",
+        icon: <FolderSimplePlus size={13} weight="light" />,
+        onClick: () => {
+          const name = prompt("Folder name:");
+          if (name?.trim()) {
+            const id = addFolder(name.trim());
+            assignMangaToFolder(id, m.id);
+          }
+        },
+      },
+    ];
+  }
+
+  function buildEmptyCtxItems(): ContextMenuEntry[] {
+    return [
+      {
+        label: "New folder",
+        icon: <FolderSimplePlus size={13} weight="light" />,
+        onClick: () => {
+          const name = prompt("Folder name:");
+          if (name?.trim()) addFolder(name.trim());
+        },
       },
     ];
   }
@@ -208,7 +258,16 @@ export default function Library() {
   );
 
   return (
-    <div className={s.root} ref={scrollRef}>
+    <div
+      className={s.root}
+      ref={scrollRef}
+      onContextMenu={(e) => {
+        // Only fire on the bare background, not on cards
+        if ((e.target as HTMLElement).closest("button")) return;
+        e.preventDefault();
+        setEmptyCtx({ x: e.clientX, y: e.clientY });
+      }}
+    >
       <div className={s.header}>
         <div className={s.headerLeft}>
           <h1 className={s.heading}>Library</h1>
@@ -285,7 +344,7 @@ export default function Library() {
       ) : filtered.length === 0 ? (
         <div className={s.center}>
           {libraryFilter === "library"
-            ? "No manga saved to library. Browse sources to add some."
+            ? "No manga saved to library, browse sources to add some."
             : libraryFilter === "downloaded"
             ? "No downloaded manga."
             : !isBuiltinFilter
@@ -340,6 +399,14 @@ export default function Library() {
           y={ctx.y}
           items={buildCtxItems(ctx.manga)}
           onClose={() => setCtx(null)}
+        />
+      )}
+      {emptyCtx && (
+        <ContextMenu
+          x={emptyCtx.x}
+          y={emptyCtx.y}
+          items={buildEmptyCtxItems()}
+          onClose={() => setEmptyCtx(null)}
         />
       )}
     </div>

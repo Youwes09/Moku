@@ -33,6 +33,155 @@ interface CtxState {
 
 const CHAPTERS_PER_PAGE = 25;
 
+// ── Download dropdown with range picker ──────────────────────────────────────
+interface DownloadDropdownProps {
+  sortedChapters: Chapter[];
+  continueChapter: { chapter: Chapter; type: string } | null;
+  downloadedCount: number;
+  deletingAll: boolean;
+  onEnqueue: (ids: number[]) => void;
+  onDelete: () => void;
+  onClose: () => void;
+}
+
+function DownloadDropdown({
+  sortedChapters, continueChapter, downloadedCount, deletingAll,
+  onEnqueue, onDelete, onClose,
+}: DownloadDropdownProps) {
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo]     = useState("");
+  const [showRange, setShowRange] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", handler, true);
+    return () => document.removeEventListener("mousedown", handler, true);
+  }, [onClose]);
+
+  const continueIdx = continueChapter
+    ? sortedChapters.indexOf(continueChapter.chapter)
+    : -1;
+
+  function enqueueNext(n: number) {
+    if (continueIdx < 0) return;
+    const ids = sortedChapters
+      .slice(continueIdx, continueIdx + n)
+      .filter((c) => !c.isDownloaded)
+      .map((c) => c.id);
+    onEnqueue(ids);
+  }
+
+  function enqueueRange() {
+    const from = parseFloat(rangeFrom);
+    const to   = parseFloat(rangeTo);
+    if (isNaN(from) || isNaN(to)) return;
+    const lo = Math.min(from, to), hi = Math.max(from, to);
+    const ids = sortedChapters
+      .filter((c) => c.chapterNumber >= lo && c.chapterNumber <= hi && !c.isDownloaded)
+      .map((c) => c.id);
+    if (ids.length) onEnqueue(ids);
+  }
+
+  const unreadNotDl = sortedChapters.filter((c) => !c.isRead && !c.isDownloaded);
+  const allNotDl    = sortedChapters.filter((c) => !c.isDownloaded);
+
+  return (
+    <div className={s.dlDropdown} ref={ref}>
+
+      {/* ── Next N from current ── */}
+      {continueChapter && continueIdx >= 0 && (
+        <>
+          <p className={s.dlSectionLabel}>
+            From Ch.{continueChapter.chapter.chapterNumber}
+          </p>
+          <div className={s.dlNextRow}>
+            {[5, 10, 25].map((n) => {
+              const avail = sortedChapters
+                .slice(continueIdx, continueIdx + n)
+                .filter((c) => !c.isDownloaded).length;
+              return (
+                <button
+                  key={n}
+                  className={s.dlNextBtn}
+                  disabled={avail === 0}
+                  onClick={() => enqueueNext(n)}
+                >
+                  <span>Next {n}</span>
+                  <span className={s.dlNextSub}>{avail} new</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className={s.dlDivider} />
+        </>
+      )}
+
+      {/* ── Custom range ── */}
+      <button className={s.dlItem} onClick={() => setShowRange((p) => !p)}>
+        <span>Custom range…</span>
+        <span className={s.dlItemSub}>Enter chapter numbers</span>
+      </button>
+      {showRange && (
+        <div className={s.dlRangeRow}>
+          <input
+            className={s.dlRangeInput}
+            placeholder="From"
+            value={rangeFrom}
+            onChange={(e) => setRangeFrom(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && enqueueRange()}
+          />
+          <span className={s.dlRangeSep}>–</span>
+          <input
+            className={s.dlRangeInput}
+            placeholder="To"
+            value={rangeTo}
+            onChange={(e) => setRangeTo(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && enqueueRange()}
+          />
+          <button
+            className={s.dlRangeGo}
+            disabled={!rangeFrom.trim() || !rangeTo.trim()}
+            onClick={enqueueRange}
+          >
+            Queue
+          </button>
+        </div>
+      )}
+
+      <div className={s.dlDivider} />
+
+      {/* ── Standard options ── */}
+      <button className={s.dlItem}
+        onClick={() => onEnqueue(unreadNotDl.map((c) => c.id))}>
+        <span>Unread chapters</span>
+        <span className={s.dlItemSub}>{unreadNotDl.length} remaining</span>
+      </button>
+      <button className={s.dlItem}
+        onClick={() => onEnqueue(allNotDl.map((c) => c.id))}>
+        <span>Download all</span>
+        <span className={s.dlItemSub}>{allNotDl.length} not yet downloaded</span>
+      </button>
+
+      {downloadedCount > 0 && (
+        <>
+          <div className={s.dlDivider} />
+          <button
+            className={[s.dlItem, s.dlItemDanger].join(" ")}
+            onClick={onDelete}
+            disabled={deletingAll}
+          >
+            <span>{deletingAll ? "Deleting…" : "Delete all downloads"}</span>
+            <span className={s.dlItemSub}>{downloadedCount} downloaded</span>
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Folder picker (icon button for list header) ───────────────────────────────
 function FolderPicker({ mangaId }: { mangaId: number }) {
   const [open, setOpen] = useState(false);
@@ -301,14 +450,25 @@ export default function SeriesDetail() {
       },
       { separator: true },
       {
+        label: "Download next 5 from here",
+        icon: <DownloadSimple size={13} weight="light" />,
+        onClick: () => {
+          const ids = sortedChapters
+            .slice(indexInSorted, indexInSorted + 5)
+            .filter((c) => !c.isDownloaded)
+            .map((c) => c.id);
+          enqueueMultiple(ids);
+        },
+      },
+      {
         label: "Download all from here",
         icon: <DownloadSimple size={13} weight="light" />,
         onClick: () => {
-          const fromHere = sortedChapters
+          const ids = sortedChapters
             .slice(indexInSorted)
             .filter((c) => !c.isDownloaded)
             .map((c) => c.id);
-          enqueueMultiple(fromHere);
+          enqueueMultiple(ids);
         },
       },
     ];
@@ -544,50 +704,15 @@ export default function SeriesDetail() {
                   <Download size={13} weight="light" />
                 </button>
                 {dlOpen && (
-                  <div className={s.dlDropdown}>
-                    {continueChapter && (
-                      <button className={s.dlItem}
-                        onClick={() => {
-                          const from = sortedChapters.indexOf(continueChapter.chapter);
-                          const ids = sortedChapters.slice(from).filter((c) => !c.isDownloaded).map((c) => c.id);
-                          enqueueMultiple(ids);
-                          setDlOpen(false);
-                        }}>
-                        <span>From current</span>
-                        <span className={s.dlItemSub}>Ch.{continueChapter.chapter.chapterNumber} onwards</span>
-                      </button>
-                    )}
-                    <button className={s.dlItem}
-                      onClick={() => {
-                        const ids = sortedChapters.filter((c) => !c.isRead && !c.isDownloaded).map((c) => c.id);
-                        enqueueMultiple(ids);
-                        setDlOpen(false);
-                      }}>
-                      <span>Unread chapters</span>
-                      <span className={s.dlItemSub}>{sortedChapters.filter((c) => !c.isRead && !c.isDownloaded).length} remaining</span>
-                    </button>
-                    <button className={s.dlItem}
-                      onClick={() => {
-                        const ids = sortedChapters.filter((c) => !c.isDownloaded).map((c) => c.id);
-                        enqueueMultiple(ids);
-                        setDlOpen(false);
-                      }}>
-                      <span>Download all</span>
-                      <span className={s.dlItemSub}>{sortedChapters.filter((c) => !c.isDownloaded).length} not downloaded</span>
-                    </button>
-                    {downloadedCount > 0 && (
-                      <>
-                        <div style={{ height: 1, background: "var(--border-dim)", margin: "var(--sp-1) var(--sp-2)" }} />
-                        <button className={[s.dlItem, s.dlItemDanger].join(" ")}
-                          onClick={() => { deleteAllDownloads(); setDlOpen(false); }}
-                          disabled={deletingAll}
-                        >
-                          <span>{deletingAll ? "Deleting…" : "Delete all downloads"}</span>
-                          <span className={s.dlItemSub}>{downloadedCount} downloaded</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  <DownloadDropdown
+                    sortedChapters={sortedChapters}
+                    continueChapter={continueChapter}
+                    downloadedCount={downloadedCount}
+                    deletingAll={deletingAll}
+                    onEnqueue={(ids) => { enqueueMultiple(ids); setDlOpen(false); }}
+                    onDelete={() => { deleteAllDownloads(); setDlOpen(false); }}
+                    onClose={() => setDlOpen(false)}
+                  />
                 )}
               </div>
             )}

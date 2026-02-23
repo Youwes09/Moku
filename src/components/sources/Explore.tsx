@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo, memo } from "react";
-import { ArrowLeft, ArrowRight, Compass, List, BookOpen, Star, Fire } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowRight, Compass, List, BookOpen, Star, Fire, BookmarkSimple, FolderSimplePlus, Folder } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
+import { UPDATE_MANGA } from "../../lib/queries";
+import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
 import { GET_ALL_MANGA, GET_LIBRARY, GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
 import { useStore } from "../../store";
 import type { Manga, Source } from "../../lib/types";
@@ -43,16 +45,18 @@ function SkeletonRow({ count = 8 }: { count?: number }) {
 const MiniCard = memo(function MiniCard({
   manga,
   onClick,
+  onContextMenu,
   subtitle,
   progress,
 }: {
   manga: Manga;
   onClick: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   subtitle?: string;
   progress?: number;
 }) {
   return (
-    <button className={s.card} onClick={onClick}>
+    <button className={s.card} onClick={onClick} onContextMenu={onContextMenu}>
       <div className={s.coverWrap}>
         <img
           src={thumbUrl(manga.thumbnailUrl)}
@@ -89,6 +93,44 @@ function GenreDrill({
   onBack: () => void;
   onOpen: (m: Manga) => void;
 }) {
+  const [ctx, setCtx]       = useState<{ x: number; y: number; manga: Manga } | null>(null);
+  const folders             = useStore((st) => st.settings.folders);
+  const addFolder           = useStore((st) => st.addFolder);
+  const assignMangaToFolder = useStore((st) => st.assignMangaToFolder);
+
+  function openCtx(e: React.MouseEvent, m: Manga) {
+    e.preventDefault(); e.stopPropagation();
+    setCtx({ x: e.clientX, y: e.clientY, manga: m });
+  }
+
+  function buildCtxItems(m: Manga): ContextMenuEntry[] {
+    return [
+      {
+        label: m.inLibrary ? "In Library" : "Add to library",
+        icon: <BookmarkSimple size={13} weight={m.inLibrary ? "fill" : "light"} />,
+        disabled: m.inLibrary,
+        onClick: () => gql(UPDATE_MANGA, { id: m.id, inLibrary: true }).catch(console.error),
+      },
+      ...(folders.length > 0 ? [
+        { separator: true } as ContextMenuEntry,
+        ...folders.map((f): ContextMenuEntry => ({
+          label: f.mangaIds.includes(m.id) ? `✓ ${f.name}` : f.name,
+          icon: <Folder size={13} weight={f.mangaIds.includes(m.id) ? "fill" : "light"} />,
+          onClick: () => assignMangaToFolder(f.id, m.id),
+        })),
+      ] : []),
+      { separator: true },
+      {
+        label: "New folder & add",
+        icon: <FolderSimplePlus size={13} weight="light" />,
+        onClick: () => {
+          const name = prompt("Folder name:");
+          if (name?.trim()) { const id = addFolder(name.trim()); assignMangaToFolder(id, m.id); }
+        },
+      },
+    ];
+  }
+
   const filtered = useMemo(() => {
     const combined = new Map<number, Manga>();
     [...manga, ...sourceManga]
@@ -108,7 +150,7 @@ function GenreDrill({
       </div>
       <div className={s.drillGrid}>
         {filtered.map((m) => (
-          <button key={m.id} className={s.drillCard} onClick={() => onOpen(m)}>
+          <button key={m.id} className={s.drillCard} onClick={() => onOpen(m)} onContextMenu={(e) => openCtx(e, m)}>
             <div className={s.coverWrap}>
               <img
                 src={thumbUrl(m.thumbnailUrl)}
@@ -126,6 +168,14 @@ function GenreDrill({
           <div className={s.empty}>No manga found for {genre}.</div>
         )}
       </div>
+      {ctx && (
+        <ContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          items={buildCtxItems(ctx.manga)}
+          onClose={() => setCtx(null)}
+        />
+      )}
     </div>
   );
 }
@@ -293,6 +343,49 @@ function ExploreFeed({ onDrill }: { onDrill: (d: DrillState) => void }) {
   const settings = useStore((s) => s.settings);
   const setActiveManga = useStore((s) => s.setActiveManga);
   const setNavPage = useStore((s) => s.setNavPage);
+  const folders            = useStore((s) => s.settings.folders);
+  const addFolder          = useStore((s) => s.addFolder);
+  const assignMangaToFolder = useStore((s) => s.assignMangaToFolder);
+  const [ctx, setCtx]      = useState<{ x: number; y: number; manga: Manga } | null>(null);
+
+  function openCtx(e: React.MouseEvent, m: Manga) {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtx({ x: e.clientX, y: e.clientY, manga: m });
+  }
+
+  function buildCtxItems(m: Manga): ContextMenuEntry[] {
+    return [
+      {
+        label: m.inLibrary ? "In Library" : "Add to library",
+        icon: <BookmarkSimple size={13} weight={m.inLibrary ? "fill" : "light"} />,
+        disabled: m.inLibrary,
+        onClick: () => gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
+          .then(() => setActiveManga({ ...m, inLibrary: true }))
+          .catch(console.error),
+      },
+      ...(folders.length > 0 ? [
+        { separator: true } as ContextMenuEntry,
+        ...folders.map((f): ContextMenuEntry => ({
+          label: f.mangaIds.includes(m.id) ? `✓ ${f.name}` : f.name,
+          icon: <Folder size={13} weight={f.mangaIds.includes(m.id) ? "fill" : "light"} />,
+          onClick: () => assignMangaToFolder(f.id, m.id),
+        })),
+      ] : []),
+      { separator: true },
+      {
+        label: "New folder & add",
+        icon: <FolderSimplePlus size={13} weight="light" />,
+        onClick: () => {
+          const name = prompt("Folder name:");
+          if (name?.trim()) {
+            const id = addFolder(name.trim());
+            assignMangaToFolder(id, m.id);
+          }
+        },
+      },
+    ];
+  }
 
   // Load library
   useEffect(() => {
@@ -473,6 +566,7 @@ function ExploreFeed({ onDrill }: { onDrill: (d: DrillState) => void }) {
                 key={manga.id}
                 manga={manga}
                 onClick={() => openManga(manga)}
+                onContextMenu={(e) => openCtx(e, manga)}
                 subtitle={chapterName}
                 progress={progress}
               />
@@ -493,7 +587,7 @@ function ExploreFeed({ onDrill }: { onDrill: (d: DrillState) => void }) {
         >
           <div className={s.row}>
             {recommended.map((m) => (
-              <MiniCard key={m.id} manga={m} onClick={() => openManga(m)} />
+              <MiniCard key={m.id} manga={m} onClick={() => openManga(m)} onContextMenu={(e) => openCtx(e, m)} />
             ))}
             {Array.from({ length: GHOST_COUNT }).map((_, i) => (
               <GhostCard key={`ghost-rec-${i}`} />
@@ -520,7 +614,7 @@ function ExploreFeed({ onDrill }: { onDrill: (d: DrillState) => void }) {
           ) : (
             <div className={s.row}>
               {popularManga.map((m) => (
-                <MiniCard key={m.id} manga={m} onClick={() => openManga(m)} />
+                <MiniCard key={m.id} manga={m} onClick={() => openManga(m)} onContextMenu={(e) => openCtx(e, m)} />
               ))}
               {Array.from({ length: GHOST_COUNT }).map((_, i) => (
                 <GhostCard key={`ghost-pop-${i}`} />
@@ -544,7 +638,7 @@ function ExploreFeed({ onDrill }: { onDrill: (d: DrillState) => void }) {
           >
             <div className={s.row}>
               {items.map((m) => (
-                <MiniCard key={m.id} manga={m} onClick={() => openManga(m)} />
+                <MiniCard key={m.id} manga={m} onClick={() => openManga(m)} onContextMenu={(e) => openCtx(e, m)} />
               ))}
               {Array.from({ length: GHOST_COUNT }).map((_, i) => (
                 <GhostCard key={`ghost-${genre}-${i}`} />
@@ -564,6 +658,15 @@ function ExploreFeed({ onDrill }: { onDrill: (d: DrillState) => void }) {
             Add manga to your library or install sources to get started.
           </span>
         </div>
+      )}
+
+      {ctx && (
+        <ContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          items={buildCtxItems(ctx.manga)}
+          onClose={() => setCtx(null)}
+        />
       )}
     </div>
   );

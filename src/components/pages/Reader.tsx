@@ -575,6 +575,23 @@ export default function Reader() {
         return;
       }
 
+      // Ctrl += / Ctrl + / Ctrl - / Ctrl 0 → zoom
+      if (e.ctrlKey && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        updateSettings({ maxPageWidth: Math.min(2400, maxW + 100) });
+        return;
+      }
+      if (e.ctrlKey && e.key === "-") {
+        e.preventDefault();
+        updateSettings({ maxPageWidth: Math.max(200, maxW - 100) });
+        return;
+      }
+      if (e.ctrlKey && e.key === "0") {
+        e.preventDefault();
+        updateSettings({ maxPageWidth: 900 });
+        return;
+      }
+
       if (matchesKeybind(e, kb.exitReader))             { e.preventDefault(); closeReader(); }
       else if (matchesKeybind(e, kb.pageRight))         { e.preventDefault(); goForward(); }
       else if (matchesKeybind(e, kb.pageLeft))          { e.preventDefault(); goBack(); }
@@ -589,7 +606,7 @@ export default function Reader() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goForward, goBack, kb, style, rtl, lastPage, adjacent, activeChapterList, zoomOpen, dlOpen]);
+  }, [goForward, goBack, kb, style, rtl, lastPage, adjacent, activeChapterList, zoomOpen, dlOpen, maxW]);
 
   // ── Longstrip scroll tracker ─────────────────────────────────────────────────
   // Tracks current page number. In autoNext mode, appends the next chapter's

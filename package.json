@@ -17,6 +17,7 @@
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@tanstack/react-virtual": "^3.13.18",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-shell": "~2",
     "clsx": "^2.1.1",

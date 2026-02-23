@@ -1,0 +1,387 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  animation: fadeIn 0.14s ease both;
+}
+
+/* ── Header / Tab switcher ───────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-6);
+  border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0;
+  gap: var(--sp-4);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.heading {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background var(--t-base), color var(--t-base);
+  white-space: nowrap;
+}
+
+.tab:hover { color: var(--text-muted); }
+
+.tabActive {
+  background: var(--accent-muted);
+  color: var(--accent-fg);
+  border: 1px solid var(--accent-dim);
+}
+
+.tabActive:hover { color: var(--accent-fg); }
+
+/* Source picker */
+.sourcePicker {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.sourcePickerLabel {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sourceSelect {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-family: var(--font-ui);
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--t-base);
+  max-width: 160px;
+}
+
+.sourceSelect:focus { border-color: var(--border-strong); }
+
+/* ── Scrollable body ─────────────────────────────────────────────────────── */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-5) 0 var(--sp-6);
+  will-change: scroll-position;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Section ─────────────────────────────────────────────────────────────── */
+.section {
+  margin-bottom: var(--sp-6);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--sp-6) var(--sp-3);
+}
+
+.sectionTitle {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+.sectionTitleIcon {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.seeAll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 0;
+  transition: color var(--t-base);
+}
+
+.seeAll:hover { color: var(--accent-fg); }
+
+/* ── Horizontal scroll row ───────────────────────────────────────────────── */
+.row {
+  display: flex;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-6);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+}
+
+.row::-webkit-scrollbar { display: none; }
+
+/* ── Card (shared by all rows) ───────────────────────────────────────────── */
+.card {
+  flex-shrink: 0;
+  width: 110px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.card:hover .cover { filter: brightness(1.06); }
+.card:hover .title { color: var(--text-primary); }
+
+.coverWrap {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-dim);
+  transform: translateZ(0);
+}
+
+.cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: filter var(--t-base);
+  will-change: filter;
+}
+
+.inLibraryBadge {
+  position: absolute;
+  bottom: var(--sp-1);
+  left: var(--sp-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  background: var(--accent-muted);
+  color: var(--accent-fg);
+  border: 1px solid var(--accent-dim);
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+}
+
+.progressBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--bg-overlay);
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--accent-fg);
+  border-radius: 0 2px 0 0;
+  transition: width 0.2s ease;
+}
+
+.title {
+  margin-top: var(--sp-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-snug);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition: color var(--t-base);
+}
+
+.subtitle {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  margin-top: 2px;
+  letter-spacing: var(--tracking-wide);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Ghost card — invisible placeholder to fill row trailing space */
+.ghostCard {
+  flex-shrink: 0;
+  width: 110px;
+  aspect-ratio: 2 / 3;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+/* ── Skeleton ─────────────────────────────────────────────────────────────── */
+.skeletonRow {
+  display: flex;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-6);
+  overflow: hidden;
+}
+
+.cardSkeleton { flex-shrink: 0; width: 110px; }
+
+.coverSkeleton {
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-md);
+}
+
+.titleSkeleton {
+  height: 11px;
+  margin-top: var(--sp-2);
+  width: 80%;
+}
+
+/* ── Genre drill-down grid ───────────────────────────────────────────────── */
+.drillRoot {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  animation: fadeIn 0.14s ease both;
+}
+
+.drillHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-6);
+  border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0;
+}
+
+.back {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-family: var(--font-ui);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color var(--t-base);
+  flex-shrink: 0;
+}
+
+.back:hover { color: var(--text-secondary); }
+
+.drillTitle {
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.drillGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(100px, 14vw, 140px), 1fr));
+  gap: var(--sp-4);
+  padding: var(--sp-5) var(--sp-6);
+  overflow-y: auto;
+  flex: 1;
+  align-content: start;
+  will-change: scroll-position;
+  -webkit-overflow-scrolling: touch;
+  contain: layout style;
+}
+
+.drillCard {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.drillCard:hover .cover { filter: brightness(1.06); }
+.drillCard:hover .title { color: var(--text-primary); }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-8) var(--sp-6);
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  gap: var(--sp-2);
+  text-align: center;
+}
+
+.emptyHint {
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  opacity: 0.6;
+}
+
+/* ── No source state ─────────────────────────────────────────────────────── */
+.noSource {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4) var(--sp-6);
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+}

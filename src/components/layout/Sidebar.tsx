@@ -9,7 +9,7 @@ const TABS: { id: NavPage; icon: React.ReactNode; label: string }[] = [
   { id: "library",    icon: <Books size={18} weight="light" />,                 label: "Library"    },
   { id: "search",     icon: <MagnifyingGlass size={18} weight="light" />,       label: "Search"     },
   { id: "history",    icon: <ClockCounterClockwise size={18} weight="light" />, label: "History"    },
-  { id: "sources",    icon: <Compass size={18} weight="light" />,               label: "Sources"    },
+  { id: "explore",    icon: <Compass size={18} weight="light" />,               label: "Explore"    },
   { id: "downloads",  icon: <DownloadSimple size={18} weight="light" />,        label: "Downloads"  },
   { id: "extensions", icon: <PuzzlePiece size={18} weight="light" />,           label: "Extensions" },
 ];
@@ -24,7 +24,7 @@ export default function Sidebar() {
 
   function navigate(id: NavPage) {
     setNavPage(id);
-    if (id !== "sources") setActiveSource(null);
+    if (id !== "explore") setActiveSource(null);
   }
 
   function goHome() {

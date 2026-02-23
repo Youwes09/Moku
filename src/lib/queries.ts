@@ -10,6 +10,7 @@ export const GET_LIBRARY = `
         inLibrary
         downloadCount
         unreadCount
+        genre
         chapters {
           totalCount
         }

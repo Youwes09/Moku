@@ -89,7 +89,7 @@
               version = "0.1.0";
               src = frontendSrc;
               fetcherVersion = 1;
-              hash = "sha256-2Hdzsjwbb+CKiRn/nGHwLeysKvpvEhd5C213YgWmOSU=";
+              hash = "sha256-bpGYsB534RPNNAcYR9BA61vvFpSG6Xu2hY923PakCyY=";
             };
 
             buildPhase = "pnpm build";

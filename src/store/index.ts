@@ -6,7 +6,7 @@ import { DEFAULT_KEYBINDS, type Keybinds } from "../lib/keybinds";
 export type PageStyle        = "single" | "double" | "longstrip";
 export type FitMode          = "width" | "height" | "screen" | "original";
 export type LibraryFilter    = "all" | "library" | "downloaded" | string; // string = folder id
-export type NavPage          = "library" | "sources" | "downloads" | "extensions" | "history" | "search";
+export type NavPage          = "library" | "sources" | "explore" | "downloads" | "extensions" | "history" | "search";
 export type ReadingDirection = "ltr" | "rtl";
 export type ChapterSortDir   = "desc" | "asc";
 

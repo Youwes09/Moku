@@ -1,16 +1,18 @@
-import { useEffect, useState, useMemo, useCallback, memo } from "react";
+import { useEffect, useState, useMemo, useCallback, memo, useRef } from "react";
 import { MagnifyingGlass, Books, DownloadSimple, X, Folder, Trash } from "@phosphor-icons/react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { gql, thumbUrl } from "../../lib/client";
-import { GET_LIBRARY, GET_ALL_MANGA, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS } from "../../lib/queries";
+import { GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS } from "../../lib/queries";
 import { useStore } from "../../store";
 import type { Manga, Chapter } from "../../lib/types";
 import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
 import s from "./Library.module.css";
 
-const INITIAL_PAGE_SIZE = 48;
-const PAGE_INCREMENT = 48;
+// Keep in sync with CSS grid: minmax(130px, 1fr) + var(--sp-4)=16px gap
+const CARD_MIN_W = 130;
+const CARD_GAP   = 16;
+const ROW_HEIGHT = 260; // ~195px cover + ~40px title + 16px gap + buffer
 
-// Memoized card to prevent re-renders when siblings change
 const MangaCard = memo(function MangaCard({
   manga,
   onClick,
@@ -43,78 +45,89 @@ const MangaCard = memo(function MangaCard({
 });
 
 export default function Library() {
-  const [allManga, setAllManga] = useState<Manga[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [visibleCount, setVisibleCount] = useState(INITIAL_PAGE_SIZE);
-  const [ctx, setCtx] = useState<{ x: number; y: number; manga: Manga } | null>(null);
+  const [allManga, setAllManga]   = useState<Manga[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState<string | null>(null);
+  const [search, setSearch]       = useState("");
+  const [ctx, setCtx]             = useState<{ x: number; y: number; manga: Manga } | null>(null);
+  const scrollRef                 = useRef<HTMLDivElement>(null);
 
-  const setActiveManga   = useStore((state) => state.setActiveManga);
-  const libraryFilter    = useStore((state) => state.libraryFilter);
-  const setLibraryFilter = useStore((state) => state.setLibraryFilter);
-  const settings         = useStore((state) => state.settings);
-  const libraryTagFilter = useStore((state) => state.libraryTagFilter);
+  const setActiveManga      = useStore((state) => state.setActiveManga);
+  const libraryFilter       = useStore((state) => state.libraryFilter);
+  const setLibraryFilter    = useStore((state) => state.setLibraryFilter);
+  const settings            = useStore((state) => state.settings);
+  const libraryTagFilter    = useStore((state) => state.libraryTagFilter);
   const setLibraryTagFilter = useStore((state) => state.setLibraryTagFilter);
-  const folders          = useStore((state) => state.settings.folders);
+  const folders             = useStore((state) => state.settings.folders);
 
   useEffect(() => {
-    Promise.all([
-      gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA),
-      gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY),
-    ])
-      .then(([all, lib]) => {
-        const libMap = new Map(lib.mangas.nodes.map((m) => [m.id, m]));
-        setAllManga(all.mangas.nodes.map((m) => libMap.get(m.id) ?? m));
-      })
+    gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY)
+      .then((lib) => setAllManga(lib.mangas.nodes))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { setVisibleCount(INITIAL_PAGE_SIZE); }, [libraryFilter, search]);
+  // Reset scroll when filter/search changes
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [libraryFilter, search]);
 
-  // Reset filter if the active folder tab gets hidden
   useEffect(() => {
     const activeFolder = folders.find((f) => f.id === libraryFilter);
-    if (activeFolder && !activeFolder.showTab) {
-      setLibraryFilter("library");
-    }
+    if (activeFolder && !activeFolder.showTab) setLibraryFilter("library");
   }, [folders]);
 
   const isBuiltinFilter = libraryFilter === "all" || libraryFilter === "library" || libraryFilter === "downloaded";
 
   const filtered = useMemo(() => {
     let items = allManga;
-
     if (libraryFilter === "library") {
       items = items.filter((m) => m.inLibrary);
     } else if (libraryFilter === "downloaded") {
       items = items.filter((m) => (m.downloadCount ?? 0) > 0);
     } else if (!isBuiltinFilter) {
-      // folder filter
       const folder = folders.find((f) => f.id === libraryFilter);
-      if (folder) {
-        items = items.filter((m) => folder.mangaIds.includes(m.id));
-      }
+      if (folder) items = items.filter((m) => folder.mangaIds.includes(m.id));
     }
-
-    // tag filter only applies to library/all/folder views
-    if (libraryTagFilter.length > 0) {
-      items = items.filter((m) =>
-        libraryTagFilter.every((tag) => (m.genre ?? []).includes(tag))
-      );
-    }
-
+    if (libraryTagFilter.length > 0)
+      items = items.filter((m) => libraryTagFilter.every((tag) => (m.genre ?? []).includes(tag)));
     if (search.trim()) {
       const q = search.toLowerCase();
       items = items.filter((m) => m.title.toLowerCase().includes(q));
     }
-
     return items;
   }, [allManga, libraryFilter, search, libraryTagFilter, folders, isBuiltinFilter]);
 
-  const visible = filtered.slice(0, visibleCount);
-  const hasMore = visibleCount < filtered.length;
+  // ── Virtualizer setup ──────────────────────────────────────────────────────
+  // We need to know columns to chunk filtered into rows.
+  // Use a ResizeObserver on the scroll container to get real width.
+  const [containerWidth, setContainerWidth] = useState(800);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      setContainerWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const cols = Math.max(1, Math.floor((containerWidth + CARD_GAP) / (CARD_MIN_W + CARD_GAP)));
+
+  const rows = useMemo(() => {
+    const result: Manga[][] = [];
+    for (let i = 0; i < filtered.length; i += cols)
+      result.push(filtered.slice(i, i + cols));
+    return result;
+  }, [filtered, cols]);
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 3,
+  });
 
   const handleCardClick = useCallback(
     (m: Manga) => () => setActiveManga(m),
@@ -129,34 +142,23 @@ export default function Library() {
   async function deleteAllDownloads(manga: Manga) {
     try {
       const data = await gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId: manga.id });
-      const downloadedIds = data.chapters.nodes
-        .filter((c) => c.isDownloaded)
-        .map((c) => c.id);
-      if (!downloadedIds.length) return;
-      await gql(DELETE_DOWNLOADED_CHAPTERS, { ids: downloadedIds });
-      setAllManga((prev) =>
-        prev.map((m) => m.id === manga.id ? { ...m, downloadCount: 0 } : m)
-      );
-    } catch (e) {
-      console.error(e);
-    }
+      const ids = data.chapters.nodes.filter((c) => c.isDownloaded).map((c) => c.id);
+      if (!ids.length) return;
+      await gql(DELETE_DOWNLOADED_CHAPTERS, { ids });
+      setAllManga((prev) => prev.map((m) => m.id === manga.id ? { ...m, downloadCount: 0 } : m));
+    } catch (e) { console.error(e); }
   }
 
   function openCtx(e: React.MouseEvent, m: Manga) {
     e.preventDefault();
-    const menuW = 200;
-    const menuH = 160;
-    const x = Math.min(e.clientX, window.innerWidth - menuW - 8);
-    const y = Math.min(e.clientY, window.innerHeight - menuH - 8);
+    const x = Math.min(e.clientX, window.innerWidth - 208);
+    const y = Math.min(e.clientY, window.innerHeight - 168);
     setCtx({ x, y, manga: m });
   }
 
   function buildCtxItems(m: Manga): ContextMenuEntry[] {
     return [
-      {
-        label: "Open",
-        onClick: () => setActiveManga(m),
-      },
+      { label: "Open", onClick: () => setActiveManga(m) },
       { separator: true },
       {
         label: m.inLibrary ? "Remove from library" : "Add to library",
@@ -189,9 +191,7 @@ export default function Library() {
       library: allManga.filter((m) => m.inLibrary).length,
       downloaded: allManga.filter((m) => (m.downloadCount ?? 0) > 0).length,
     };
-    folders.forEach((f) => {
-      result[f.id] = allManga.filter((m) => f.mangaIds.includes(m.id)).length;
-    });
+    folders.forEach((f) => { result[f.id] = allManga.filter((m) => f.mangaIds.includes(m.id)).length; });
     return result;
   }, [allManga, folders]);
 
@@ -203,12 +203,11 @@ export default function Library() {
   );
 
   return (
-    <div className={s.root}>
+    <div className={s.root} ref={scrollRef}>
       <div className={s.header}>
         <div className={s.headerLeft}>
           <h1 className={s.heading}>Library</h1>
           <div className={s.tabs}>
-            {/* Built-in tabs */}
             {(["library", "downloaded", "all"] as const).map((f) => (
               <button
                 key={f}
@@ -219,13 +218,10 @@ export default function Library() {
                   <><Books size={11} weight="bold" /> Saved</>
                 ) : f === "downloaded" ? (
                   <><DownloadSimple size={11} weight="bold" /> Downloaded</>
-                ) : (
-                  <>All</>
-                )}
+                ) : <>All</>}
                 <span className={s.tabCount}>{counts[f]}</span>
               </button>
             ))}
-            {/* Folder tabs — only shown if the folder has showTab enabled */}
             {folders.filter((f) => f.showTab).map((folder) => (
               <button
                 key={folder.id}
@@ -250,13 +246,11 @@ export default function Library() {
         </div>
       </div>
 
-      {/* Tag filter panel */}
       {allTags.length > 0 && (
         <div className={s.tagPanel}>
           {libraryTagFilter.length > 0 && (
             <button className={s.tagClear} onClick={() => setLibraryTagFilter([])}>
-              <X size={11} weight="bold" />
-              Clear
+              <X size={11} weight="bold" /> Clear
             </button>
           )}
           {allTags.map((tag) => {
@@ -264,13 +258,9 @@ export default function Library() {
             return (
               <button key={tag}
                 className={[s.tagChip, active ? s.tagChipActive : ""].join(" ")}
-                onClick={() =>
-                  setLibraryTagFilter(
-                    active
-                      ? libraryTagFilter.filter((t) => t !== tag)
-                      : [...libraryTagFilter, tag]
-                  )
-                }>
+                onClick={() => setLibraryTagFilter(
+                  active ? libraryTagFilter.filter((t) => t !== tag) : [...libraryTagFilter, tag]
+                )}>
                 {tag}
               </button>
             );
@@ -298,31 +288,47 @@ export default function Library() {
             : "No manga found."}
         </div>
       ) : (
-        <>
-          <div className={s.grid}>
-            {visible.map((m) => (
-              <MangaCard
-                key={m.id}
-                manga={m}
-                onClick={handleCardClick(m)}
-                onContextMenu={(e) => openCtx(e, m)}
-                cropCovers={settings.libraryCropCovers}
-              />
-            ))}
-          </div>
-          {hasMore && (
-            <div className={s.showMore}>
-              <button
-                className={s.showMoreBtn}
-                onClick={() => setVisibleCount((c) => c + PAGE_INCREMENT)}
+        /* Virtual scroll container */
+        <div
+          style={{
+            height: virtualizer.getTotalSize(),
+            position: "relative",
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const rowManga = rows[virtualRow.index];
+            return (
+              <div
+                key={virtualRow.key}
+                style={{
+                  position: "absolute",
+                  top: virtualRow.start,
+                  left: 0,
+                  right: 0,
+                  height: virtualRow.size,
+                }}
+                className={s.virtualRow}
               >
-                Show more
-                <span className={s.showMoreCount}>{filtered.length - visibleCount} remaining</span>
-              </button>
-            </div>
-          )}
-        </>
+                {rowManga.map((m) => (
+                  <MangaCard
+                    key={m.id}
+                    manga={m}
+                    onClick={handleCardClick(m)}
+                    onContextMenu={(e) => openCtx(e, m)}
+                    cropCovers={settings.libraryCropCovers}
+                  />
+                ))}
+                {/* Ghost cards on last row to fill grid */}
+                {virtualRow.index === rows.length - 1 &&
+                  Array.from({ length: cols - rowManga.length }).map((_, i) => (
+                    <div key={`ghost-${i}`} className={s.ghostCard} aria-hidden />
+                  ))}
+              </div>
+            );
+          })}
+        </div>
       )}
+
       {ctx && (
         <ContextMenu
           x={ctx.x}

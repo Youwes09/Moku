@@ -107,22 +107,32 @@
 .search::placeholder { color: var(--text-faint); }
 .search:focus { border-color: var(--border-strong); }
 
-/* Grid */
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+/* Virtual row — flexbox instead of CSS grid so virtualizer controls height */
+.virtualRow {
+  display: flex;
   gap: var(--sp-4);
-  /* Contain stacking contexts for GPU layers */
-  contain: layout style;
+  padding: 0 var(--sp-6);
+  align-items: start;
 }
 
+/* Individual card fills its flex slot */
 .card {
+  flex: 1 1 130px;
+  min-width: 0;
+  max-width: 200px;
   background: none;
   border: none;
   padding: 0;
   cursor: pointer;
   text-align: left;
-  /* Promote to own GPU layer on hover only */
+}
+
+.ghostCard {
+  flex: 1 1 130px;
+  min-width: 0;
+  max-width: 200px;
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .card:hover .cover { filter: brightness(1.06); }
@@ -177,38 +187,12 @@
   transition: color var(--t-base);
 }
 
-/* Show more */
-.showMore {
-  display: flex;
-  justify-content: center;
-  padding: var(--sp-6) 0 var(--sp-4);
-}
-
-.showMoreBtn {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  font-family: var(--font-ui);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-wide);
-  color: var(--text-muted);
-  border: 1px solid var(--border-base);
-  border-radius: var(--radius-md);
-  padding: 7px 20px;
-  background: var(--bg-raised);
-  cursor: pointer;
-  transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
-}
-
-.showMoreBtn:hover {
-  color: var(--text-primary);
-  border-color: var(--border-strong);
-  background: var(--bg-overlay);
-}
-
-.showMoreCount {
-  color: var(--text-faint);
-  font-size: var(--text-2xs);
+/* Skeleton grid still uses CSS grid since it's fixed 12 items */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-6) 0;
 }
 
 /* Skeleton */
@@ -223,6 +207,14 @@
   height: 12px;
   margin-top: var(--sp-2);
   width: 80%;
+}
+
+/* Ghost cards fill trailing grid space without taking interaction */
+.ghostCard {
+  padding: 0;
+  pointer-events: none;
+  visibility: hidden;
+  aspect-ratio: 2 / 3;
 }
 
 .center {

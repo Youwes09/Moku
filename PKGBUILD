@@ -1,4 +1,3 @@
-# Maintainer: shozikan <your@email.com>
 pkgname=moku
 pkgver=0.1.0
 pkgrel=1

@@ -64,7 +64,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  pageStyle: "single",
+  pageStyle: "longstrip",
   readingDirection: "ltr",
   fitMode: "width",
   maxPageWidth: 900,

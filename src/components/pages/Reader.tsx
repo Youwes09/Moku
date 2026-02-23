@@ -329,8 +329,11 @@ export default function Reader() {
         // Discard result if the user has already navigated to a different chapter
         if (loadingChapterRef.current !== targetId) return;
 
-        // Decode the first page before committing so no previous chapter flashes
-        await decodeImage(urls[0]);
+        // Decode the first page before committing so no previous chapter flashes.
+        // In longstrip mode skip the blocking decode — images stream in naturally.
+        if (style !== "longstrip") {
+          await decodeImage(urls[0]);
+        }
 
         if (loadingChapterRef.current !== targetId) return;
 
@@ -348,10 +351,14 @@ export default function Reader() {
           setStripChapters([]);
           setVisibleChapterId(null);
         }
+        // Only clear loading after state is fully committed — no flash frames
+        setLoading(false);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => {
-        if (loadingChapterRef.current === targetId) setLoading(false);
+      .catch((e) => {
+        if (loadingChapterRef.current === targetId) {
+          setError(e instanceof Error ? e.message : String(e));
+          setLoading(false);
+        }
       });
   }, [activeChapter?.id]);
 
@@ -507,6 +514,7 @@ export default function Reader() {
   }, [pageGroups, pageNumber, adjacent, activeChapterList]);
 
   const goForward = useCallback(() => {
+    if (loading || !pageUrls.length) return;
     if (style === "double" && pageGroups.length) { advanceGroup(true); return; }
     if (pageNumber < lastPage) {
       const nextUrl = pageUrls[pageNumber]; // pageNumber is 1-based, so index is pageNumber
@@ -521,9 +529,10 @@ export default function Reader() {
     } else {
       closeReader();
     }
-  }, [pageNumber, lastPage, pageUrls, adjacent, activeChapterList, style, pageGroups, advanceGroup]);
+  }, [loading, pageNumber, lastPage, pageUrls, adjacent, activeChapterList, style, pageGroups, advanceGroup]);
 
   const goBack = useCallback(() => {
+    if (loading || !pageUrls.length) return;
     if (style === "double" && pageGroups.length) { advanceGroup(false); return; }
     if (pageNumber > 1) {
       const prevUrl = pageUrls[pageNumber - 2]; // 0-based index of previous page
@@ -535,7 +544,7 @@ export default function Reader() {
     } else if (adjacent.prev) {
       openReader(adjacent.prev, activeChapterList);
     }
-  }, [pageNumber, pageUrls, adjacent, activeChapterList, style, pageGroups, advanceGroup]);
+  }, [loading, pageNumber, pageUrls, adjacent, activeChapterList, style, pageGroups, advanceGroup]);
 
   const goNext = rtl ? goBack  : goForward;
   const goPrev = rtl ? goForward : goBack;
@@ -600,8 +609,8 @@ export default function Reader() {
       else if (matchesKeybind(e, kb.pageLeft))          { e.preventDefault(); goBack(); }
       else if (matchesKeybind(e, kb.firstPage))         { e.preventDefault(); setPageNumber(1); }
       else if (matchesKeybind(e, kb.lastPage))          { e.preventDefault(); setPageNumber(lastPage); }
-      else if (matchesKeybind(e, kb.chapterRight))      { e.preventDefault(); if (adjacent.next) openReader(adjacent.next, activeChapterList); }
-      else if (matchesKeybind(e, kb.chapterLeft))       { e.preventDefault(); if (adjacent.prev) openReader(adjacent.prev, activeChapterList); }
+      else if (matchesKeybind(e, kb.chapterRight))      { e.preventDefault(); if (!loading && adjacent.next) openReader(adjacent.next, activeChapterList); }
+      else if (matchesKeybind(e, kb.chapterLeft))       { e.preventDefault(); if (!loading && adjacent.prev) openReader(adjacent.prev, activeChapterList); }
       else if (matchesKeybind(e, kb.togglePageStyle))   { e.preventDefault(); cycleStyle(); }
       else if (matchesKeybind(e, kb.toggleReadingDirection)) { e.preventDefault(); updateSettings({ readingDirection: rtl ? "ltr" : "rtl" }); }
       else if (matchesKeybind(e, kb.toggleFullscreen))  { e.preventDefault(); toggleFullscreen().catch(console.error); }
@@ -609,7 +618,7 @@ export default function Reader() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goForward, goBack, kb, style, rtl, lastPage, adjacent, activeChapterList, zoomOpen, dlOpen, maxW]);
+  }, [goForward, goBack, kb, style, rtl, lastPage, adjacent, activeChapterList, zoomOpen, dlOpen, maxW, loading]);
 
   // ── Longstrip scroll tracker ─────────────────────────────────────────────────
   // Tracks current page number. In autoNext mode, appends the next chapter's
@@ -935,11 +944,11 @@ export default function Reader() {
         ) : (
           pageReady && (
             <img
-              key={pageNumber}
               src={pageUrls[pageNumber - 1]}
               alt={`Page ${pageNumber}`}
               className={imgCls}
               decoding="async"
+              style={{ transition: "opacity 0.1s ease" }}
             />
           )
         )}
@@ -947,10 +956,10 @@ export default function Reader() {
 
       {/* ── Bottom nav ── */}
       <div className={[s.bottombar, uiVisible ? "" : s.uiHidden].join(" ")}>
-        <button className={s.navBtn} onClick={goPrev} disabled={pageNumber === 1 && !adjacent.prev}>
+        <button className={s.navBtn} onClick={goPrev} disabled={loading || (pageNumber === 1 && !adjacent.prev)}>
           <ArrowLeft size={13} weight="light" />
         </button>
-        <button className={s.navBtn} onClick={goNext} disabled={pageNumber === lastPage && !adjacent.next}>
+        <button className={s.navBtn} onClick={goNext} disabled={loading || (pageNumber === lastPage && !adjacent.next)}>
           <ArrowRight size={13} weight="light" />
         </button>
       </div>

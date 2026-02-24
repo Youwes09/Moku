@@ -1,5 +1,5 @@
 pkgname=moku
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Native Linux manga reader frontend for Suwayomi-Server"
 arch=('x86_64')
@@ -22,11 +22,9 @@ source=(
     "suwayomi-server.jar::https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/suwayomi-server-v2.1.1867.jar"
     "jdk.tar.gz::https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jre_x64_linux_hotspot_21.0.3_9.tar.gz"
 )
-sha256sums=(
-    '0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5'
-    '51e307c2581e4e1a002991ab3e3a77503c8b074c42695987a984a7382d0ac5af'
-    'f1af100c4afca2035f446967323230150cfe5872b5a664d98c86963e5c066e0d'
-)
+sha256sums=('dfd110ae4f11711ce979020ae65b08ab2d0bd51ecc1ba877ba1780ba037357a4'
+            '51e307c2581e4e1a002991ab3e3a77503c8b074c42695987a984a7382d0ac5af'
+            'f1af100c4afca2035f446967323230150cfe5872b5a664d98c86963e5c066e0d')
 
 prepare() {
     cd "Moku-$pkgver"

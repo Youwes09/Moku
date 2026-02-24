@@ -11,6 +11,7 @@ import {
   UPDATE_MANGA, MARK_CHAPTER_READ, MARK_CHAPTERS_READ, DELETE_DOWNLOADED_CHAPTERS,
   ENQUEUE_CHAPTERS_DOWNLOAD,
 } from "../../lib/queries";
+import { cache, CACHE_KEYS, recordSourceAccess } from "../../lib/cache";
 import { useStore } from "../../store";
 import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
 import MigrateModal from "./MigrateModal";
@@ -34,6 +35,18 @@ interface CtxState {
 }
 
 const CHAPTERS_PER_PAGE = 25;
+
+// How long before we consider a manga detail / chapter list stale and silently re-fetch.
+// This prevents hammering the server when rapidly opening/closing while still keeping
+// data fresh enough for normal use.
+const MANGA_CACHE_TTL_MS  = 5 * 60 * 1000;  // 5 min — detail rarely changes mid-session
+const CHAPTER_CACHE_TTL_MS = 2 * 60 * 1000; // 2 min — chapters update more often
+
+// ── TTL-aware memory stores (cleared on page refresh, not persisted) ──────────
+// These supplement the session `cache` with timestamp tracking so we know when
+// to silently re-validate in the background.
+const mangaDetailStore  = new Map<number, { data: Manga;  fetchedAt: number }>();
+const chapterStore      = new Map<number, { data: Chapter[]; fetchedAt: number }>();
 
 // ── Download dropdown ─────────────────────────────────────────────────────────
 
@@ -93,7 +106,6 @@ function DownloadDropdown({
 
   return (
     <div className={s.dlDropdown} ref={ref}>
-
       {continueChapter && continueIdx >= 0 && (
         <>
           <p className={s.dlSectionLabel}>From Ch.{continueChapter.chapter.chapterNumber}</p>
@@ -289,10 +301,9 @@ export default function SeriesDetail() {
   const settings            = useStore((state) => state.settings);
   const updateSettings      = useStore((state) => state.updateSettings);
   const addToast            = useStore((state) => state.addToast);
-  const setLibraryTagFilter = useStore((state) => state.setLibraryTagFilter);
-  const setLibraryFilter    = useStore((state) => state.setLibraryFilter);
+  const setGenreFilter      = useStore((state) => state.setGenreFilter);
 
-  const [manga, setManga]                   = useState<Manga | null>(activeManga);
+  const [manga, setManga]                   = useState<Manga | null>(null);
   const [chapters, setChapters]             = useState<Chapter[]>([]);
   const [loadingManga, setLoadingManga]     = useState(false);
   const [loadingChapters, setLoadingChapters] = useState(true);
@@ -311,47 +322,140 @@ export default function SeriesDetail() {
   const [descExpanded, setDescExpanded]     = useState(false);
   const [genresExpanded, setGenresExpanded] = useState(false);
 
+  // Track the abort controllers for in-flight requests so we can cancel on unmount/change
+  // Manga detail and chapters each get their own controller so they don't clobber each other
+  const mangaAbortRef   = useRef<AbortController | null>(null);
+  const chapterAbortRef = useRef<AbortController | null>(null);
+  // Track the manga ID we're currently loading to discard stale results
+  const loadingForRef = useRef<number | null>(null);
+
   const sortDir = settings.chapterSortDir;
 
-  // Load extended manga details
+  // ── Manga detail: serve from TTL cache, silently re-validate if stale ──────
   useEffect(() => {
     if (!activeManga) return;
+
+    const mangaId = activeManga.id;
+
+    // Cancel any in-flight manga detail request from a previous manga
+    mangaAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    mangaAbortRef.current = ctrl;
+    loadingForRef.current = mangaId;
+
+    const cached = mangaDetailStore.get(mangaId);
+    const now = Date.now();
+
+    if (cached) {
+      // Serve from memory immediately — no loading state, no flash
+      setManga(cached.data);
+      setLoadingManga(false);
+
+      // If cache is fresh enough, skip the network entirely
+      if (now - cached.fetchedAt < MANGA_CACHE_TTL_MS) return;
+
+      // Stale: re-validate silently in the background (no spinner)
+      gql<{ manga: Manga }>(GET_MANGA, { id: mangaId }, ctrl.signal)
+        .then((data) => {
+          if (ctrl.signal.aborted || loadingForRef.current !== mangaId) return;
+          mangaDetailStore.set(mangaId, { data: data.manga, fetchedAt: Date.now() });
+          setManga(data.manga);
+          if (data.manga.source?.id) recordSourceAccess(data.manga.source.id);
+        })
+        .catch((e) => { if (e?.name !== "AbortError") console.error(e); });
+
+      return;
+    }
+
+    // Nothing cached — show skeleton and fetch
     setLoadingManga(true);
-    gql<{ manga: Manga }>(GET_MANGA, { id: activeManga.id })
-      .then((data) => setManga(data.manga))
-      .catch(console.error)
-      .finally(() => setLoadingManga(false));
+    gql<{ manga: Manga }>(GET_MANGA, { id: mangaId }, ctrl.signal)
+      .then((data) => {
+        if (ctrl.signal.aborted || loadingForRef.current !== mangaId) return;
+        mangaDetailStore.set(mangaId, { data: data.manga, fetchedAt: Date.now() });
+        setManga(data.manga);
+        if (data.manga.source?.id) recordSourceAccess(data.manga.source.id);
+      })
+      .catch((e) => { if (e?.name !== "AbortError") console.error(e); })
+      .finally(() => {
+        if (!ctrl.signal.aborted && loadingForRef.current === mangaId) setLoadingManga(false);
+      });
+
+    return () => { ctrl.abort(); mangaAbortRef.current = null; };
   }, [activeManga?.id]);
 
-  const loadChapters = useCallback((mangaId: number) => {
-    return gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId })
-      .then((data) => {
-        const sorted = [...data.chapters.nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
-        setChapters(sorted);
-        return sorted;
-      });
+  // ── Chapter loading: cache-first, background refresh only when stale ────────
+  const applyChapters = useCallback((nodes: Chapter[]) => {
+    const sorted = [...nodes].sort((a, b) => a.sourceOrder - b.sourceOrder);
+    setChapters(sorted);
+    return sorted;
   }, []);
 
-  // Load chapters: show cache immediately, then silently refresh from source
   useEffect(() => {
     if (!activeManga) return;
-    setLoadingChapters(true);
-    setChapters([]);
+
+    const mangaId = activeManga.id;
     setChapterPage(1);
 
-    loadChapters(activeManga.id)
-      .then((cached) =>
-        gql(FETCH_CHAPTERS, { mangaId: activeManga.id })
-          .then(() => loadChapters(activeManga.id))
+    // Cancel any previous in-flight chapter requests
+    chapterAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    chapterAbortRef.current = ctrl;
+    loadingForRef.current = mangaId;
+
+    const cached = chapterStore.get(mangaId);
+    const now = Date.now();
+
+    if (cached) {
+      // Show cached data instantly
+      applyChapters(cached.data);
+      setLoadingChapters(false);
+
+      // Fresh enough — don't touch the network at all
+      if (now - cached.fetchedAt < CHAPTER_CACHE_TTL_MS) return;
+
+      // Stale — silently re-validate: fetch from source then re-read local DB
+      // We don't clear the chapter list while this happens (no flicker)
+      gql(FETCH_CHAPTERS, { mangaId }, ctrl.signal)
+        .then(() => gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId }, ctrl.signal))
+        .then((data) => {
+          if (ctrl.signal.aborted || loadingForRef.current !== mangaId) return;
+          chapterStore.set(mangaId, { data: data.chapters.nodes, fetchedAt: Date.now() });
+          applyChapters(data.chapters.nodes);
+        })
+        .catch((e) => { if (e?.name !== "AbortError") console.error(e); });
+
+      return;
+    }
+
+    // Nothing cached — show skeleton, load local DB first (fast), then source
+    setChapters([]);
+    setLoadingChapters(true);
+
+    gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId }, ctrl.signal)
+      .then((data) => {
+        if (ctrl.signal.aborted || loadingForRef.current !== mangaId) return;
+        // Show local DB result immediately so the user isn't staring at a spinner
+        applyChapters(data.chapters.nodes);
+        setLoadingChapters(false);
+
+        // Now silently fetch from the source to pick up any new chapters
+        return gql(FETCH_CHAPTERS, { mangaId }, ctrl.signal)
+          .then(() => gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId }, ctrl.signal))
           .then((fresh) => {
-            // Suppress no-op: if count unchanged the state is already correct
-            void (fresh.length === cached.length);
-          })
-          .catch(console.error)
-      )
-      .catch(console.error)
-      .finally(() => setLoadingChapters(false));
-  }, [activeManga?.id]);
+            if (ctrl.signal.aborted || loadingForRef.current !== mangaId) return;
+            chapterStore.set(mangaId, { data: fresh.chapters.nodes, fetchedAt: Date.now() });
+            applyChapters(fresh.chapters.nodes);
+          });
+      })
+      .catch((e) => {
+        if (ctrl.signal.aborted || e?.name === "AbortError") return;
+        console.error(e);
+        setLoadingChapters(false);
+      });
+
+    return () => { ctrl.abort(); chapterAbortRef.current = null; };
+  }, [activeManga?.id, applyChapters]);
 
   // ── Derived state ──────────────────────────────────────────────────────────
 
@@ -388,9 +492,24 @@ export default function SeriesDetail() {
     setTogglingLibrary(true);
     const next = !manga.inLibrary;
     await gql(UPDATE_MANGA, { id: manga.id, inLibrary: next }).catch(console.error);
-    setManga((prev) => prev ? { ...prev, inLibrary: next } : prev);
+    const updated = { ...manga, inLibrary: next };
+    setManga(updated);
+    // Update the detail cache so re-open reflects the new state
+    if (mangaDetailStore.has(manga.id)) {
+      const entry = mangaDetailStore.get(manga.id)!;
+      mangaDetailStore.set(manga.id, { ...entry, data: updated });
+    }
+    cache.clear(CACHE_KEYS.LIBRARY);
     setTogglingLibrary(false);
   }
+
+  const reloadChapters = useCallback((mangaId: number, signal?: AbortSignal) => {
+    return gql<{ chapters: { nodes: Chapter[] } }>(GET_CHAPTERS, { mangaId }, signal)
+      .then((data) => {
+        chapterStore.set(mangaId, { data: data.chapters.nodes, fetchedAt: Date.now() });
+        applyChapters(data.chapters.nodes);
+      });
+  }, [applyChapters]);
 
   async function enqueue(chapter: Chapter, e: React.MouseEvent) {
     e.stopPropagation();
@@ -398,7 +517,7 @@ export default function SeriesDetail() {
     await gql(ENQUEUE_DOWNLOAD, { chapterId: chapter.id }).catch(console.error);
     addToast({ kind: "download", title: "Download queued", body: chapter.name });
     setEnqueueing((prev) => { const n = new Set(prev); n.delete(chapter.id); return n; });
-    if (activeManga) loadChapters(activeManga.id);
+    if (activeManga) reloadChapters(activeManga.id);
   }
 
   async function enqueueMultiple(chapterIds: number[]) {
@@ -409,18 +528,27 @@ export default function SeriesDetail() {
       title: "Download queued",
       body: `${chapterIds.length} chapter${chapterIds.length !== 1 ? "s" : ""} added to queue`,
     });
-    if (activeManga) loadChapters(activeManga.id);
+    if (activeManga) reloadChapters(activeManga.id);
   }
 
   async function markRead(chapterId: number, isRead: boolean) {
     await gql(MARK_CHAPTER_READ, { id: chapterId, isRead }).catch(console.error);
-    setChapters((prev) => prev.map((c) => c.id === chapterId ? { ...c, isRead } : c));
+    setChapters((prev) => {
+      const updated = prev.map((c) => c.id === chapterId ? { ...c, isRead } : c);
+      if (activeManga) chapterStore.set(activeManga.id, { data: updated, fetchedAt: Date.now() });
+      return updated;
+    });
   }
 
   async function markBulk(ids: number[], isRead: boolean) {
     if (!ids.length) return;
     await gql(MARK_CHAPTERS_READ, { ids, isRead }).catch(console.error);
-    setChapters((prev) => prev.map((c) => ids.includes(c.id) ? { ...c, isRead } : c));
+    setChapters((prev) => {
+      const idSet = new Set(ids);
+      const updated = prev.map((c) => idSet.has(c.id) ? { ...c, isRead } : c);
+      if (activeManga) chapterStore.set(activeManga.id, { data: updated, fetchedAt: Date.now() });
+      return updated;
+    });
   }
 
   const markAllAboveRead    = (i: number) =>
@@ -434,7 +562,11 @@ export default function SeriesDetail() {
 
   async function deleteDownloaded(chapterId: number) {
     await gql(DELETE_DOWNLOADED_CHAPTERS, { ids: [chapterId] }).catch(console.error);
-    setChapters((prev) => prev.map((c) => c.id === chapterId ? { ...c, isDownloaded: false } : c));
+    setChapters((prev) => {
+      const updated = prev.map((c) => c.id === chapterId ? { ...c, isDownloaded: false } : c);
+      if (activeManga) chapterStore.set(activeManga.id, { data: updated, fetchedAt: Date.now() });
+      return updated;
+    });
   }
 
   async function deleteAllDownloads() {
@@ -442,21 +574,26 @@ export default function SeriesDetail() {
     if (!ids.length) return;
     setDeletingAll(true);
     await gql(DELETE_DOWNLOADED_CHAPTERS, { ids }).catch(console.error);
-    setChapters((prev) => prev.map((c) => ({ ...c, isDownloaded: false })));
+    setChapters((prev) => {
+      const updated = prev.map((c) => ({ ...c, isDownloaded: false }));
+      if (activeManga) chapterStore.set(activeManga.id, { data: updated, fetchedAt: Date.now() });
+      return updated;
+    });
     setDeletingAll(false);
   }
 
   async function refreshChapters() {
     if (!activeManga || refreshing) return;
     setRefreshing(true);
+    // Force-invalidate the chapter cache for this manga so we get a fresh fetch
+    chapterStore.delete(activeManga.id);
     await gql(FETCH_CHAPTERS, { mangaId: activeManga.id })
-      .then(() => loadChapters(activeManga.id))
+      .then(() => reloadChapters(activeManga.id))
       .then(() => addToast({ kind: "success", title: "Chapters refreshed" }))
       .catch((e) => addToast({ kind: "error", title: "Refresh failed", body: e?.message ?? String(e) }))
       .finally(() => setRefreshing(false));
   }
 
-  // ── FIX: restored missing function declaration ─────────────────────────────
   function openContextMenu(e: React.MouseEvent, chapter: Chapter, indexInSorted: number) {
     e.preventDefault();
     setCtx({ x: e.clientX, y: e.clientY, chapter, indexInSorted });
@@ -555,7 +692,7 @@ export default function SeriesDetail() {
       <div className={s.sidebar}>
         <button className={s.back} onClick={() => setActiveManga(null)}>
           <ArrowLeft size={13} weight="light" />
-          <span>Library</span>
+          <span>Back</span>
         </button>
 
         <div className={s.coverWrap}>
@@ -596,11 +733,7 @@ export default function SeriesDetail() {
                     key={g}
                     className={[s.genre, s.genreClickable].join(" ")}
                     title={`Filter library by "${g}"`}
-                    onClick={() => {
-                      setLibraryTagFilter([g]);
-                      setLibraryFilter("library");
-                      setActiveManga(null);
-                    }}
+                    onClick={() => setGenreFilter(g)}
                   >
                     {g}
                   </button>
@@ -682,36 +815,20 @@ export default function SeriesDetail() {
           {readCount > 0 && ` · ${readCount} read`}
         </p>
 
-        {/* Quick mark-all */}
-        {totalCount > 0 && (
-          <div className={s.markAllRow}>
-            <button
-              className={s.markAllBtn}
-              onClick={() => markAllAboveRead(sortedChapters.length - 1)}
-              disabled={readCount === totalCount}
-              title="Mark all chapters as read"
-            >
-              <CheckCircle size={12} weight="light" />
-              All read
-            </button>
-            <button
-              className={s.markAllBtn}
-              onClick={() => markAllAboveUnread(sortedChapters.length - 1)}
-              disabled={readCount === 0}
-              title="Mark all chapters as unread"
-            >
-              <Circle size={12} weight="light" />
-              All unread
-            </button>
-          </div>
-        )}
-
-        {/* Details (collapsible) */}
+        {/* Source info — collapsible details */}
         {!loadingManga && manga?.source && (
           <div className={s.detailsSection}>
             <button className={s.detailsToggle} onClick={() => setDetailsOpen((p) => !p)}>
               <span>Details</span>
-              <CaretDown size={11} weight="light" className={detailsOpen ? s.caretOpen : s.caretClosed} />
+              <CaretDown
+                size={11}
+                weight="light"
+                style={{
+                  transform: detailsOpen ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform 0.15s ease",
+                  flexShrink: 0,
+                }}
+              />
             </button>
             {detailsOpen && (
               <div className={s.detailsBody}>
@@ -719,14 +836,32 @@ export default function SeriesDetail() {
                   <span className={s.detailKey}>Source</span>
                   <span className={s.detailVal}>{manga.source.displayName}</span>
                 </div>
-                <div className={s.detailRow}>
-                  <span className={s.detailKey}>Language</span>
-                  <span className={s.detailVal}>{manga.source.name.match(/\(([^)]+)\)$/)?.[1] ?? "—"}</span>
-                </div>
-                <div className={s.detailRow}>
-                  <span className={s.detailKey}>Source ID</span>
-                  <span className={[s.detailVal, s.detailMono].join(" ")}>{manga.source.id}</span>
-                </div>
+                {manga.status && (
+                  <div className={s.detailRow}>
+                    <span className={s.detailKey}>Status</span>
+                    <span className={s.detailVal}>
+                      {manga.status.charAt(0) + manga.status.slice(1).toLowerCase()}
+                    </span>
+                  </div>
+                )}
+                {manga.author && (
+                  <div className={s.detailRow}>
+                    <span className={s.detailKey}>Author</span>
+                    <span className={s.detailVal}>{manga.author}</span>
+                  </div>
+                )}
+                {manga.artist && manga.artist !== manga.author && (
+                  <div className={s.detailRow}>
+                    <span className={s.detailKey}>Artist</span>
+                    <span className={s.detailVal}>{manga.artist}</span>
+                  </div>
+                )}
+                {totalCount > 0 && (
+                  <div className={s.detailRow}>
+                    <span className={s.detailKey}>Progress</span>
+                    <span className={s.detailVal}>{readCount} / {totalCount} read</span>
+                  </div>
+                )}
                 <button className={s.migrateBtn} onClick={() => setMigrateOpen(true)}>
                   <ArrowsClockwise size={12} weight="light" />
                   Switch source
@@ -738,12 +873,19 @@ export default function SeriesDetail() {
                     disabled={deletingAll}
                   >
                     <Trash size={12} weight="light" />
-                    {deletingAll ? "Deleting…" : `Delete all downloads (${downloadedCount})`}
+                    {deletingAll ? "Deleting…" : `Delete downloads (${downloadedCount})`}
                   </button>
                 )}
               </div>
             )}
           </div>
+        )}
+
+        {manga && !manga.source && (
+          <button className={s.migrateBtn} onClick={() => setMigrateOpen(true)}>
+            <ArrowsClockwise size={12} weight="light" />
+            Switch source
+          </button>
         )}
       </div>
 
@@ -761,8 +903,7 @@ export default function SeriesDetail() {
             >
               {sortDir === "desc"
                 ? <SortDescending size={14} weight="light" />
-                : <SortAscending size={14} weight="light" />
-              }
+                : <SortAscending size={14} weight="light" />}
               <span>{sortDir === "desc" ? "Newest first" : "Oldest first"}</span>
             </button>
 
@@ -916,7 +1057,6 @@ export default function SeriesDetail() {
             pageChapters.map((ch) => {
               const idxInSorted = sortedChapters.indexOf(ch);
               return (
-                // div instead of button so the nested download/delete buttons are valid HTML
                 <div
                   key={ch.id}
                   role="button"
@@ -941,11 +1081,9 @@ export default function SeriesDetail() {
                     {ch.isBookmarked && (
                       <BookmarkSimple size={12} weight="fill" className={s.bookmarkIcon} />
                     )}
-                    {/* Read indicator — always shown when read */}
                     {ch.isRead && (
                       <CheckCircle size={14} weight="light" className={s.readIcon} />
                     )}
-                    {/* Download / status indicator — independent of read state */}
                     {ch.isDownloaded ? (
                       <button
                         className={s.dlBtn}

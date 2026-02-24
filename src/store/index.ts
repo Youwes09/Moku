@@ -103,8 +103,14 @@ export const DEFAULT_SETTINGS: Settings = {
 interface Store {
   navPage: NavPage;
   setNavPage: (page: NavPage) => void;
+  genreFilter: string;
+  setGenreFilter: (genre: string) => void;
+  searchPrefill: string;
+  setSearchPrefill: (q: string) => void;
   activeManga: Manga | null;
   setActiveManga: (manga: Manga | null) => void;
+  previewManga: Manga | null;
+  setPreviewManga: (manga: Manga | null) => void;
   activeChapter: Chapter | null;
   activeChapterList: Chapter[];
   openReader: (chapter: Chapter, chapterList: Chapter[]) => void;
@@ -152,8 +158,14 @@ export const useStore = create<Store>()(
     (set, get) => ({
       navPage: "library",
       setNavPage: (navPage) => set({ navPage }),
+      genreFilter: "",
+      setGenreFilter: (genreFilter) => set({ genreFilter }),
+      searchPrefill: "",
+      setSearchPrefill: (searchPrefill) => set({ searchPrefill }),
       activeManga: null,
       setActiveManga: (activeManga) => set({ activeManga }),
+      previewManga: null,
+      setPreviewManga: (previewManga) => set({ previewManga }),
       activeChapter: null,
       activeChapterList: [],
       openReader: (chapter, chapterList) =>

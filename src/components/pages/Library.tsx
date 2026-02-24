@@ -3,21 +3,30 @@ import { MagnifyingGlass, Books, DownloadSimple, X, Folder, FolderSimplePlus, Tr
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { gql, thumbUrl } from "../../lib/client";
 import { GET_LIBRARY, UPDATE_MANGA, GET_CHAPTERS, DELETE_DOWNLOADED_CHAPTERS, DEQUEUE_DOWNLOAD } from "../../lib/queries";
+import { cache, CACHE_KEYS } from "../../lib/cache";
 import { useStore } from "../../store";
 import type { Manga, Chapter } from "../../lib/types";
 import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
 import s from "./Library.module.css";
 
-// Keep in sync with CSS grid: minmax(130px, 1fr) + var(--sp-4)=16px gap
 const CARD_MIN_W = 130;
 const CARD_GAP   = 16;
-const ROW_HEIGHT = 260; // ~195px cover + ~40px title + 16px gap + buffer
+const ROW_HEIGHT = 260;
+
+function FadeImg({ src, alt, className, objectFit }: { src: string; alt: string; className?: string; objectFit?: string }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <img
+      src={src} alt={alt} className={className}
+      loading="lazy" decoding="async"
+      style={{ objectFit: (objectFit ?? "cover") as any, opacity: loaded ? 1 : 0, transition: loaded ? "opacity 0.15s ease" : "none" }}
+      onLoad={() => setLoaded(true)}
+    />
+  );
+}
 
 const MangaCard = memo(function MangaCard({
-  manga,
-  onClick,
-  onContextMenu,
-  cropCovers,
+  manga, onClick, onContextMenu, cropCovers,
 }: {
   manga: Manga;
   onClick: () => void;
@@ -27,13 +36,11 @@ const MangaCard = memo(function MangaCard({
   return (
     <button className={s.card} onClick={onClick} onContextMenu={onContextMenu}>
       <div className={s.coverWrap}>
-        <img
+        <FadeImg
           src={thumbUrl(manga.thumbnailUrl)}
           alt={manga.title}
           className={s.cover}
-          style={{ objectFit: cropCovers ? "cover" : "contain" }}
-          loading="lazy"
-          decoding="async"
+          objectFit={cropCovers ? "cover" : "contain"}
         />
         {!!manga.downloadCount && (
           <span className={s.downloadedBadge}>{manga.downloadCount}</span>
@@ -43,6 +50,12 @@ const MangaCard = memo(function MangaCard({
     </button>
   );
 });
+
+function fetchLibrary() {
+  return cache.get(CACHE_KEYS.LIBRARY, () =>
+    gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY).then((lib) => lib.mangas.nodes)
+  );
+}
 
 export default function Library() {
   const [allManga, setAllManga]   = useState<Manga[]>([]);
@@ -59,19 +72,27 @@ export default function Library() {
   const settings            = useStore((state) => state.settings);
   const libraryTagFilter    = useStore((state) => state.libraryTagFilter);
   const setLibraryTagFilter = useStore((state) => state.setLibraryTagFilter);
+  const setGenreFilter      = useStore((state) => state.setGenreFilter);
   const folders                = useStore((state) => state.settings.folders);
   const addFolder              = useStore((state) => state.addFolder);
   const assignMangaToFolder    = useStore((state) => state.assignMangaToFolder);
   const removeMangaFromFolder  = useStore((state) => state.removeMangaFromFolder);
 
-  useEffect(() => {
-    gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY)
-      .then((lib) => setAllManga(lib.mangas.nodes))
+  const loadData = useCallback((showLoading = false) => {
+    if (showLoading) setLoading(true);
+    fetchLibrary()
+      .then((nodes) => { setAllManga(nodes); setError(null); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
-  // Reset scroll when filter/search changes
+  useEffect(() => {
+    loadData(true);
+    // Re-fetch when library cache is invalidated (e.g. by Explore or GenreDrillPage)
+    const unsub = cache.subscribe(CACHE_KEYS.LIBRARY, () => loadData(false));
+    return unsub;
+  }, [loadData]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
   }, [libraryFilter, search]);
@@ -138,7 +159,9 @@ export default function Library() {
 
   async function removeFromLibrary(manga: Manga) {
     await gql(UPDATE_MANGA, { id: manga.id, inLibrary: false }).catch(console.error);
+    // Optimistic update first, then invalidate cache
     setAllManga((prev) => prev.map((m) => m.id === manga.id ? { ...m, inLibrary: false } : m));
+    cache.clear(CACHE_KEYS.LIBRARY);
   }
 
   async function deleteAllDownloads(manga: Manga) {
@@ -147,14 +170,8 @@ export default function Library() {
       const downloadedChapters = data.chapters.nodes.filter((c) => c.isDownloaded);
       const ids = downloadedChapters.map((c) => c.id);
       if (!ids.length) return;
-
-      // Delete the downloaded files
       await gql(DELETE_DOWNLOADED_CHAPTERS, { ids });
-
-      // Also remove these chapters from the download queue (fix #12)
-      // Fire-and-forget — queue removal is best-effort
       await Promise.allSettled(ids.map((id) => gql(DEQUEUE_DOWNLOAD, { chapterId: id })));
-
       setAllManga((prev) => prev.map((m) => m.id === manga.id ? { ...m, downloadCount: 0 } : m));
     } catch (e) { console.error(e); }
   }
@@ -172,9 +189,7 @@ export default function Library() {
       return {
         label: inFolder ? `✓ ${f.name}` : f.name,
         icon: <Folder size={13} weight={inFolder ? "fill" : "light"} />,
-        onClick: () => inFolder
-          ? removeMangaFromFolder(f.id, m.id)
-          : assignMangaToFolder(f.id, m.id),
+        onClick: () => inFolder ? removeMangaFromFolder(f.id, m.id) : assignMangaToFolder(f.id, m.id),
       };
     });
 
@@ -192,7 +207,10 @@ export default function Library() {
         onClick: () => m.inLibrary
           ? removeFromLibrary(m)
           : gql(UPDATE_MANGA, { id: m.id, inLibrary: true })
-              .then(() => setAllManga((prev) => prev.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x)))
+              .then(() => {
+                setAllManga((prev) => prev.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x));
+                cache.clear(CACHE_KEYS.LIBRARY);
+              })
               .catch(console.error),
       },
       {
@@ -262,7 +280,6 @@ export default function Library() {
       className={s.root}
       ref={scrollRef}
       onContextMenu={(e) => {
-        // Only fire on the bare background, not on cards
         if ((e.target as HTMLElement).closest("button")) return;
         e.preventDefault();
         setEmptyCtx({ x: e.clientX, y: e.clientY });
@@ -322,9 +339,7 @@ export default function Library() {
             return (
               <button key={tag}
                 className={[s.tagChip, active ? s.tagChipActive : ""].join(" ")}
-                onClick={() => setLibraryTagFilter(
-                  active ? libraryTagFilter.filter((t) => t !== tag) : [...libraryTagFilter, tag]
-                )}>
+                onClick={() => setGenreFilter(tag)}>
                 {tag}
               </button>
             );
@@ -352,13 +367,7 @@ export default function Library() {
             : "No manga found."}
         </div>
       ) : (
-        /* Virtual scroll container */
-        <div
-          style={{
-            height: virtualizer.getTotalSize(),
-            position: "relative",
-          }}
-        >
+        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const rowManga = rows[virtualRow.index];
             return (
@@ -382,7 +391,6 @@ export default function Library() {
                     cropCovers={settings.libraryCropCovers}
                   />
                 ))}
-                {/* Ghost cards on last row to fill grid */}
                 {virtualRow.index === rows.length - 1 &&
                   Array.from({ length: cols - rowManga.length }).map((_, i) => (
                     <div key={`ghost-${i}`} className={s.ghostCard} aria-hidden />
@@ -394,20 +402,10 @@ export default function Library() {
       )}
 
       {ctx && (
-        <ContextMenu
-          x={ctx.x}
-          y={ctx.y}
-          items={buildCtxItems(ctx.manga)}
-          onClose={() => setCtx(null)}
-        />
+        <ContextMenu x={ctx.x} y={ctx.y} items={buildCtxItems(ctx.manga)} onClose={() => setCtx(null)} />
       )}
       {emptyCtx && (
-        <ContextMenu
-          x={emptyCtx.x}
-          y={emptyCtx.y}
-          items={buildEmptyCtxItems()}
-          onClose={() => setEmptyCtx(null)}
-        />
+        <ContextMenu x={emptyCtx.x} y={emptyCtx.y} items={buildEmptyCtxItems()} onClose={() => setEmptyCtx(null)} />
       )}
     </div>
   );

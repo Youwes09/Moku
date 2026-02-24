@@ -4,7 +4,7 @@ import Library from "../pages/Library";
 import SeriesDetail from "../pages/SeriesDetail";
 import History from "../pages/History";
 import Search from "../pages/Search";
-import Explore from "../sources/Explore";
+import Explore from "../explore/Explore";
 import DownloadQueue from "../downloads/DownloadQueue";
 import ExtensionList from "../extensions/ExtensionList";
 import s from "./Layout.module.css";
@@ -14,7 +14,7 @@ export default function Layout() {
   const activeManga = useStore((s) => s.activeManga);
 
   function renderContent() {
-    if (navPage === "library" && activeManga) return <SeriesDetail />;
+    if (activeManga)  return <SeriesDetail />;
     switch (navPage) {
       case "library":    return <Library />;
       case "search":     return <Search />;

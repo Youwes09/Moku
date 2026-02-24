@@ -8,6 +8,7 @@ import { useStore } from "./store";
 import Layout from "./components/layout/Layout";
 import Reader from "./components/pages/Reader";
 import Settings from "./components/settings/Settings";
+import MangaPreview from "./components/explore/MangaPreview";
 import TitleBar from "./components/layout/TitleBar";
 import Toaster from "./components/layout/Toaster";
 import type { DownloadStatus, DownloadQueueItem } from "./lib/types";
@@ -103,6 +104,7 @@ export default function App() {
         {activeChapter ? <Reader /> : <Layout />}
       </div>
       {settingsOpen && <Settings />}
+      <MangaPreview />
       <Toaster />
     </div>
   );

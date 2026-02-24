@@ -20,10 +20,13 @@ export default function Sidebar() {
   const setActiveSource  = useStore((state) => state.setActiveSource);
   const setActiveManga   = useStore((state) => state.setActiveManga);
   const setLibraryFilter = useStore((state) => state.setLibraryFilter);
+  const setGenreFilter   = useStore((state) => state.setGenreFilter);
   const openSettings     = useStore((state) => state.openSettings);
 
   function navigate(id: NavPage) {
     setNavPage(id);
+    setActiveManga(null);
+    setGenreFilter("");
     if (id !== "explore") setActiveSource(null);
   }
 

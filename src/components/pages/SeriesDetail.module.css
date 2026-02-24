@@ -724,6 +724,18 @@
   pointer-events: none;
 }
 
+/* In-progress progress fill bar (width set inline) */
+.gridCellProgress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  pointer-events: none;
+  z-index: 2;
+}
+
 /* In-progress — accent highlight on bottom edge */
 .gridCellInProgress {
   border-color: var(--accent-dim);
@@ -933,18 +945,23 @@
   align-items: center;
   gap: var(--sp-2);
   width: 100%;
-  margin-top: var(--sp-2);
-  padding: 7px var(--sp-3);
+  padding: 6px var(--sp-2);
   border-radius: var(--radius-md);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
-  color: var(--color-error);
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-faint);
   background: none;
-  border: 1px solid var(--color-error);
+  border: 1px solid var(--border-dim);
   cursor: pointer;
   text-align: left;
-  transition: background var(--t-base);
+  transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
 }
-.deleteAllBtn:hover:not(:disabled) { background: var(--color-error-bg); }
+.deleteAllBtn:hover:not(:disabled) {
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
+  background: var(--color-error-bg, color-mix(in srgb, var(--color-error) 8%, transparent));
+}
 .deleteAllBtn:disabled { opacity: 0.4; cursor: default; }
 
 /* ── Danger item in dl dropdown ─────────────────────────────────────── */

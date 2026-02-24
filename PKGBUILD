@@ -4,7 +4,7 @@ pkgrel=1
 pkgdesc="Native Linux manga reader frontend for Suwayomi-Server"
 arch=('x86_64')
 url="https://github.com/Youwes09/Moku"
-license=('MIT')
+license=('Apache 2.0')
 depends=(
     'webkit2gtk-4.1'
     'gtk3'

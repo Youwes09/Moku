@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef, memo } from "react";
 import { ArrowLeft, BookmarkSimple, FolderSimplePlus, Folder } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import { GET_ALL_MANGA, GET_LIBRARY, GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
-import { cache, CACHE_KEYS, getTopSources } from "../../lib/cache";
+import { cache, CACHE_KEYS } from "../../lib/cache";
 import { dedupeSources, dedupeMangaByTitle, dedupeMangaById } from "../../lib/sourceUtils";
 import { useStore } from "../../store";
 import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
@@ -67,13 +67,18 @@ export default function GenreDrillPage() {
       gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
         .then((d) => dedupeSources(d.sources.nodes, preferredLang))
     ).then((allSources) => {
-      const topSources = getTopSources(allSources);
+      // Use ALL deduped sources for drill pages (not just frecency top 4)
+      // Cap at 8 to avoid hammering the server too hard
+      const sourcesToQuery = allSources.slice(0, 8);
       return cache.get(CACHE_KEYS.GENRE(genre), () =>
         Promise.allSettled(
-          topSources.map((src) =>
-            gql<{ fetchSourceManga: { mangas: Manga[] } }>(FETCH_SOURCE_MANGA, {
-              source: src.id, type: "SEARCH", page: 1, query: genre,
-            }, ctrl.signal).then((d) => d.fetchSourceManga.mangas)
+          // Fetch page 1 and page 2 from each source for a fuller result set
+          sourcesToQuery.flatMap((src) =>
+            [1, 2].map((page) =>
+              gql<{ fetchSourceManga: { mangas: Manga[] } }>(FETCH_SOURCE_MANGA, {
+                source: src.id, type: "SEARCH", page, query: genre,
+              }, ctrl.signal).then((d) => d.fetchSourceManga.mangas)
+            )
           )
         ).then((results) => {
           const merged: Manga[] = [];
@@ -91,9 +96,14 @@ export default function GenreDrillPage() {
   }, [genre]);
 
   const filtered = useMemo(() => {
+    // Library manga: only include if genre matches (we have full metadata)
     const libMatches = libraryManga.filter((m) => (m.genre ?? []).includes(genre));
-    const srcMatches = sourceManga.filter((m) => !m.genre?.length || m.genre.includes(genre));
-    return dedupeMangaById([...libMatches, ...srcMatches]);
+    // Source manga: include ALL results — they came from a genre search,
+    // but the API often returns no genre tags in the brief response payload.
+    // De-duplicate against library matches by id.
+    const libIds = new Set(libMatches.map((m) => m.id));
+    const srcAll = sourceManga.filter((m) => !libIds.has(m.id));
+    return dedupeMangaById([...libMatches, ...srcAll]);
   }, [libraryManga, sourceManga, genre]);
 
   function openCtx(e: React.MouseEvent, m: Manga) {

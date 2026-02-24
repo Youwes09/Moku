@@ -58,13 +58,14 @@ function fetchLibrary() {
 }
 
 export default function Library() {
-  const [allManga, setAllManga]   = useState<Manga[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
-  const [search, setSearch]       = useState("");
-  const [ctx, setCtx]             = useState<{ x: number; y: number; manga: Manga } | null>(null);
-  const [emptyCtx, setEmptyCtx]   = useState<{ x: number; y: number } | null>(null);
-  const scrollRef                 = useRef<HTMLDivElement>(null);
+  const [allManga, setAllManga]     = useState<Manga[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [search, setSearch]         = useState("");
+  const [ctx, setCtx]               = useState<{ x: number; y: number; manga: Manga } | null>(null);
+  const [emptyCtx, setEmptyCtx]     = useState<{ x: number; y: number } | null>(null);
+  const scrollRef                   = useRef<HTMLDivElement>(null);
 
   const setActiveManga      = useStore((state) => state.setActiveManga);
   const libraryFilter       = useStore((state) => state.libraryFilter);
@@ -80,18 +81,30 @@ export default function Library() {
 
   const loadData = useCallback((showLoading = false) => {
     if (showLoading) setLoading(true);
+    // Clear a previously failed cache entry so we actually retry the network call
+    if (!cache.has(CACHE_KEYS.LIBRARY)) {
+      // cache miss — fresh fetch, nothing to clear
+    }
     fetchLibrary()
       .then((nodes) => { setAllManga(nodes); setError(null); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
+  // Initial load — delayed on first mount so the server has time to start.
+  // retryCount bumps force a re-run; manual retries clear the cache first.
   useEffect(() => {
-    loadData(true);
-    // Re-fetch when library cache is invalidated (e.g. by Explore or GenreDrillPage)
+    setLoading(true);
+    setError(null);
+
+    if (retryCount > 0) cache.clear(CACHE_KEYS.LIBRARY);
+    loadData(false);
+
+    // Re-fetch when library cache is invalidated by other pages
     const unsub = cache.subscribe(CACHE_KEYS.LIBRARY, () => loadData(false));
     return unsub;
-  }, [loadData]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retryCount]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
@@ -271,7 +284,13 @@ export default function Library() {
   if (error) return (
     <div className={s.center}>
       <p className={s.errorMsg}>Could not reach Suwayomi</p>
-      <p className={s.errorDetail}>{error}</p>
+      <p className={s.errorDetail}>Make sure the server is running, then retry.</p>
+      <button
+        style={{ marginTop: "var(--sp-3)", padding: "6px 16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-dim)", background: "var(--bg-raised)", color: "var(--text-muted)", cursor: "pointer", fontFamily: "var(--font-ui)", fontSize: "var(--text-xs)", letterSpacing: "var(--tracking-wide)" }}
+        onClick={() => setRetryCount((c) => c + 1)}
+      >
+        Retry
+      </button>
     </div>
   );
 

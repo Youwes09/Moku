@@ -1,22 +1,89 @@
 Todo:
-1. Check all Keybind Toggles
-2. Update ReadME with Comprehensive Feature List
-3. Explore Manga Upscaler
-4. Add Zoom-Slider for Zoom in Manga Reader
-
+3. Explore Manga Upscaler & Other Image Processing
+4. Font Weird on Flatpak, Investigate and Fix
+5. Investigate "egl:failed to create dri2 screen"
 
 Bugs:
-2. Fix Auto-scroll between chapters & state when moving chapters (Implemented but not Fluidic)
-3. Patch Chapters to Grid View
-5. Fix Keybind Toggles
+
+- 
+- Opening Explore first time loads nothing, going to different page then going back loads everything relatively instantly? (Explore Page Bug)
+- Add Scroll Wheel Compatibility to Explore, etc (Explore Page Bug)
+- Add Back after Search & Clear on Search
+- Add as Package in Nix Flake & Check Later
+- GenreDrill & GenreFilter pages do not populate completely.
+- Fix Initial Async Loading (Shows Suwayomi Not Loaded Till Refresh)
+- Fix Explore Polling into 115 Sources (It currently includes languages) also Super Laggy
+- Allow to move back from a window and return to previous state, not completely reset (Whole UI Issue)
+16. Contrast Adjustment Option in Settings for Users (UI FOCUSED)
+
+
+- Fix Mangafire Main Dispatcher Issue
+
+
+- Fix Zoom in Reader changing Pages (Zoom Out Threshold in Reader causes Break)
+- Add Download Location Change, Moku-Migration, Flatpak & Normal Installation Directory Checks
+
+- Clean up Migrate Model to be more initutive
 
 Features:
-1. Frecency based Manga Suggestions
-2. Proper Explore Tab
+- Add PDF Textbook Support
+- Major revision to disable entire manga-subsection and use as 
+solely as a reader/document launcher.
+- Multiple Tag Filters + Mor Tags, Types, Etc
+- Consider what to do empty space in sidebar (Maybe Daily Reading Time Brainstorm)
+- Properly Kill Tachidesk-Server
+- Migration Features
+- Multi-Page Long Screenshot
+- 
 
 
 Big Revisions:
+0. Expand into fully-fledged reader, with modular manga support
 1. Anime & Novel Support
+2. Tracker Support
+3. Cloudflare Bypass Enable Support
+4. macOS Support (feasible)
 
-Test:
-1. URL & Extension Additions
+
+
+Testing:
+6. Fix laggy renderer on single page (same cache as longscroll) & set default longstrip
+5. Lock reader on valid chapters to avoid bugs, etc.
+1. Cache issue when opening manga series detail first time (Loading screen addition) & Async Load
+- Fix Download Cards (Series Detail Download UI) & Fix Download Range Expand
+- Fix Grid View for Large Amounts of Chapter (Check Initial D) (Series Detail)
+20. Expand History (Total Time Read, etc)
+12. Delete all Downloads should also cancel all download queues
+13. Cancel Download along with Queue & Download Timeout Feature
+
+
+Completed:
+8. Fix Polling on Download Manager (Instantanous Response)
+19. Debounce Time on Reader to improve lag (Toggle Setting)
+10. Download Manager Pause and Cancel All Not Working + Download Lag on Series Detail Side
+17. Change Library Text change to "No manga saved to library, browse sources to add some."
+9. Fix CSS issue on Sidebar (Weird Green Overlay on Button)
+7. Fix Scaling (100 = 125% and so forth)
+2. Expand Criteria on Series Detail (Tags, Summaries) Make more Compact
+14. Right-Click should have (Remove Library & Delete All) + Make New Folder (Context Menu)
+15. Explorer Right-Click New Context Menu with Add to Library, Add to Folder, etc
+11. Reader & UI needs download and other Notifications
+- Fix Mark all Above as Read to Mark all Below as Read (Should be visual based) also add Unread Option, Sidebar Category for mark all above as read and mark all below as unread. (Series Detail)
+- Add Refresh Details on Series Details.
+- Patch GenreDrill & Integrate into Explore Folder
+18. Disable NSFW Extensions option in settings
+- Filtering by Genre (Accessed by Clicking tags on Manga)
+- Remove Series Detail Mark Read & Unread
+
+
+
+
+Important Commands:
+cd ~/Projects/Manga/Moku
+pnpm build
+tar -czf packaging/frontend-dist.tar.gz -C dist .
+sha256sum packaging/frontend-dist.tar.gz | awk '{print $1}'
+
+1. nix-shell -p "python311.withPackages(ps: [ ps.aiohttp ps.tomlkit ])" --run "python3 packaging/flatpak-cargo-generator.py src-tauri/Cargo.lock -o packaging/cargo-sources.json"
+2. nix shell nixpkgs#appstream nixpkgs#flatpak-builder --command flatpak-builder --repo=repo --force-clean build-dir dev.moku.app.yml
+3. flatpak build-bundle repo moku.flatpak dev.moku.app

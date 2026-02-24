@@ -157,6 +157,8 @@ function ExploreFeed() {
   const [genreResults, setGenreResults]     = useState<Map<string, Manga[]>>(new Map());
   const [loadingGenres, setLoadingGenres]   = useState(false);
   const [sources, setSources]               = useState<Source[]>([]);
+  const [loadError, setLoadError]           = useState(false);
+  const [retryCount, setRetryCount]         = useState(0);
   const abortRef                            = useRef<AbortController | null>(null);
   const fetchedGenresRef                    = useRef<string>("");
 
@@ -208,9 +210,24 @@ function ExploreFeed() {
     ];
   }
 
-  // ── Library + sources load (runs once) ────────────────────────────────────
+  // ── Library + sources load (retries when suwayomi wasn't ready) ─────────────
   useEffect(() => {
+    // If we already have data, no need to re-fetch (cache hit path)
+    const alreadyLoaded = allManga.length > 0 && sources.length > 0;
+    if (alreadyLoaded) return;
+
+    setLoadingLib(true);
+    setLoadingPopular(true);
+    setLoadError(false);
+
     const preferredLang = settings.preferredExtensionLang || "en";
+
+    // Clear stale failed cache entries so we actually retry
+    if (retryCount > 0) {
+      cache.clear(CACHE_KEYS.LIBRARY);
+      cache.clear(CACHE_KEYS.SOURCES);
+      fetchedGenresRef.current = "";
+    }
 
     // Library — fire immediately, independent of sources
     cache.get(CACHE_KEYS.LIBRARY, () =>
@@ -222,7 +239,7 @@ function ExploreFeed() {
         return all.mangas.nodes.map((m) => libMap.get(m.id) ?? m);
       })
     ).then(setAllManga)
-     .catch(console.error)
+     .catch((e) => { console.error(e); setLoadError(true); })
      .finally(() => setLoadingLib(false));
 
     // Sources — then kick off popular AND genres simultaneously
@@ -230,7 +247,7 @@ function ExploreFeed() {
       gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
         .then((d) => dedupeSources(d.sources.nodes, preferredLang))
     ).then((allSources) => {
-      if (allSources.length === 0) { setLoadingPopular(false); return; }
+      if (allSources.length === 0) { setLoadingPopular(false); setLoadError(true); return; }
 
       // Cap to 2 sources for the explore feed — halves the network calls
       const topSources = getTopSources(allSources).slice(0, 2);
@@ -292,9 +309,9 @@ function ExploreFeed() {
       .catch((e) => { if (e?.name !== "AbortError") console.error(e); })
       .finally(() => { if (!ctrl.signal.aborted) setLoadingGenres(false); });
     })
-    .catch(console.error);
+      .catch((e) => { console.error(e); setLoadError(true); setLoadingPopular(false); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [retryCount]);
 
   // ── Frecency genres (derived from history + library) ──────────────────────
   const frecencyGenres = useMemo(() => {
@@ -459,8 +476,23 @@ function ExploreFeed() {
         continueReading.length === 0 && recommended.length === 0 &&
         popularManga.length === 0 && frecencyGenres.every((g) => !genreResults.get(g)?.length) && (
         <div className={s.empty}>
-          <span>Nothing to explore yet</span>
-          <span className={s.emptyHint}>Add manga to your library or install sources to get started.</span>
+          {loadError ? (
+            <>
+              <span>Could not reach Suwayomi</span>
+              <span className={s.emptyHint}>Make sure the server is running, then try again.</span>
+              <button
+                style={{ marginTop: "var(--sp-3)", padding: "6px 16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-dim)", background: "var(--bg-raised)", color: "var(--text-muted)", cursor: "pointer", fontFamily: "var(--font-ui)", fontSize: "var(--text-xs)", letterSpacing: "var(--tracking-wide)" }}
+                onClick={() => { setLoadingLib(true); setLoadingPopular(true); setRetryCount((c) => c + 1); }}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <>
+              <span>Nothing to explore yet</span>
+              <span className={s.emptyHint}>Add manga to your library or install sources to get started.</span>
+            </>
+          )}
         </div>
       )}
 

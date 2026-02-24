@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash } from "@phosphor-icons/react";
+import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { gql } from "../../lib/client";
 import { GET_DOWNLOADS_PATH } from "../../lib/queries";
@@ -9,7 +9,7 @@ import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind, type Keybinds } from 
 import type { Settings, FitMode } from "../../store";
 import s from "./Settings.module.css";
 
-type Tab = "general" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "about";
+type Tab = "general" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "about" | "devtools";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "general",     label: "General",     icon: <Gear size={14} weight="light" /> },
@@ -20,6 +20,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "storage",     label: "Storage",     icon: <HardDrives size={14} weight="light" /> },
   { id: "folders",     label: "Folders",     icon: <FolderSimple size={14} weight="light" /> },
   { id: "about",       label: "About",       icon: <Info size={14} weight="light" /> },
+  { id: "devtools",    label: "Dev Tools",   icon: <Wrench size={14} weight="light" /> },
 ];
 
 // ── Primitives ────────────────────────────────────────────────────────────────
@@ -173,6 +174,24 @@ function GeneralTab({ settings, update }: { settings: Settings; update: (p: Part
           description="Launch tachidesk-server when Moku opens"
           checked={settings.autoStartServer}
           onChange={(v) => update({ autoStartServer: v })} />
+      </div>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Inactivity</p>
+        <SelectRow
+          label="Idle screen timeout"
+          description="Show the Moku idle splash after this much inactivity. Set to Never to disable."
+          value={String(settings.idleTimeoutMin ?? 5)}
+          options={[
+            { value: "0",  label: "Never"    },
+            { value: "1",  label: "1 minute" },
+            { value: "2",  label: "2 minutes" },
+            { value: "5",  label: "5 minutes" },
+            { value: "10", label: "10 minutes" },
+            { value: "15", label: "15 minutes" },
+            { value: "30", label: "30 minutes" },
+          ]}
+          onChange={(v) => update({ idleTimeoutMin: Number(v) })}
+        />
       </div>
     </div>
   );
@@ -339,6 +358,13 @@ function PerformanceTab({ settings, update }: { settings: Settings; update: (p: 
           description="Promote reader and library to compositor layers (recommended)"
           checked={settings.gpuAcceleration}
           onChange={(v) => update({ gpuAcceleration: v })} />
+      </div>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Idle / Splash Screen</p>
+        <Toggle label="Animated card background"
+          description="Show floating manga cards on the splash and idle screens. Disable if the animation feels slow on your machine."
+          checked={settings.splashCards ?? true}
+          onChange={(v) => update({ splashCards: v })} />
       </div>
       <div className={s.section}>
         <p className={s.sectionTitle}>Interface</p>
@@ -702,6 +728,51 @@ function FoldersTab() {
   );
 }
 
+function DevToolsTab() {
+  const [splashTriggered, setSplashTriggered] = useState(false);
+
+  function triggerSplash() {
+    setSplashTriggered(true);
+    setTimeout(() => setSplashTriggered(false), 200);
+    (window as any).__mokuShowSplash?.();
+  }
+
+  return (
+    <div className={s.panel}>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Splash Screen</p>
+        <div className={s.stepRow}>
+          <div className={s.toggleInfo}>
+            <span className={s.toggleLabel}>Preview idle screen</span>
+            <span className={s.toggleDesc}>Show the idle splash — dismiss with any click or key</span>
+          </div>
+          <button
+            className={s.dangerBtn}
+            style={{ background: splashTriggered ? "var(--accent-fg)" : undefined,
+                     color: splashTriggered ? "var(--bg-base)" : undefined,
+                     borderColor: splashTriggered ? "var(--accent-fg)" : undefined,
+                     transition: "all 0.15s ease" }}
+            onClick={triggerSplash}
+          >
+            Show idle
+          </button>
+        </div>
+      </div>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Build Info</p>
+        <div className={s.aboutBlock}>
+          <p className={s.aboutLine} style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 11, color: "var(--text-faint)" }}>
+            Mode: {import.meta.env.MODE}
+          </p>
+          <p className={s.aboutLine} style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 11, color: "var(--text-faint)", marginTop: "var(--sp-1)" }}>
+            Dev: {String(import.meta.env.DEV)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AboutTab() {
   return (
     <div className={s.panel}>
@@ -776,6 +847,7 @@ export default function SettingsModal() {
             {tab === "storage"     && <StorageTab     settings={settings} update={updateSettings} />}
             {tab === "folders"     && <FoldersTab />}
             {tab === "about"       && <AboutTab />}
+            {tab === "devtools"    && <DevToolsTab />}
           </div>
         </div>
       </div>

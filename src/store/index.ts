@@ -65,6 +65,8 @@ export interface Settings {
   autoStartServer: boolean;
   preferredExtensionLang: string;
   keybinds: Keybinds;
+  idleTimeoutMin?: number;
+  splashCards?: boolean;
   storageLimitGb: number | null;
   folders: Folder[];
   /** Debounce delay (ms) applied to the reader's scroll/page-change handler. 0 = off. */
@@ -95,6 +97,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoStartServer: true,
   preferredExtensionLang: "en",
   keybinds: DEFAULT_KEYBINDS,
+  idleTimeoutMin: 5,
+  splashCards: true,
   storageLimitGb: null,
   folders: [],
   readerDebounceMs: 120,

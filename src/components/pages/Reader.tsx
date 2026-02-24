@@ -256,9 +256,14 @@ export default function Reader() {
    * currently reading (for topbar display) without triggering a full reload.
    */
   const [visibleChapterId, setVisibleChapterId] = useState<number | null>(null);
+  // Ref mirror so the scroll handler always reads the latest value without
+  // closing over a stale state snapshot from a previous effect render.
+  const visibleChapterIdRef = useRef<number | null>(null);
 
   // Keep the ref mirror in sync so the scroll handler always sees current strip state
   useEffect(() => { stripChaptersRef.current = stripChapters; }, [stripChapters]);
+  // Keep visibleChapterId ref in sync
+  useEffect(() => { visibleChapterIdRef.current = visibleChapterId; }, [visibleChapterId]);
 
   // Restore scroll position synchronously after a head-trim, before the browser paints
   useLayoutEffect(() => {
@@ -681,30 +686,51 @@ export default function Reader() {
 
         // ── Infinite append ──────────────────────────────────────────────────
         if (!autoNext) {
-          const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+          // Only navigate when the strip genuinely overflows the viewport.
+          // If pages are short/zoomed-out, scrollHeight === clientHeight and
+          // atBottom would always be true, causing unwanted chapter switches.
+          const isScrollable = el.scrollHeight > el.clientHeight + 4;
+          const atBottom = isScrollable && el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
           if (atBottom && adjacent.next) openReader(adjacent.next, activeChapterList);
           return;
         }
 
         const strip = stripChaptersRef.current;
 
-        // Silently update visibleChapterId as we scroll into each chunk
+        // Silently update visibleChapterId as we scroll into each chunk.
+        // Use the ref so we always compare against the current value, not a
+        // stale closure snapshot from when the effect was last set up.
         for (const chunk of strip) {
           const chunkEnd = chunk.startGlobalIdx + chunk.urls.length;
           if (n - 1 >= chunk.startGlobalIdx && n - 1 < chunkEnd) {
-            if (chunk.chapterId !== visibleChapterId) {
-              setVisibleChapterId(chunk.chapterId);
+            if (chunk.chapterId !== visibleChapterIdRef.current) {
+              // Mark the chapter we just *left* as read before updating the ref.
               if (settings.autoMarkRead) {
-                const prevChunk = strip[strip.indexOf(chunk) - 1];
-                if (prevChunk) {
-                  if (!markedReadRef.current.has(prevChunk.chapterId)) {
-                    markedReadRef.current.add(prevChunk.chapterId);
-                    gql(MARK_CHAPTER_READ, { id: prevChunk.chapterId, isRead: true }).catch(console.error);
-                  }
+                const chunkIdx = strip.indexOf(chunk);
+                const prevChunk = chunkIdx > 0 ? strip[chunkIdx - 1] : null;
+                if (prevChunk && !markedReadRef.current.has(prevChunk.chapterId)) {
+                  markedReadRef.current.add(prevChunk.chapterId);
+                  gql(MARK_CHAPTER_READ, { id: prevChunk.chapterId, isRead: true }).catch(console.error);
                 }
               }
+              visibleChapterIdRef.current = chunk.chapterId;
+              setVisibleChapterId(chunk.chapterId);
             }
             break;
+          }
+        }
+
+        // When the user reaches the very bottom of the full strip, mark the
+        // last chapter as read (it never triggers the "crossed into next chunk" path).
+        if (settings.autoMarkRead) {
+          const isScrollable = el.scrollHeight > el.clientHeight + 4;
+          const atVeryBottom = isScrollable && el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+          if (atVeryBottom) {
+            const lastChunk = strip[strip.length - 1];
+            if (lastChunk && !markedReadRef.current.has(lastChunk.chapterId)) {
+              markedReadRef.current.add(lastChunk.chapterId);
+              gql(MARK_CHAPTER_READ, { id: lastChunk.chapterId, isRead: true }).catch(console.error);
+            }
           }
         }
 
@@ -751,7 +777,7 @@ export default function Reader() {
       el.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [style, autoNext, activeChapterList, activeChapter?.id, adjacent.next, fetchPages, visibleChapterId]);
+  }, [style, autoNext, activeChapterList, activeChapter?.id, adjacent.next, fetchPages]);
 
   // Reset scroll position when switching chapters in non-longstrip modes
   useEffect(() => {

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use nix::sys::statvfs::statvfs;
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
 use tauri_plugin_shell::{ShellExt, process::CommandChild};
 use walkdir::WalkDir;
 
@@ -51,12 +51,9 @@ fn get_storage_info(downloads_path: String) -> Result<StorageInfo, String> {
     };
     let vfs = statvfs(&stat_path).map_err(|e| e.to_string())?;
 
-    // f_frsize is the fundamental block size used for block counts.
-    // f_bsize (block_size()) is just the preferred I/O size and must not be
-    // used with blocks()/blocks_free() — that gives wildly wrong numbers.
     let frsize      = vfs.fragment_size() as u64;
-    let total_bytes = vfs.blocks()            * frsize;
-    let free_bytes  = vfs.blocks_available()  * frsize;
+    let total_bytes = vfs.blocks()           * frsize;
+    let free_bytes  = vfs.blocks_available() * frsize;
 
     Ok(StorageInfo {
         manga_bytes,
@@ -66,31 +63,76 @@ fn get_storage_info(downloads_path: String) -> Result<StorageInfo, String> {
     })
 }
 
+fn kill_tachidesk(app: &tauri::AppHandle) {
+    // Kill the tracked child handle
+    let state = app.state::<ServerState>();
+    let mut guard = state.0.lock().unwrap();
+    if let Some(child) = guard.take() {
+        let _ = child.kill();
+        println!("Killed tracked server child.");
+    }
+    // Belt-and-suspenders: the JVM registers its process name as "tachidesk",
+    // not "tachidesk-server", so pkill must target the short name.
+    let _ = std::process::Command::new("pkill")
+        .arg("-f")
+        .arg("tachidesk")
+        .status();
+}
+
+/// Spawn the server. Guards against double-spawn — if a child is already
+/// tracked, this is a no-op (handles React StrictMode double-invoke in dev).
+#[tauri::command]
+fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<ServerState>();
+    {
+        let guard = state.0.lock().unwrap();
+        if guard.is_some() {
+            println!("Server already running, skipping spawn.");
+            return Ok(());
+        }
+    }
+
+    let shell = app.shell();
+    match shell.command(&binary).spawn() {
+        Ok((_rx, child)) => {
+            println!("Spawned server: {}", binary);
+            let mut guard = state.0.lock().unwrap();
+            *guard = Some(child);
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Failed to spawn {}: {}", binary, e);
+            Err(e.to_string())
+        }
+    }
+}
+
+/// Explicit kill — called from App.tsx cleanup. The window-close handler
+/// below is the authoritative kill path; this is a secondary safety net.
+#[tauri::command]
+fn kill_server(app: tauri::AppHandle) -> Result<(), String> {
+    kill_tachidesk(&app);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(ServerState(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![get_storage_info])
-        .setup(|app| {
-            let shell = app.shell();
-            let app_handle = app.handle().clone();
-
-            let status = shell.command("tachidesk-server").spawn();
-
-            match status {
-                Ok((_rx, child)) => {
-                    println!("Tachidesk server process spawned successfully.");
-                    let state = app_handle.state::<ServerState>();
-                    let mut guard = state.0.lock().unwrap();
-                    *guard = Some(child);
-                }
-                Err(e) => {
-                    eprintln!("Failed to spawn Tachidesk server: {}", e);
-                }
+        .invoke_handler(tauri::generate_handler![
+            get_storage_info,
+            spawn_server,
+            kill_server,
+        ])
+        .setup(|_app| Ok(()))
+        .on_window_event(|window, event| {
+            // Kill the server when the main window is actually destroyed.
+            // This fires reliably on close regardless of whether the JS
+            // cleanup callback ran.
+            if let WindowEvent::Destroyed = event {
+                kill_tachidesk(window.app_handle());
             }
-
-            Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running moku");

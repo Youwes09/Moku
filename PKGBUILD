@@ -3,7 +3,7 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc="Native Linux manga reader frontend for Suwayomi-Server"
 arch=('x86_64')
-url="https://github.com/shozikan/Moku"
+url="https://github.com/Youwes09/Moku"
 license=('MIT')
 depends=(
     'webkit2gtk-4.1'
@@ -18,7 +18,7 @@ makedepends=(
     'pnpm'
 )
 source=(
-    "$pkgname-$pkgver.tar.gz::https://github.com/shozikan/Moku/archive/refs/tags/v$pkgver.tar.gz"
+    "$pkgname-$pkgver.tar.gz::https://github.com/Youwes09/Moku/archive/refs/tags/v$pkgver.tar.gz"
     "suwayomi-server.jar::https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/suwayomi-server-v2.1.1867.jar"
     "jdk.tar.gz::https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jre_x64_linux_hotspot_21.0.3_9.tar.gz"
 )

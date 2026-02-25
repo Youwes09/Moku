@@ -75,7 +75,7 @@
 
           frontend = pkgs.stdenv.mkDerivation {
             pname = "moku-frontend";
-            version = "0.1.0";
+            version = "0.3.0";
             src = frontendSrc;
 
             nativeBuildInputs = with pkgs; [
@@ -86,7 +86,7 @@
 
             pnpmDeps = pkgs.fetchPnpmDeps {
               pname = "moku-frontend";
-              version = "0.1.0";
+              version = "0.3.0";
               src = frontendSrc;
               fetcherVersion = 1;
               hash = "sha256-bpGYsB534RPNNAcYR9BA61vvFpSG6Xu2hY923PakCyY=";
@@ -135,11 +135,67 @@
                 --prefix PATH : "${lib.makeBinPath [ pkgs.suwayomi-server ]}" \
                 --set GDK_BACKEND wayland \
                 --set WEBKIT_FORCE_SANDBOX 0
+
+              # ── Icon ─────────────────────────────────────────────────────────
+              # Tauri bakes several sizes into src-tauri/icons/. We prefer the
+              # largest PNG (512x512) for the hicolor theme, and also install the
+              # rounded 32x32 used as the in-app logo so small sizes look right.
+              # Adjust the source filenames if yours differ.
+              for size in 32x32 128x128 256x256 512x512; do
+                src="icons/$size.png"
+                if [ -f "$src" ]; then
+                  install -Dm644 "$src" \
+                    "$out/share/icons/hicolor/$size/apps/moku.png"
+                fi
+              done
+
+              # @2x variants that Tauri also generates
+              for size in 128x128 256x256; do
+                src="icons/''${size}@2x.png"
+                if [ -f "$src" ]; then
+                  install -Dm644 "$src" \
+                    "$out/share/icons/hicolor/''${size}@2/apps/moku.png"
+                fi
+              done
+
+              # Scalable SVG — src/assets/moku-icon.svg is the rounded version
+              # referenced in SplashScreen.tsx. Pull it straight from the source
+              # tree so the launcher always uses the same rounded artwork.
+              install -Dm644 "${./src/assets/moku-icon.svg}" \
+                "$out/share/icons/hicolor/scalable/apps/moku.svg"
+
+              # ── .desktop entry ───────────────────────────────────────────────
+              install -Dm644 /dev/stdin \
+                "$out/share/applications/moku.desktop" <<EOF
+              [Desktop Entry]
+              Version=1.0
+              Type=Application
+              Name=Moku
+              Comment=Manga reader frontend for Suwayomi
+              Exec=$out/bin/moku
+              Icon=moku
+              Terminal=false
+              Categories=Graphics;Viewer;
+              Keywords=manga;comic;reader;suwayomi;
+              StartupWMClass=moku
+              EOF
             '';
           });
 
         in
         {
+          # Expose as both a runnable app and installable packages.
+          apps = {
+            default = {
+              type = "app";
+              program = "${moku}/bin/moku";
+            };
+            moku = {
+              type = "app";
+              program = "${moku}/bin/moku";
+            };
+          };
+
           packages = {
             inherit moku frontend;
             default = moku;

@@ -118,7 +118,6 @@
             preBuild = ''
               cp -r ${frontend} ../dist
             '';
-            WEBKIT_DISABLE_COMPOSITING_MODE = "1";
           };
 
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -133,7 +132,9 @@
                   pkgs.gtk3
                 ]}" \
                 --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath runtimeLibs}" \
-                --prefix PATH : "${lib.makeBinPath [ pkgs.suwayomi-server ]}"
+                --prefix PATH : "${lib.makeBinPath [ pkgs.suwayomi-server ]}" \
+                --set GDK_BACKEND wayland \
+                --set WEBKIT_FORCE_SANDBOX 0
             '';
           });
 
@@ -157,7 +158,6 @@
               xdg-utils
             ];
             shellHook = ''
-              export WEBKIT_DISABLE_COMPOSITING_MODE=1
               export APPIMAGE_EXTRACT_AND_RUN=1
               export NO_STRIP=true
               export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"

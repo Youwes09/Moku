@@ -63,24 +63,29 @@ fn get_storage_info(downloads_path: String) -> Result<StorageInfo, String> {
     })
 }
 
+/// Returns the true OS-level scale factor for the main window.
+/// This reads directly from the underlying winit window handle, bypassing
+/// whatever value WebKitGTK happens to report to JS via window.devicePixelRatio.
+/// This is the only reliable way to get the correct DPR in all launch
+/// environments — tauri dev, nix run, flatpak, etc.
+#[tauri::command]
+fn get_scale_factor(window: tauri::Window) -> f64 {
+    window.scale_factor().unwrap_or(1.0)
+}
+
 fn kill_tachidesk(app: &tauri::AppHandle) {
-    // Kill the tracked child handle
     let state = app.state::<ServerState>();
     let mut guard = state.0.lock().unwrap();
     if let Some(child) = guard.take() {
         let _ = child.kill();
         println!("Killed tracked server child.");
     }
-    // Belt-and-suspenders: the JVM registers its process name as "tachidesk",
-    // not "tachidesk-server", so pkill must target the short name.
     let _ = std::process::Command::new("pkill")
         .arg("-f")
         .arg("tachidesk")
         .status();
 }
 
-/// Spawn the server. Guards against double-spawn — if a child is already
-/// tracked, this is a no-op (handles React StrictMode double-invoke in dev).
 #[tauri::command]
 fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<ServerState>();
@@ -107,8 +112,6 @@ fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-/// Explicit kill — called from App.tsx cleanup. The window-close handler
-/// below is the authoritative kill path; this is a secondary safety net.
 #[tauri::command]
 fn kill_server(app: tauri::AppHandle) -> Result<(), String> {
     kill_tachidesk(&app);
@@ -124,12 +127,10 @@ pub fn run() {
             get_storage_info,
             spawn_server,
             kill_server,
+            get_scale_factor,
         ])
         .setup(|_app| Ok(()))
         .on_window_event(|window, event| {
-            // Kill the server when the main window is actually destroyed.
-            // This fires reliably on close regardless of whether the JS
-            // cleanup callback ran.
             if let WindowEvent::Destroyed = event {
                 kill_tachidesk(window.app_handle());
             }

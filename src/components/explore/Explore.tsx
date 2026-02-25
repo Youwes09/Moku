@@ -24,6 +24,18 @@ function frecencyScore(readAt: number, count: number): number {
 
 function GhostCard() { return <div className={s.ghostCard} aria-hidden />; }
 const GHOST_COUNT = 3;
+const ROW_CAP     = 25;
+
+// Hijack vertical wheel delta → horizontal scroll on .row divs
+function handleRowWheel(e: React.WheelEvent<HTMLDivElement>) {
+  if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+  const el = e.currentTarget;
+  const canScrollLeft  = el.scrollLeft > 0;
+  const canScrollRight = el.scrollLeft < el.scrollWidth - el.clientWidth - 1;
+  if (!canScrollLeft && !canScrollRight) return;
+  e.stopPropagation();
+  el.scrollLeft += e.deltaY;
+}
 
 function SkeletonRow({ count = 8 }: { count?: number }) {
   return (
@@ -76,6 +88,22 @@ const MiniCard = memo(function MiniCard({
       </div>
       <p className={s.title}>{manga.title}</p>
       {subtitle && <p className={s.subtitle}>{subtitle}</p>}
+    </button>
+  );
+});
+
+// ── Explore More end-cap ──────────────────────────────────────────────────────
+
+const ExploreMoreCard = memo(function ExploreMoreCard({
+  genre, onClick,
+}: { genre: string; onClick: () => void }) {
+  return (
+    <button className={s.exploreMoreCard} onClick={onClick} title={`See all ${genre} manga`}>
+      <div className={s.exploreMoreInner}>
+        <ArrowRight size={20} weight="light" className={s.exploreMoreIcon} />
+        <span className={s.exploreMoreLabel}>Explore more</span>
+        <span className={s.exploreMoreGenre}>{genre}</span>
+      </div>
     </button>
   );
 });
@@ -416,8 +444,8 @@ function ExploreFeed() {
 
       {(continueReading.length > 0 || loadingLib) && (
         <Section title="Continue Reading" icon={<BookOpen size={11} weight="bold" />} loading={loadingLib}>
-          <div className={s.row}>
-            {continueReading.map(({ manga, chapterName, progress }) => (
+          <div className={s.row} onWheel={handleRowWheel}>
+            {continueReading.slice(0, ROW_CAP).map(({ manga, chapterName, progress }) => (
               <MiniCard key={manga.id} manga={manga} onClick={() => openManga(manga)}
                 onContextMenu={(e) => openCtx(e, manga)} subtitle={chapterName} progress={progress} />
             ))}
@@ -428,8 +456,8 @@ function ExploreFeed() {
 
       {(recommended.length > 0 || loadingLib) && (
         <Section title="Recommended for You" icon={<Star size={11} weight="bold" />} loading={loadingLib}>
-          <div className={s.row}>
-            {recommended.map((m) => (
+          <div className={s.row} onWheel={handleRowWheel}>
+            {recommended.slice(0, ROW_CAP).map((m) => (
               <MiniCard key={m.id} manga={m} onClick={() => openManga(m)} onContextMenu={(e) => openCtx(e, m)} />
             ))}
             {Array.from({ length: GHOST_COUNT }).map((_, i) => <GhostCard key={`ghost-rec-${i}`} />)}
@@ -446,8 +474,8 @@ function ExploreFeed() {
           {sources.length === 0 ? (
             <div className={s.noSource}>No sources installed. Add extensions first.</div>
           ) : (
-            <div className={s.row}>
-              {popularManga.map((m) => (
+            <div className={s.row} onWheel={handleRowWheel}>
+              {popularManga.slice(0, ROW_CAP).map((m) => (
                 <MiniCard key={m.id} manga={m} onClick={() => openManga(m)} onContextMenu={(e) => openCtx(e, m)} />
               ))}
               {Array.from({ length: GHOST_COUNT }).map((_, i) => <GhostCard key={`ghost-pop-${i}`} />)}
@@ -462,10 +490,13 @@ function ExploreFeed() {
         if (!isLoading && items.length === 0) return null;
         return (
           <Section key={genre} title={genre} onSeeAll={() => setGenreFilter(genre)} loading={isLoading}>
-            <div className={s.row}>
-              {items.map((m) => (
+            <div className={s.row} onWheel={handleRowWheel}>
+              {items.slice(0, ROW_CAP).map((m) => (
                 <MiniCard key={m.id} manga={m} onClick={() => openManga(m)} onContextMenu={(e) => openCtx(e, m)} />
               ))}
+              {items.length >= ROW_CAP && (
+                <ExploreMoreCard genre={genre} onClick={() => setGenreFilter(genre)} />
+              )}
               {Array.from({ length: GHOST_COUNT }).map((_, i) => <GhostCard key={`ghost-${genre}-${i}`} />)}
             </div>
           </Section>

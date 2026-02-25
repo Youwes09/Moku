@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import logoUrl from "../../assets/moku-icon.svg";
 
 export type SplashMode = "loading" | "idle";
@@ -9,7 +10,7 @@ interface Props {
   ringFull?:   boolean;
   failed?:     boolean;
   showCards?:  boolean;
-  showFps?:    boolean;   // only passed from devSplash
+  showFps?:    boolean;
   onReady?:    () => void;
   onRetry?:    () => void;
   onDismiss?:  () => void;
@@ -22,21 +23,13 @@ function hash(n: number): number {
   return ((x ^ (x >>> 16)) >>> 0) / 0xffffffff;
 }
 
-// ── Dimensions ────────────────────────────────────────────────────────────────
-// Use window dimensions for card/stamp generation (reasonable at load time),
-// but the canvas itself will resize dynamically — see CardCanvas below.
-const VW   = typeof window !== "undefined" ? window.innerWidth  : 1280;
-const VH   = typeof window !== "undefined" ? window.innerHeight : 800;
-const BUF  = 80;
-const COLS = 14;
-
-// ── Card definition — lines stored here so stamps use the exact same value ───
+// ── Card definition ───────────────────────────────────────────────────────────
 interface CardDef {
   layer:      0 | 1 | 2;
   cx:         number;
   w:          number;
   h:          number;
-  lines:      number;   // 1‒3, stored once, used by both stamp builder & (future) draw
+  lines:      number;
   alpha:      number;
   speed:      number;
   cycleSec:   number;
@@ -47,15 +40,20 @@ interface CardDef {
   tilt:       number;
 }
 
+interface CardTrig { cosA: number; sinA: number; tiltRad: number; }
+
 const LAYER_CFG = [
   { wMin: 26, wMax: 40, speedMin: 30, speedMax: 50,  alpha: 0.22 },
   { wMin: 38, wMax: 56, speedMin: 52, speedMax: 80,  alpha: 0.35 },
   { wMin: 54, wMax: 76, speedMin: 85, speedMax: 120, alpha: 0.50 },
 ] as const;
 
-const CARDS: CardDef[] = (() => {
-  const out: CardDef[] = [];
-  const laneW = VW / COLS;
+const BUF  = 80;
+const COLS = 14;
+
+function buildCards(vw: number, vh: number): { cards: CardDef[]; trigs: CardTrig[] } {
+  const cards: CardDef[] = [];
+  const laneW = vw / COLS;
   for (let layer = 0; layer < 3; layer++) {
     const cfg = LAYER_CFG[layer];
     for (let col = 0; col < COLS; col++) {
@@ -65,49 +63,31 @@ const CARDS: CardDef[] = (() => {
       const maxNudge = (laneW - w) / 2 - 2;
       const cx       = (col + 0.5) * laneW + (hash(seed + 2) * 2 - 1) * Math.max(0, maxNudge);
       const speed    = cfg.speedMin + hash(seed + 5) * (cfg.speedMax - cfg.speedMin);
-      const travel   = VH + h + BUF;
-      out.push({
+      const travel   = vh + h + BUF;
+      cards.push({
         layer: layer as 0 | 1 | 2,
         cx, w, h,
-        lines:     1 + Math.floor(hash(seed + 7) * 3),  // same seed+7 always
-        alpha:     cfg.alpha,
+        lines:      1 + Math.floor(hash(seed + 7) * 3),
+        alpha:      cfg.alpha,
         speed,
-        cycleSec:  travel / speed,
-        phase:     ((col / COLS) + hash(seed + 6) * 0.6 + layer * 0.23) % 1,
+        cycleSec:   travel / speed,
+        phase:      ((col / COLS) + hash(seed + 6) * 0.6 + layer * 0.23) % 1,
         travel,
-        yStart:    VH + h / 2 + BUF / 2,
-        angleStart:hash(seed + 3) * 50 - 25,
-        tilt:      (hash(seed + 4) * 2 - 1) * 18,
+        yStart:     vh + h / 2 + BUF / 2,
+        angleStart: hash(seed + 3) * 50 - 25,
+        tilt:       (hash(seed + 4) * 2 - 1) * 18,
       });
     }
   }
-  return out;
-})();
+  const trigs: CardTrig[] = cards.map(c => ({
+    cosA:    Math.cos(c.angleStart * (Math.PI / 180)),
+    sinA:    Math.sin(c.angleStart * (Math.PI / 180)),
+    tiltRad: c.tilt * (Math.PI / 180),
+  }));
+  return { cards, trigs };
+}
 
-// ── Pre-computed per-card trig deltas ────────────────────────────────────────
-// angleStart and tilt are fixed; only p (0→1) scales the tilt.
-// We can't fully precompute because p changes per frame, but we CAN precompute
-// the per-radian cos/sin values and use small-angle linearisation... actually
-// the simplest win is to note angles are small (±43° max) and just avoid
-// recomputing Math.cos/sin of angleStart every frame — cache them, then
-// use rotation composition for the tilt delta which is tiny per frame.
-//
-// Simpler and sufficient: cache base angle cos/sin for each card at module init,
-// then compose with the tilt delta using the rotation formula:
-//   cos(a+d) = cos(a)*cos(d) - sin(a)*sin(d)
-//   sin(a+d) = sin(a)*cos(d) + cos(a)*sin(d)
-// Since the tilt delta is at most 18° total over the whole travel, per-frame
-// delta is tiny — Math.cos of a tiny number ≈ 1, Math.sin ≈ angle.
-// But the cleanest approach: just cache angleStart's cos/sin, and per frame
-// only compute cos/sin of the TILT FRACTION (small value).
-interface CardTrig { cosA: number; sinA: number; tiltRad: number; }
-const CARD_TRIG: CardTrig[] = CARDS.map(c => ({
-  cosA:    Math.cos(c.angleStart * (Math.PI / 180)),
-  sinA:    Math.sin(c.angleStart * (Math.PI / 180)),
-  tiltRad: c.tilt * (Math.PI / 180),
-}));
-
-// ── Rounded rect path helper ──────────────────────────────────────────────────
+// ── Rounded rect ──────────────────────────────────────────────────────────────
 function rrect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -118,78 +98,78 @@ function rrect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
   ctx.closePath();
 }
 
-// ── Stamp builder — runs ONCE at module init ──────────────────────────────────
-// Each card is pre-rendered at full opacity to a tiny offscreen canvas.
-// Hot path does zero path ops — just globalAlpha + drawImage per card.
+// ── Stamp builder ─────────────────────────────────────────────────────────────
 const STAMP_PAD = 6;
 
-const STAMPS: HTMLCanvasElement[] = (() => {
-  if (typeof document === "undefined") return [];
-  return CARDS.map(c => {
-    const oc  = document.createElement("canvas");
-    oc.width  = Math.ceil(c.w + STAMP_PAD * 2);
-    oc.height = Math.ceil(c.h + STAMP_PAD * 2);
-    const ctx = oc.getContext("2d")!;
-    const x0  = STAMP_PAD;
-    const y0  = STAMP_PAD;
-    const coverH = (c.w * 0.72) * 1.05;
-    // Text lines start just below the cover rect
-    const lineY0 = y0 + 3 + coverH + 5;
+function buildStamp(c: CardDef, dpr: number): HTMLCanvasElement {
+  const logW = Math.ceil(c.w + STAMP_PAD * 2);
+  const logH = Math.ceil(c.h + STAMP_PAD * 2);
+  const oc   = document.createElement("canvas");
+  oc.width   = Math.round(logW * dpr);
+  oc.height  = Math.round(logH * dpr);
+  const ctx  = oc.getContext("2d")!;
+  ctx.scale(dpr, dpr);
 
-    // Shadow
-    ctx.fillStyle = "rgba(0,0,0,0.5)";
-    rrect(ctx, x0 + 2, y0 + 2, c.w, c.h, 4); ctx.fill();
+  const x0     = STAMP_PAD;
+  const y0     = STAMP_PAD;
+  const coverH = (c.w * 0.72) * 1.05;
+  const lineY0 = y0 + 3 + coverH + 5;
 
-    // Body
-    ctx.fillStyle = "rgba(255,255,255,0.07)";
-    rrect(ctx, x0, y0, c.w, c.h, 4); ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  rrect(ctx, x0 + 2, y0 + 2, c.w, c.h, 4); ctx.fill();
 
-    // Border
-    ctx.strokeStyle = "rgba(255,255,255,0.75)";
-    ctx.lineWidth = 1.2;
-    rrect(ctx, x0, y0, c.w, c.h, 4); ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.07)";
+  rrect(ctx, x0, y0, c.w, c.h, 4); ctx.fill();
 
-    // Cover area
-    ctx.fillStyle = "rgba(255,255,255,0.15)";
-    rrect(ctx, x0 + 3, y0 + 3, c.w - 6, coverH, 3); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.75)";
+  ctx.lineWidth = 1.2;
+  rrect(ctx, x0, y0, c.w, c.h, 4); ctx.stroke();
 
-    // Cover tint band
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
-    rrect(ctx, x0 + 3, y0 + 3, (c.w - 6) * 0.45, coverH, 3); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.15)";
+  rrect(ctx, x0 + 3, y0 + 3, c.w - 6, coverH, 3); ctx.fill();
 
-    // Text lines — use c.lines (same value as buildCards computed)
-    for (let li = 0; li < c.lines; li++) {
-      ctx.fillStyle = li === 0 ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.20)";
-      ctx.fillRect(x0 + 4, lineY0 + li * 8, (c.w - 8) * (li === 0 ? 0.78 : 0.52), li === 0 ? 3 : 2);
-    }
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  rrect(ctx, x0 + 3, y0 + 3, (c.w - 6) * 0.45, coverH, 3); ctx.fill();
 
-    return oc;
-  });
-})();
+  for (let li = 0; li < c.lines; li++) {
+    ctx.fillStyle = li === 0 ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.20)";
+    ctx.fillRect(x0 + 4, lineY0 + li * 8, (c.w - 8) * (li === 0 ? 0.78 : 0.52), li === 0 ? 3 : 2);
+  }
 
-// ── Pre-baked vignette canvas ─────────────────────────────────────────────────
-const VIGNETTE: HTMLCanvasElement | null = (() => {
-  if (typeof document === "undefined") return null;
+  return oc;
+}
+
+// ── Vignette builder ──────────────────────────────────────────────────────────
+function buildVignette(vw: number, vh: number, dpr: number): HTMLCanvasElement {
   const oc  = document.createElement("canvas");
-  oc.width  = VW; oc.height = VH;
+  oc.width  = Math.round(vw * dpr);
+  oc.height = Math.round(vh * dpr);
   const ctx = oc.getContext("2d")!;
-  const g   = ctx.createRadialGradient(VW / 2, VH / 2, 0, VW / 2, VH / 2, Math.max(VW, VH) * 0.65);
+  ctx.scale(dpr, dpr);
+  const g = ctx.createRadialGradient(vw / 2, vh / 2, 0, vw / 2, vh / 2, Math.max(vw, vh) * 0.65);
   g.addColorStop(0.15, "rgba(0,0,0,0)");
   g.addColorStop(1,    "rgba(0,0,0,0.82)");
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, VW, VH);
+  ctx.fillRect(0, 0, vw, vh);
   return oc;
-})();
+}
 
-// ── Draw frame — hot path ─────────────────────────────────────────────────────
-// Uses setTransform() instead of manual translate/rotate undo.
-// setTransform sets the full matrix in one call — no floating-point drift,
-// no stack push/pop, one fewer operation than save+restore.
-function drawFrame(ctx: CanvasRenderingContext2D, t: number, cw: number, ch: number) {
+// ── Draw frame ────────────────────────────────────────────────────────────────
+function drawFrame(
+  ctx:      CanvasRenderingContext2D,
+  t:        number,
+  cw:       number,
+  ch:       number,
+  dpr:      number,
+  cards:    CardDef[],
+  trigs:    CardTrig[],
+  stamps:   HTMLCanvasElement[],
+  vignette: HTMLCanvasElement,
+) {
   ctx.clearRect(0, 0, cw, ch);
 
-  for (let i = 0; i < CARDS.length; i++) {
-    const c = CARDS[i];
+  for (let i = 0; i < cards.length; i++) {
+    const c = cards[i];
     const p = ((t / c.cycleSec) + c.phase) % 1;
 
     const alpha = p < 0.07
@@ -200,27 +180,28 @@ function drawFrame(ctx: CanvasRenderingContext2D, t: number, cw: number, ch: num
 
     if (alpha < 0.005) continue;
 
-    const cy = c.yStart - p * c.travel;
-
-    // Compose base rotation with tilt delta using trig identity —
-    // avoids two Math.cos/sin calls; only one pair for the small delta.
-    const tg      = CARD_TRIG[i];
-    const delta   = tg.tiltRad * p;       // small value (≤ 18° * 1)
+    const cy       = c.yStart - p * c.travel;
+    const tg       = trigs[i];
+    const delta    = tg.tiltRad * p;
     const cosDelta = Math.cos(delta);
     const sinDelta = Math.sin(delta);
     const cos = tg.cosA * cosDelta - tg.sinA * sinDelta;
     const sin = tg.sinA * cosDelta + tg.cosA * sinDelta;
 
     ctx.globalAlpha = alpha;
-    // setTransform(a,b,c,d,e,f) = [cos,sin,-sin,cos,tx,ty]
-    ctx.setTransform(cos, sin, -sin, cos, c.cx, cy);
-    ctx.drawImage(STAMPS[i], -c.w / 2 - STAMP_PAD, -c.h / 2 - STAMP_PAD);
+    ctx.setTransform(
+      cos * dpr, sin * dpr,
+      -sin * dpr, cos * dpr,
+      c.cx * dpr, cy * dpr,
+    );
+    const sw = c.w + STAMP_PAD * 2;
+    const sh = c.h + STAMP_PAD * 2;
+    ctx.drawImage(stamps[i], -sw / 2, -sh / 2, sw, sh);
   }
 
-  // Reset to identity + full opacity in one call
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
-  if (VIGNETTE) ctx.drawImage(VIGNETTE, 0, 0, cw, ch);
+  ctx.drawImage(vignette, 0, 0, cw, ch);
 }
 
 // ── Ring ──────────────────────────────────────────────────────────────────────
@@ -243,10 +224,10 @@ function Ring({ progress }: { progress: number }) {
   );
 }
 
-// ── FPS counter — only mounted when showFps=true (devSplash only) ─────────────
+// ── FPS counter ───────────────────────────────────────────────────────────────
 function FpsCounter() {
-  const divRef   = useRef<HTMLDivElement>(null);
-  const times    = useRef<number[]>([]);
+  const divRef = useRef<HTMLDivElement>(null);
+  const times  = useRef<number[]>([]);
 
   useEffect(() => {
     let raf = 0;
@@ -279,36 +260,110 @@ function FpsCounter() {
   );
 }
 
-// ── CardCanvas — owns the single rAF loop ─────────────────────────────────────
+// ── CardCanvas ────────────────────────────────────────────────────────────────
+// Uses invoke("get_scale_factor") to get the real OS DPR from winit/Tauri
+// before building any bitmaps. window.devicePixelRatio is unreliable in
+// nix run and flatpak because WebKitGTK may not have received the HiDPI
+// hint from the compositor by the time the JS context initialises.
+// Tauri reads it from the native window handle, which is always correct.
 function CardCanvas({ showFps }: { showFps: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
+
     const ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: false });
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
 
-    // Keep canvas resolution in sync with its CSS size
-    function syncSize() {
-      if (!canvas) return;
-      canvas.width  = canvas.offsetWidth  || window.innerWidth;
-      canvas.height = canvas.offsetHeight || window.innerHeight;
-    }
-    syncSize();
-    const ro = new ResizeObserver(syncSize);
-    ro.observe(canvas);
+    let cancelled = false;
 
-    let raf = 0, t0 = -1;
-    function frame(now: number) {
-      if (t0 < 0) t0 = now;
-      drawFrame(ctx!, (now - t0) / 1000, canvas!.width, canvas!.height);
+    async function init() {
+      // Prefer the Tauri-sourced scale factor; fall back to the JS value
+      // when running outside Tauri (e.g. vite dev server in a browser).
+      let dpr = window.devicePixelRatio || 1;
+      try {
+        const tauriDpr = await invoke<number>("get_scale_factor");
+        if (tauriDpr > 0) dpr = tauriDpr;
+      } catch {
+        // Not in Tauri — window.devicePixelRatio is fine for the browser.
+      }
+
+      if (cancelled) return;
+
+      console.log(
+        "[SplashScreen] DPR resolution:",
+        `window.devicePixelRatio=${window.devicePixelRatio}`,
+        `resolved dpr=${dpr}`,
+        `logical=${window.innerWidth}x${window.innerHeight}`,
+        `physical=${Math.round(window.innerWidth * dpr)}x${Math.round(window.innerHeight * dpr)}`,
+      );
+
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      const { cards, trigs } = buildCards(vw, vh);
+      const stamps = cards.map(c => buildStamp(c, dpr));
+
+      let vignette = buildVignette(vw, vh, dpr);
+      let lastLW   = vw;
+      let lastLH   = vh;
+      let lastDpr  = dpr;
+      let curDpr   = dpr;
+
+      // syncSize is synchronous for the canvas resize, but fires an async
+      // Tauri call to update curDpr so the next frame uses the right value.
+      // This handles moving the window between monitors mid-session.
+      function syncSize() {
+        if (!canvas) return;
+        const lw = canvas.offsetWidth  || window.innerWidth;
+        const lh = canvas.offsetHeight || window.innerHeight;
+        canvas.width  = Math.round(lw * curDpr);
+        canvas.height = Math.round(lh * curDpr);
+
+        if (lw !== lastLW || lh !== lastLH || curDpr !== lastDpr) {
+          vignette = buildVignette(lw, lh, curDpr);
+          lastLW   = lw;
+          lastLH   = lh;
+          lastDpr  = curDpr;
+        }
+
+        // Async DPR refresh for next resize (e.g. monitor switch)
+        invoke<number>("get_scale_factor")
+          .then(d => { if (d > 0) curDpr = d; })
+          .catch(() => { curDpr = window.devicePixelRatio || 1; });
+      }
+
+      syncSize();
+      const ro = new ResizeObserver(syncSize);
+      if (canvas) ro.observe(canvas);
+
+      let raf = 0, t0 = -1;
+      function frame(now: number) {
+        if (t0 < 0) t0 = now;
+        drawFrame(
+          ctx!, (now - t0) / 1000,
+          canvas!.width, canvas!.height,
+          curDpr, cards, trigs, stamps, vignette,
+        );
+        raf = requestAnimationFrame(frame);
+      }
       raf = requestAnimationFrame(frame);
+
+      // Stash cleanup so the synchronous useEffect return can reach it.
+      (canvas as any).__splashCleanup = () => {
+        cancelAnimationFrame(raf);
+        ro.disconnect();
+      };
     }
-    raf = requestAnimationFrame(frame);
+
+    init();
+
     return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
+      cancelled = true;
+      (canvas as any).__splashCleanup?.();
     };
   }, []);
 
@@ -364,7 +419,6 @@ export default function SplashScreen({
     return () => clearInterval(id);
   }, []);
 
-  // Idle dismiss: keydown / mousedown / touchstart only — NO mousemove
   useEffect(() => {
     if (mode !== "idle" || !onDismiss) return;
     function handler() { triggerExit(onDismiss); }

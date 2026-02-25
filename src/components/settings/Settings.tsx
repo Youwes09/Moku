@@ -1,26 +1,27 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench } from "@phosphor-icons/react";
+import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Plus, Pencil, Trash, Wrench, PaintBrush } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { gql } from "../../lib/client";
 import { GET_DOWNLOADS_PATH } from "../../lib/queries";
 import { useStore } from "../../store";
 import type { Folder } from "../../store";
 import { KEYBIND_LABELS, DEFAULT_KEYBINDS, eventToKeybind, type Keybinds } from "../../lib/keybinds";
-import type { Settings, FitMode } from "../../store";
+import type { Settings, FitMode, Theme } from "../../store";
 import s from "./Settings.module.css";
 
-type Tab = "general" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "about" | "devtools";
+type Tab = "general" | "appearance" | "reader" | "library" | "performance" | "keybinds" | "storage" | "folders" | "about" | "devtools";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: "general",     label: "General",     icon: <Gear size={14} weight="light" /> },
-  { id: "reader",      label: "Reader",      icon: <Book size={14} weight="light" /> },
-  { id: "library",     label: "Library",     icon: <Image size={14} weight="light" /> },
-  { id: "performance", label: "Performance", icon: <Sliders size={14} weight="light" /> },
-  { id: "keybinds",    label: "Keybinds",    icon: <Keyboard size={14} weight="light" /> },
-  { id: "storage",     label: "Storage",     icon: <HardDrives size={14} weight="light" /> },
-  { id: "folders",     label: "Folders",     icon: <FolderSimple size={14} weight="light" /> },
-  { id: "about",       label: "About",       icon: <Info size={14} weight="light" /> },
-  { id: "devtools",    label: "Dev Tools",   icon: <Wrench size={14} weight="light" /> },
+  { id: "general",    label: "General",    icon: <Gear size={14} weight="light" /> },
+  { id: "appearance", label: "Appearance", icon: <PaintBrush size={14} weight="light" /> },
+  { id: "reader",     label: "Reader",     icon: <Book size={14} weight="light" /> },
+  { id: "library",    label: "Library",    icon: <Image size={14} weight="light" /> },
+  { id: "performance",label: "Performance",icon: <Sliders size={14} weight="light" /> },
+  { id: "keybinds",   label: "Keybinds",   icon: <Keyboard size={14} weight="light" /> },
+  { id: "storage",    label: "Storage",    icon: <HardDrives size={14} weight="light" /> },
+  { id: "folders",    label: "Folders",    icon: <FolderSimple size={14} weight="light" /> },
+  { id: "about",      label: "About",      icon: <Info size={14} weight="light" /> },
+  { id: "devtools",   label: "Dev Tools",  icon: <Wrench size={14} weight="light" /> },
 ];
 
 // ── Primitives ────────────────────────────────────────────────────────────────
@@ -728,6 +729,88 @@ function FoldersTab() {
   );
 }
 
+// ── Appearance tab ────────────────────────────────────────────────────────────
+
+const THEMES: { id: Theme; label: string; description: string; swatches: string[] }[] = [
+  {
+    id: "dark",
+    label: "Dark",
+    description: "Default near-black",
+    swatches: ["#101010", "#151515", "#a8c4a8", "#f0efec"],
+  },
+  {
+    id: "high-contrast",
+    label: "High Contrast",
+    description: "Darker base, sharper text",
+    swatches: ["#080808", "#111111", "#bcd8bc", "#ffffff"],
+  },
+  {
+    id: "light",
+    label: "Light",
+    description: "Warm off-white",
+    swatches: ["#f4f2ee", "#faf8f4", "#2a5a2a", "#1a1916"],
+  },
+  {
+    id: "light-contrast",
+    label: "Light Contrast",
+    description: "Light with maximum text contrast",
+    swatches: ["#ece8e2", "#f5f2ec", "#183818", "#080806"],
+  },
+  {
+    id: "midnight",
+    label: "Midnight",
+    description: "Deep blue-black tint",
+    swatches: ["#0c1020", "#101428", "#a8b4e8", "#eeeef8"],
+  },
+  {
+    id: "warm",
+    label: "Warm",
+    description: "Amber and sepia tones",
+    swatches: ["#16130c", "#1c1810", "#e0b860", "#f5f0e0"],
+  },
+];
+
+function AppearanceTab({ settings, update }: { settings: Settings; update: (p: Partial<Settings>) => void }) {
+  const current = settings.theme ?? "dark";
+  return (
+    <div className={s.panel}>
+      <div className={s.section}>
+        <p className={s.sectionTitle}>Theme</p>
+        <div className={s.themeGrid}>
+          {THEMES.map((theme) => {
+            const active = current === theme.id;
+            return (
+              <button
+                key={theme.id}
+                className={[s.themeCard, active ? s.themeCardActive : ""].join(" ")}
+                onClick={() => update({ theme: theme.id })}
+                title={theme.description}
+              >
+                <div className={s.themePreview}>
+                  {/* Mini UI preview using the theme swatches */}
+                  <div className={s.themePreviewBg} style={{ background: theme.swatches[0] }}>
+                    <div className={s.themePreviewSidebar} style={{ background: theme.swatches[1] }} />
+                    <div className={s.themePreviewContent}>
+                      <div className={s.themePreviewAccent} style={{ background: theme.swatches[2] }} />
+                      <div className={s.themePreviewText} style={{ background: theme.swatches[3] + "55" }} />
+                      <div className={s.themePreviewText} style={{ background: theme.swatches[3] + "33", width: "60%" }} />
+                    </div>
+                  </div>
+                </div>
+                <div className={s.themeCardInfo}>
+                  <span className={s.themeCardLabel}>{theme.label}</span>
+                  <span className={s.themeCardDesc}>{theme.description}</span>
+                </div>
+                {active && <span className={s.themeCardCheck}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DevToolsTab() {
   const [splashTriggered, setSplashTriggered] = useState(false);
 
@@ -840,6 +923,7 @@ export default function SettingsModal() {
           </div>
           <div className={s.contentBody} ref={contentBodyRef}>
             {tab === "general"     && <GeneralTab     settings={settings} update={updateSettings} />}
+            {tab === "appearance"  && <AppearanceTab  settings={settings} update={updateSettings} />}
             {tab === "reader"      && <ReaderTab      settings={settings} update={updateSettings} />}
             {tab === "library"     && <LibraryTab     settings={settings} update={updateSettings} />}
             {tab === "performance" && <PerformanceTab settings={settings} update={updateSettings} />}

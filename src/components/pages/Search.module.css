@@ -315,7 +315,25 @@
 .tagGrid .skCard { width: auto; }
 .tagGrid .skCover { width: 100%; }
 
-/* ── NSFW badge ──────────────────────────────────────────────────────────── */
+/* ── Show more (tag grid & genre drill) ──────────────────────────────────── */
+.showMoreCell {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-2) 0 var(--sp-4);
+}
+
+.showMoreBtn {
+  display: flex; align-items: center; gap: var(--sp-2);
+  font-family: var(--font-ui); font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  padding: 7px 20px; border-radius: var(--radius-md);
+  background: var(--bg-raised); color: var(--text-muted);
+  border: 1px solid var(--border-dim); cursor: pointer;
+  transition: color var(--t-base), border-color var(--t-base);
+}
+.showMoreBtn:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--border-strong); }
+.showMoreBtn:disabled { opacity: 0.5; cursor: default; }
 .nsfwBadge {
   font-family: var(--font-ui); font-size: var(--text-2xs);
   letter-spacing: var(--tracking-wide); padding: 1px 5px;

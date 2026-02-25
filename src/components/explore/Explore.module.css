@@ -385,3 +385,57 @@
   font-size: var(--text-xs);
   letter-spacing: var(--tracking-wide);
 }
+/* ── Explore More end-cap card ───────────────────────────────────────────── */
+.exploreMoreCard {
+  flex-shrink: 0;
+  width: 110px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-strong);
+  background: var(--bg-raised);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--t-base), background var(--t-base);
+  padding: 0;
+}
+.exploreMoreCard:hover {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+.exploreMoreCard:hover .exploreMoreIcon { color: var(--accent-fg); }
+.exploreMoreCard:hover .exploreMoreLabel { color: var(--accent-fg); }
+
+.exploreMoreInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  pointer-events: none;
+}
+
+.exploreMoreIcon {
+  color: var(--text-faint);
+  transition: color var(--t-base);
+}
+
+.exploreMoreLabel {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  transition: color var(--t-base);
+  text-align: center;
+}
+
+.exploreMoreGenre {
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  opacity: 0.6;
+  text-align: center;
+  font-family: var(--font-ui);
+  letter-spacing: var(--tracking-wide);
+}

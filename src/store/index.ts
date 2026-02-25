@@ -9,6 +9,13 @@ export type LibraryFilter    = "all" | "library" | "downloaded" | string; // str
 export type NavPage          = "library" | "sources" | "explore" | "downloads" | "extensions" | "history" | "search";
 export type ReadingDirection = "ltr" | "rtl";
 export type ChapterSortDir   = "desc" | "asc";
+export type Theme            =
+  | "dark"           // default — near-black
+  | "high-contrast"  // darker + sharper text
+  | "light"          // warm off-white
+  | "light-contrast" // light + max contrast
+  | "midnight"       // blue-black tint
+  | "warm";          // amber/sepia tint
 
 export interface HistoryEntry {
   mangaId: number;
@@ -71,6 +78,8 @@ export interface Settings {
   folders: Folder[];
   /** Debounce delay (ms) applied to the reader's scroll/page-change handler. 0 = off. */
   readerDebounceMs: number;
+  /** UI colour theme. Applied as data-theme on <html>. */
+  theme: Theme;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -102,6 +111,7 @@ export const DEFAULT_SETTINGS: Settings = {
   storageLimitGb: null,
   folders: [],
   readerDebounceMs: 120,
+  theme: "dark",
 };
 
 interface Store {

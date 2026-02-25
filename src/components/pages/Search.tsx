@@ -4,8 +4,8 @@ import {
 } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import { GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
-import { cache, CACHE_KEYS, getTopSources } from "../../lib/cache";
-import { dedupeSources, dedupeMangaByTitle } from "../../lib/sourceUtils";
+import { cache, CACHE_KEYS } from "../../lib/cache";
+import { dedupeSources, dedupeMangaById } from "../../lib/sourceUtils";
 import { useStore } from "../../store";
 import type { Manga, Source } from "../../lib/types";
 import s from "./Search.module.css";
@@ -428,6 +428,10 @@ function KeywordTab({
 
 // ── Tag tab ───────────────────────────────────────────────────────────────────
 
+const TAG_PAGE_SIZE    = 50; // items shown per "page"
+const TAG_FETCH_PAGES  = 3;  // source pages to fetch per source on initial load
+const TAG_MAX_SOURCES  = 12; // max sources to query
+
 function TagTab({
   preferredLang, onMangaClick,
 }: {
@@ -436,11 +440,16 @@ function TagTab({
   preferredLang: string;
   onMangaClick: (m: Manga) => void;
 }) {
-  const [activeTag, setActiveTag]   = useState<string | null>(null);
-  const [tagResults, setTagResults] = useState<Manga[]>([]);
-  const [loadingTag, setLoadingTag] = useState(false);
-  const [tagFilter, setTagFilter]   = useState("");
-  const abortRef = useRef<AbortController | null>(null);
+  const [activeTag, setActiveTag]         = useState<string | null>(null);
+  const [tagResults, setTagResults]       = useState<Manga[]>([]);
+  const [loadingTag, setLoadingTag]       = useState(false);
+  const [loadingMore, setLoadingMore]     = useState(false);
+  const [visibleCount, setVisibleCount]   = useState(TAG_PAGE_SIZE);
+  const [tagFilter, setTagFilter]         = useState("");
+  // Track next page to fetch per source for "load more from network"
+  const nextPageRef  = useRef<Map<string, number>>(new Map());
+  const sourcesRef   = useRef<Source[]>([]);
+  const abortRef     = useRef<AbortController | null>(null);
 
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
@@ -449,6 +458,8 @@ function TagTab({
     setActiveTag(tag);
     setTagResults([]);
     setLoadingTag(true);
+    setVisibleCount(TAG_PAGE_SIZE);
+    nextPageRef.current = new Map();
 
     abortRef.current?.abort();
     const ctrl = new AbortController();
@@ -459,27 +470,44 @@ function TagTab({
         gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
           .then((d) => d.sources.nodes.filter((s) => s.id !== "0"))
       );
-      const deduped = dedupeSources(sources, preferredLang);
-      const top     = getTopSources(deduped);
+      const deduped = dedupeSources(sources, preferredLang).slice(0, TAG_MAX_SOURCES);
+      sourcesRef.current = deduped;
 
-      const results = await cache.get(CACHE_KEYS.GENRE(tag), () =>
-        Promise.allSettled(
-          top.map((src) =>
-            gql<{ fetchSourceManga: { mangas: Manga[] } }>(
+      // Start all at -1; the fetch loop sets the real next page if hasNextPage is true
+      for (const src of deduped) {
+        nextPageRef.current.set(src.id, -1);
+      }
+
+      // Stream results in: fetch each source's pages concurrently, update state as each settles
+      await runConcurrent(deduped, async (src) => {
+        if (ctrl.signal.aborted) return;
+        const pageResults: Manga[] = [];
+        // Fetch TAG_FETCH_PAGES pages in series per source
+        for (let page = 1; page <= TAG_FETCH_PAGES; page++) {
+          if (ctrl.signal.aborted) return;
+          try {
+            const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
               FETCH_SOURCE_MANGA,
-              { source: src.id, type: "SEARCH", page: 1, query: tag },
+              { source: src.id, type: "SEARCH", page, query: tag },
               ctrl.signal,
-            ).then((d) => d.fetchSourceManga.mangas)
-          )
-        ).then((settled) => {
-          const merged: Manga[] = [];
-          for (const r of settled)
-            if (r.status === "fulfilled") merged.push(...r.value);
-          return dedupeMangaByTitle(merged);
-        })
-      );
-
-      if (!ctrl.signal.aborted) setTagResults(results);
+            );
+            pageResults.push(...d.fetchSourceManga.mangas);
+            if (!d.fetchSourceManga.hasNextPage) {
+              nextPageRef.current.set(src.id, -1); // no more pages
+              break;
+            } else if (page === TAG_FETCH_PAGES) {
+              // Still has more pages beyond what we fetched upfront
+              nextPageRef.current.set(src.id, TAG_FETCH_PAGES + 1);
+            }
+          } catch (e: any) {
+            if (e?.name === "AbortError") return;
+            break; // source error — move on
+          }
+        }
+        if (!ctrl.signal.aborted && pageResults.length > 0) {
+          setTagResults((prev) => dedupeMangaById([...prev, ...pageResults]));
+        }
+      }, ctrl.signal);
     } catch (e: any) {
       if (e?.name !== "AbortError") console.error(e);
     } finally {
@@ -487,10 +515,60 @@ function TagTab({
     }
   }
 
+  async function loadMore() {
+    if (!activeTag || loadingMore) return;
+
+    // First check if we have more buffered results to show
+    if (visibleCount < tagResults.length) {
+      setVisibleCount((v) => v + TAG_PAGE_SIZE);
+      return;
+    }
+
+    // Otherwise fetch next pages from sources
+    const sourcesToFetch = sourcesRef.current.filter(
+      (src) => (nextPageRef.current.get(src.id) ?? -1) > 0
+    );
+    if (sourcesToFetch.length === 0) return;
+
+    setLoadingMore(true);
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      await runConcurrent(sourcesToFetch, async (src) => {
+        const page = nextPageRef.current.get(src.id)!;
+        if (ctrl.signal.aborted) return;
+        try {
+          const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+            FETCH_SOURCE_MANGA,
+            { source: src.id, type: "SEARCH", page, query: activeTag },
+            ctrl.signal,
+          );
+          nextPageRef.current.set(src.id, d.fetchSourceManga.hasNextPage ? page + 1 : -1);
+          if (!ctrl.signal.aborted && d.fetchSourceManga.mangas.length > 0) {
+            setTagResults((prev) => dedupeMangaById([...prev, ...d.fetchSourceManga.mangas]));
+          }
+        } catch (e: any) {
+          if (e?.name !== "AbortError") nextPageRef.current.set(src.id, -1);
+        }
+      }, ctrl.signal);
+    } finally {
+      if (!ctrl.signal.aborted) {
+        setVisibleCount((v) => v + TAG_PAGE_SIZE);
+        setLoadingMore(false);
+      }
+    }
+  }
+
   const filteredGenres = useMemo(() => {
     const q = tagFilter.trim().toLowerCase();
     return q ? COMMON_GENRES.filter((g) => g.toLowerCase().includes(q)) : COMMON_GENRES;
   }, [tagFilter]);
+
+  const visibleResults  = tagResults.slice(0, visibleCount);
+  const hasMore = visibleCount < tagResults.length ||
+    sourcesRef.current.some((src) => (nextPageRef.current.get(src.id) ?? -1) > 0);
 
   return (
     <div className={s.splitRoot}>
@@ -531,15 +609,26 @@ function TagTab({
               <span className={s.splitContentTitle}>{activeTag}</span>
               {loadingTag
                 ? <CircleNotch size={13} weight="light" className="anim-spin" style={{ color: "var(--text-faint)" }} />
-                : <span className={s.splitResultCount}>{tagResults.length} results</span>}
+                : <span className={s.splitResultCount}>
+                    {visibleResults.length}{tagResults.length > visibleCount ? `+` : ""} of {tagResults.length} results
+                  </span>}
             </div>
             {loadingTag ? (
-              <GridSkeleton />
+              <GridSkeleton count={50} />
             ) : tagResults.length > 0 ? (
               <div className={s.tagGrid}>
-                {tagResults.map((m) => (
+                {visibleResults.map((m) => (
                   <MangaCard key={m.id} manga={m} onClick={() => onMangaClick(m)} />
                 ))}
+                {hasMore && (
+                  <div className={s.showMoreCell}>
+                    <button className={s.showMoreBtn} onClick={loadMore} disabled={loadingMore}>
+                      {loadingMore
+                        ? <><CircleNotch size={13} weight="light" className="anim-spin" /> Loading…</>
+                        : "Show more"}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className={s.empty}>

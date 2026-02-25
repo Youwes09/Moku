@@ -302,6 +302,7 @@ export default function SeriesDetail() {
   const updateSettings      = useStore((state) => state.updateSettings);
   const addToast            = useStore((state) => state.addToast);
   const setGenreFilter      = useStore((state) => state.setGenreFilter);
+  const setNavPage          = useStore((state) => state.setNavPage);
 
   const [manga, setManga]                   = useState<Manga | null>(null);
   const [chapters, setChapters]             = useState<Chapter[]>([]);
@@ -733,7 +734,11 @@ export default function SeriesDetail() {
                     key={g}
                     className={[s.genre, s.genreClickable].join(" ")}
                     title={`Filter library by "${g}"`}
-                    onClick={() => setGenreFilter(g)}
+                    onClick={() => {
+                      setGenreFilter(g);
+                      setNavPage("explore");
+                      setActiveManga(null);
+                    }}
                   >
                     {g}
                   </button>

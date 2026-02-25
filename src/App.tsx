@@ -86,6 +86,11 @@ export default function App() {
   }, [settings.uiScale]);
 
   useEffect(() => {
+    const theme = settings.theme ?? "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [settings.theme]);
+
+  useEffect(() => {
     const p = (e: MouseEvent) => e.preventDefault();
     document.addEventListener("contextmenu", p);
     return () => document.removeEventListener("contextmenu", p);

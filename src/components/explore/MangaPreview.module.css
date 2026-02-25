@@ -359,6 +359,16 @@
   background: var(--bg-raised); color: var(--text-faint);
 }
 
+.genreTagClickable {
+  cursor: pointer;
+  transition: color var(--t-base), border-color var(--t-base), background var(--t-base);
+}
+.genreTagClickable:hover {
+  color: var(--accent-fg);
+  border-color: var(--accent-dim);
+  background: var(--accent-muted);
+}
+
 /* ── Metadata table ──────────────────────────────────────────────────────── */
 .metaTable {
   display: flex; flex-direction: column; gap: 1px;

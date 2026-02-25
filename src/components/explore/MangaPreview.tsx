@@ -17,6 +17,7 @@ export default function MangaPreview() {
   const setPreviewManga       = useStore((st) => st.setPreviewManga);
   const setActiveManga        = useStore((st) => st.setActiveManga);
   const setNavPage            = useStore((st) => st.setNavPage);
+  const setGenreFilter        = useStore((st) => st.setGenreFilter);
   const openReader            = useStore((st) => st.openReader);
   const addToast              = useStore((st) => st.addToast);
   const folders               = useStore((st) => st.settings.folders);
@@ -476,7 +477,20 @@ export default function MangaPreview() {
             {/* ── Genre tags ── */}
             {!loadingDetail && displayManga.genre && displayManga.genre.length > 0 && (
               <div className={s.genres}>
-                {displayManga.genre.map((g) => <span key={g} className={s.genreTag}>{g}</span>)}
+                {displayManga.genre.map((g) => (
+                  <button
+                    key={g}
+                    className={[s.genreTag, s.genreTagClickable].join(" ")}
+                    title={`Browse "${g}"`}
+                    onClick={() => {
+                      setGenreFilter(g);
+                      setNavPage("explore");
+                      close();
+                    }}
+                  >
+                    {g}
+                  </button>
+                ))}
               </div>
             )}
 

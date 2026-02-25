@@ -476,3 +476,153 @@
   border-radius: var(--radius-md);
   border: 1px solid rgba(var(--color-error-rgb, 180, 60, 60), 0.2);
 }
+/* ── Source context pill (step 2 header) ── */
+.searchContext {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.searchContextIcon {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.searchContextName {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.searchContextChange {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  color: var(--accent-fg);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: opacity var(--t-base);
+}
+.searchContextChange:hover { opacity: 0.75; }
+
+/* ── Result row: updated layout with similarity ── */
+.resultInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.resultMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.bestMatchBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-ui);
+  font-size: 9px;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--accent-fg);
+  background: var(--accent-muted);
+  border: 1px solid var(--accent-dim);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.simBar {
+  width: 48px;
+  height: 3px;
+  background: var(--bg-overlay);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.simFill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-full);
+  transition: width 0.2s ease;
+}
+
+.simLabel {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  letter-spacing: var(--tracking-wide);
+  white-space: nowrap;
+}
+
+/* ── Confirm step additions ── */
+.confirmDivider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.confirmTag {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-dim);
+  color: var(--text-faint);
+}
+
+.confirmTagNew {
+  background: var(--accent-muted);
+  border-color: var(--accent-dim);
+  color: var(--accent-fg);
+}
+
+.statGood { color: var(--color-success) !important; }
+.statWarn { color: #d97706 !important; }
+.statBad  { color: var(--color-error) !important; }
+
+.chapterDiff {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: #d97706;
+  letter-spacing: var(--tracking-wide);
+  margin-left: var(--sp-2);
+}
+
+.warnBox {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: #d97706;
+  line-height: var(--leading-snug);
+}

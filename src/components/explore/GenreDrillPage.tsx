@@ -1,14 +1,37 @@
-import { useEffect, useState, useMemo, useRef, memo } from "react";
-import { ArrowLeft, BookmarkSimple, FolderSimplePlus, Folder } from "@phosphor-icons/react";
+import { useEffect, useState, useMemo, useRef, memo, useCallback } from "react";
+import { ArrowLeft, BookmarkSimple, FolderSimplePlus, Folder, CircleNotch } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import { GET_ALL_MANGA, GET_LIBRARY, GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
 import { cache, CACHE_KEYS } from "../../lib/cache";
-import { dedupeSources, dedupeMangaByTitle, dedupeMangaById } from "../../lib/sourceUtils";
+import { dedupeSources, dedupeMangaById } from "../../lib/sourceUtils";
 import { useStore } from "../../store";
 import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
 import type { Manga, Source } from "../../lib/types";
 import s from "./GenreDrillPage.module.css";
 
+// ── Constants ──────────────────────────────────────────────────────────────────
+const PAGE_SIZE         = 50;   // how many items to show at once
+const INITIAL_PAGES     = 3;    // source API pages to fetch upfront per source
+const MAX_SOURCES       = 12;   // max sources to query concurrently
+const CONCURRENCY       = 4;    // parallel source fetches
+
+async function runConcurrent<T>(
+  items: T[],
+  fn: (item: T) => Promise<void>,
+  signal: AbortSignal,
+): Promise<void> {
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      if (signal.aborted) return;
+      const item = items[i++];
+      await fn(item).catch(() => {});
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
+}
+
+// ── CoverImg ──────────────────────────────────────────────────────────────────
 const CoverImg = memo(function CoverImg({ src, alt, className }: { src: string; alt: string; className?: string }) {
   const [loaded, setLoaded] = useState(false);
   return (
@@ -21,6 +44,7 @@ const CoverImg = memo(function CoverImg({ src, alt, className }: { src: string; 
   );
 });
 
+// ── GenreDrillPage ────────────────────────────────────────────────────────────
 export default function GenreDrillPage() {
   const genre               = useStore((st) => st.genreFilter);
   const setGenreFilter      = useStore((st) => st.setGenreFilter);
@@ -30,12 +54,17 @@ export default function GenreDrillPage() {
   const addFolder           = useStore((st) => st.addFolder);
   const assignMangaToFolder = useStore((st) => st.assignMangaToFolder);
 
-  const [libraryManga, setLibraryManga]   = useState<Manga[]>([]);
-  const [sourceManga, setSourceManga]     = useState<Manga[]>([]);
-  const [loadingLibrary, setLoadingLibrary] = useState(true);
-  const [loadingSources, setLoadingSources] = useState(true);
+  const [libraryManga, setLibraryManga]     = useState<Manga[]>([]);
+  const [sourceManga, setSourceManga]       = useState<Manga[]>([]);
+  const [loadingInitial, setLoadingInitial] = useState(true);
+  const [loadingMore, setLoadingMore]       = useState(false);
+  const [visibleCount, setVisibleCount]     = useState(PAGE_SIZE);
   const [ctx, setCtx] = useState<{ x: number; y: number; manga: Manga } | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+
+  // Per-source next-page tracker; -1 means exhausted
+  const nextPageRef  = useRef<Map<string, number>>(new Map());
+  const sourcesRef   = useRef<Source[]>([]);
+  const abortRef     = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!genre) return;
@@ -44,11 +73,15 @@ export default function GenreDrillPage() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    setLoadingLibrary(true);
-    setLoadingSources(true);
+    setLoadingInitial(true);
     setSourceManga([]);
+    setLibraryManga([]);
+    setVisibleCount(PAGE_SIZE);
+    nextPageRef.current = new Map();
 
-    // ── Library ────────────────────────────────────────────────────────────
+    const preferredLang = settings.preferredExtensionLang || "en";
+
+    // ── Library (fire-and-forget, doesn't block skeleton removal) ─────────
     cache.get(CACHE_KEYS.LIBRARY, () =>
       Promise.all([
         gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA),
@@ -57,55 +90,122 @@ export default function GenreDrillPage() {
         const libMap = new Map(lib.mangas.nodes.map((m) => [m.id, m]));
         return all.mangas.nodes.map((m) => libMap.get(m.id) ?? m);
       })
-    ).then(setLibraryManga)
-     .catch((e) => { if (e?.name !== "AbortError") console.error(e); })
-     .finally(() => setLoadingLibrary(false));
+    )
+    .then((manga) => { if (!ctrl.signal.aborted) setLibraryManga(manga); })
+    .catch((e) => { if (e?.name !== "AbortError") console.error(e); });
 
-    // ── Sources ────────────────────────────────────────────────────────────
-    const preferredLang = settings.preferredExtensionLang || "en";
+    // ── Sources: stream results in as each source responds ────────────────
     cache.get(CACHE_KEYS.SOURCES, () =>
       gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
-        .then((d) => dedupeSources(d.sources.nodes, preferredLang))
-    ).then((allSources) => {
-      // Use ALL deduped sources for drill pages (not just frecency top 4)
-      // Cap at 8 to avoid hammering the server too hard
-      const sourcesToQuery = allSources.slice(0, 8);
-      return cache.get(CACHE_KEYS.GENRE(genre), () =>
-        Promise.allSettled(
-          // Fetch page 1 and page 2 from each source for a fuller result set
-          sourcesToQuery.flatMap((src) =>
-            [1, 2].map((page) =>
-              gql<{ fetchSourceManga: { mangas: Manga[] } }>(FETCH_SOURCE_MANGA, {
-                source: src.id, type: "SEARCH", page, query: genre,
-              }, ctrl.signal).then((d) => d.fetchSourceManga.mangas)
-            )
-          )
-        ).then((results) => {
-          const merged: Manga[] = [];
-          for (const r of results)
-            if (r.status === "fulfilled") merged.push(...r.value);
-          return dedupeMangaByTitle(merged);
-        })
-      );
-    })
-    .then((manga) => { if (!ctrl.signal.aborted) setSourceManga(manga); })
-    .catch((e) => { if (e?.name !== "AbortError") console.error(e); })
-    .finally(() => { if (!ctrl.signal.aborted) setLoadingSources(false); });
+        .then((d) => dedupeSources(d.sources.nodes.filter((s) => s.id !== "0"), preferredLang))
+    ).then(async (allSources) => {
+      const sources = allSources.slice(0, MAX_SOURCES);
+      sourcesRef.current = sources;
+      // Start all sources at -1 (unknown/exhausted); the fetch loop will set the correct next page
+      for (const src of sources) nextPageRef.current.set(src.id, -1);
+
+      await runConcurrent(sources, async (src) => {
+        if (ctrl.signal.aborted) return;
+        const pageItems: Manga[] = [];
+        for (let page = 1; page <= INITIAL_PAGES; page++) {
+          if (ctrl.signal.aborted) return;
+          try {
+            const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+              FETCH_SOURCE_MANGA,
+              { source: src.id, type: "SEARCH", page, query: genre },
+              ctrl.signal,
+            );
+            pageItems.push(...d.fetchSourceManga.mangas);
+            if (!d.fetchSourceManga.hasNextPage) {
+              nextPageRef.current.set(src.id, -1);
+              break;
+            } else if (page === INITIAL_PAGES) {
+              // Has more pages beyond what we fetched upfront — mark for "load more"
+              nextPageRef.current.set(src.id, INITIAL_PAGES + 1);
+            }
+          } catch (e: any) {
+            if (e?.name === "AbortError") return;
+            nextPageRef.current.set(src.id, -1);
+            break;
+          }
+        }
+        if (!ctrl.signal.aborted && pageItems.length > 0) {
+          // Dedupe by ID only — title dedup across sources is too aggressive and collapses
+          // legitimate different-source results that share a common title (e.g. "Action" genre)
+          setSourceManga((prev) => dedupeMangaById([...prev, ...pageItems]));
+          // Drop the skeleton as soon as we have anything
+          setLoadingInitial(false);
+        }
+      }, ctrl.signal);
+
+      if (!ctrl.signal.aborted) setLoadingInitial(false);
+    }).catch((e) => {
+      if (e?.name !== "AbortError") console.error(e);
+      if (!ctrl.signal.aborted) setLoadingInitial(false);
+    });
 
     return () => { ctrl.abort(); };
-  }, [genre]);
+  }, [genre]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Derived merged list ────────────────────────────────────────────────────
   const filtered = useMemo(() => {
-    // Library manga: only include if genre matches (we have full metadata)
     const libMatches = libraryManga.filter((m) => (m.genre ?? []).includes(genre));
-    // Source manga: include ALL results — they came from a genre search,
-    // but the API often returns no genre tags in the brief response payload.
-    // De-duplicate against library matches by id.
     const libIds = new Set(libMatches.map((m) => m.id));
     const srcAll = sourceManga.filter((m) => !libIds.has(m.id));
     return dedupeMangaById([...libMatches, ...srcAll]);
   }, [libraryManga, sourceManga, genre]);
 
+  // ── Load more ──────────────────────────────────────────────────────────────
+  const hasMoreVisible  = visibleCount < filtered.length;
+  const hasMoreNetwork  = sourcesRef.current.some((src) => (nextPageRef.current.get(src.id) ?? -1) > 0);
+  const hasMore         = hasMoreVisible || hasMoreNetwork;
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore) return;
+
+    // If there are buffered results, just reveal the next page
+    if (hasMoreVisible) {
+      setVisibleCount((v) => v + PAGE_SIZE);
+      return;
+    }
+
+    // Fetch next pages from network
+    const sources = sourcesRef.current.filter(
+      (src) => (nextPageRef.current.get(src.id) ?? -1) > 0
+    );
+    if (!sources.length) return;
+
+    setLoadingMore(true);
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      await runConcurrent(sources, async (src) => {
+        const page = nextPageRef.current.get(src.id)!;
+        if (ctrl.signal.aborted) return;
+        try {
+          const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+            FETCH_SOURCE_MANGA,
+            { source: src.id, type: "SEARCH", page, query: genre },
+            ctrl.signal,
+          );
+          nextPageRef.current.set(src.id, d.fetchSourceManga.hasNextPage ? page + 1 : -1);
+          if (!ctrl.signal.aborted && d.fetchSourceManga.mangas.length > 0)
+            setSourceManga((prev) => dedupeMangaById([...prev, ...d.fetchSourceManga.mangas]));
+        } catch (e: any) {
+          if (e?.name !== "AbortError") nextPageRef.current.set(src.id, -1);
+        }
+      }, ctrl.signal);
+    } finally {
+      if (!ctrl.signal.aborted) {
+        setVisibleCount((v) => v + PAGE_SIZE);
+        setLoadingMore(false);
+      }
+    }
+  }, [loadingMore, hasMoreVisible, genre]);
+
+  // ── Context menu ──────────────────────────────────────────────────────────
   function openCtx(e: React.MouseEvent, m: Manga) {
     e.preventDefault(); e.stopPropagation();
     setCtx({ x: e.clientX, y: e.clientY, manga: m });
@@ -144,7 +244,7 @@ export default function GenreDrillPage() {
     ];
   }
 
-  const showSkeleton = loadingLibrary && filtered.length === 0;
+  const visibleItems = filtered.slice(0, visibleCount);
 
   return (
     <div className={s.root}>
@@ -154,25 +254,30 @@ export default function GenreDrillPage() {
           <span>Back</span>
         </button>
         <span className={s.title}>{genre}</span>
-        {loadingSources && !loadingLibrary && filtered.length > 0 && (
-          <span className={s.loadingHint}>Loading more…</span>
+        {loadingInitial && filtered.length === 0 ? null : (
+          <span className={s.resultCount}>
+            {visibleItems.length}{filtered.length > visibleCount ? "+" : ""} of {filtered.length}
+          </span>
+        )}
+        {!loadingInitial && hasMoreNetwork && (
+          <span className={s.loadingHint}>More loading…</span>
         )}
       </div>
 
-      {showSkeleton ? (
+      {loadingInitial && filtered.length === 0 ? (
         <div className={s.grid}>
-          {Array.from({ length: 24 }).map((_, i) => (
+          {Array.from({ length: 50 }).map((_, i) => (
             <div key={i} className={s.cardSkeleton}>
               <div className={["skeleton", s.coverSkeleton].join(" ")} />
               <div className={["skeleton", s.titleSkeleton].join(" ")} />
             </div>
           ))}
         </div>
-      ) : filtered.length === 0 && !loadingSources ? (
+      ) : filtered.length === 0 ? (
         <div className={s.empty}>No manga found for "{genre}".</div>
       ) : (
         <div className={s.grid}>
-          {filtered.map((m) => (
+          {visibleItems.map((m) => (
             <button key={m.id} className={s.card} onClick={() => setPreviewManga(m)} onContextMenu={(e) => openCtx(e, m)}>
               <div className={s.coverWrap}>
                 <CoverImg src={thumbUrl(m.thumbnailUrl)} alt={m.title} className={s.cover} />
@@ -181,6 +286,15 @@ export default function GenreDrillPage() {
               <p className={s.cardTitle}>{m.title}</p>
             </button>
           ))}
+          {hasMore && (
+            <div className={s.showMoreCell}>
+              <button className={s.showMoreBtn} onClick={loadMore} disabled={loadingMore}>
+                {loadingMore
+                  ? <><CircleNotch size={13} weight="light" className="anim-spin" style={{ display:"inline-block" }} /> Loading…</>
+                  : `Show more`}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

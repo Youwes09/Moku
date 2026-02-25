@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import logoUrl from "../../assets/moku-icon.svg";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export type SplashMode = "loading" | "idle";
 export const EXIT_MS = 320;
@@ -194,8 +194,12 @@ function drawFrame(
       -sin * dpr, cos * dpr,
       c.cx * dpr, cy * dpr,
     );
-    const sw = c.w + STAMP_PAD * 2;
-    const sh = c.h + STAMP_PAD * 2;
+    // Draw stamp at its natural logical size.
+    // The stamp was baked at (logical * dpr) physical pixels.
+    // setTransform already applied dpr scaling, so drawing at logical size
+    // means the stamp maps 1:1 to physical pixels — zero resampling, zero blur.
+    const sw = stamps[i].width  / dpr;
+    const sh = stamps[i].height / dpr;
     ctx.drawImage(stamps[i], -sw / 2, -sh / 2, sw, sh);
   }
 
@@ -260,12 +264,21 @@ function FpsCounter() {
   );
 }
 
+
 // ── CardCanvas ────────────────────────────────────────────────────────────────
-// Uses invoke("get_scale_factor") to get the real OS DPR from winit/Tauri
-// before building any bitmaps. window.devicePixelRatio is unreliable in
-// nix run and flatpak because WebKitGTK may not have received the HiDPI
-// hint from the compositor by the time the JS context initialises.
-// Tauri reads it from the native window handle, which is always correct.
+//
+// Strategy: best of both worlds.
+//
+//   LAYOUT   → logical pixels (window.innerWidth/Height or Tauri innerSize/scale)
+//              Cards fill the actual window shape correctly at any size.
+//
+//   QUALITY  → physical pixels (Tauri innerSize + scaleFactor)
+//              Canvas buffer = physical pixels, stamps baked at the true OS DPR.
+//              No WebKitGTK lies, no late compositor hints, always pixel-perfect.
+//
+// On every resize both are re-derived together so fullscreen, half-split,
+// monitor switch — all produce crisp, correctly-proportioned cards.
+//
 function CardCanvas({ showFps }: { showFps: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
@@ -278,92 +291,85 @@ function CardCanvas({ showFps }: { showFps: boolean }) {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
-    let cancelled = false;
+    const win = getCurrentWindow();
 
-    async function init() {
-      // Prefer the Tauri-sourced scale factor; fall back to the JS value
-      // when running outside Tauri (e.g. vite dev server in a browser).
-      let dpr = window.devicePixelRatio || 1;
-      try {
-        const tauriDpr = await invoke<number>("get_scale_factor");
-        if (tauriDpr > 0) dpr = tauriDpr;
-      } catch {
-        // Not in Tauri — window.devicePixelRatio is fine for the browser.
-      }
+    // ── Live render state ────────────────────────────────────────────────────
+    // The frame loop only ever reads from `live`. syncSize builds a complete
+    // replacement object off-thread then swaps it in one atomic assignment —
+    // no frame ever sees a half-rebuilt state.
+    interface RenderState {
+      cards:    ReturnType<typeof buildCards>["cards"];
+      trigs:    ReturnType<typeof buildCards>["trigs"];
+      stamps:   HTMLCanvasElement[];
+      vignette: HTMLCanvasElement;
+      CW: number; CH: number; scale: number;
+    }
+    let live: RenderState | null = null;
 
-      if (cancelled) return;
+    // Track what we last built so we skip no-op resize events.
+    let lastLogW = 0, lastLogH = 0, lastScale = 0;
+    // Debounce: if a new resize arrives while one is in-flight, we only
+    // want the most recent result. A simple generation counter handles this.
+    let buildGen = 0;
+
+    async function syncSize() {
+      const gen = ++buildGen;
+
+      const [phys, scale] = await Promise.all([
+        win.innerSize(),
+        win.scaleFactor(),
+      ]);
+
+      // Another resize fired while we were awaiting — our result is stale.
+      if (gen !== buildGen) return;
+
+      const physW = phys.width;
+      const physH = phys.height;
+      const logW  = physW / scale;
+      const logH  = physH / scale;
+
+      if (logW === lastLogW && logH === lastLogH && scale === lastScale) return;
+      lastLogW = logW; lastLogH = logH; lastScale = scale;
+
+      // Build everything into a local staging object — nothing visible changes yet.
+      const built   = buildCards(logW, logH);
+      const stamps  = built.cards.map(c => buildStamp(c, scale));
+      const vig     = buildVignette(logW, logH, scale);
+
+      // One atomic swap — the frame loop immediately sees the complete new state.
+      // Canvas dimensions are updated here too so they're always in sync with
+      // the render state that uses them.
+      canvas!.width  = physW;
+      canvas!.height = physH;
+      live = {
+        cards: built.cards, trigs: built.trigs,
+        stamps, vignette: vig,
+        CW: physW, CH: physH, scale,
+      };
 
       console.log(
-        "[SplashScreen] DPR resolution:",
-        `window.devicePixelRatio=${window.devicePixelRatio}`,
-        `resolved dpr=${dpr}`,
-        `logical=${window.innerWidth}x${window.innerHeight}`,
-        `physical=${Math.round(window.innerWidth * dpr)}x${Math.round(window.innerHeight * dpr)}`,
+        `[SplashScreen] syncSize: logical ${Math.round(logW)}×${Math.round(logH)}`,
+        `physical ${physW}×${physH} @${scale.toFixed(3)}×`,
       );
-
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-
-      const { cards, trigs } = buildCards(vw, vh);
-      const stamps = cards.map(c => buildStamp(c, dpr));
-
-      let vignette = buildVignette(vw, vh, dpr);
-      let lastLW   = vw;
-      let lastLH   = vh;
-      let lastDpr  = dpr;
-      let curDpr   = dpr;
-
-      // syncSize is synchronous for the canvas resize, but fires an async
-      // Tauri call to update curDpr so the next frame uses the right value.
-      // This handles moving the window between monitors mid-session.
-      function syncSize() {
-        if (!canvas) return;
-        const lw = canvas.offsetWidth  || window.innerWidth;
-        const lh = canvas.offsetHeight || window.innerHeight;
-        canvas.width  = Math.round(lw * curDpr);
-        canvas.height = Math.round(lh * curDpr);
-
-        if (lw !== lastLW || lh !== lastLH || curDpr !== lastDpr) {
-          vignette = buildVignette(lw, lh, curDpr);
-          lastLW   = lw;
-          lastLH   = lh;
-          lastDpr  = curDpr;
-        }
-
-        // Async DPR refresh for next resize (e.g. monitor switch)
-        invoke<number>("get_scale_factor")
-          .then(d => { if (d > 0) curDpr = d; })
-          .catch(() => { curDpr = window.devicePixelRatio || 1; });
-      }
-
-      syncSize();
-      const ro = new ResizeObserver(syncSize);
-      if (canvas) ro.observe(canvas);
-
-      let raf = 0, t0 = -1;
-      function frame(now: number) {
-        if (t0 < 0) t0 = now;
-        drawFrame(
-          ctx!, (now - t0) / 1000,
-          canvas!.width, canvas!.height,
-          curDpr, cards, trigs, stamps, vignette,
-        );
-        raf = requestAnimationFrame(frame);
-      }
-      raf = requestAnimationFrame(frame);
-
-      // Stash cleanup so the synchronous useEffect return can reach it.
-      (canvas as any).__splashCleanup = () => {
-        cancelAnimationFrame(raf);
-        ro.disconnect();
-      };
     }
 
-    init();
+    const ro = new ResizeObserver(() => syncSize());
+    ro.observe(canvas);
+    syncSize();
+
+    let raf = 0, t0 = -1;
+    function frame(now: number) {
+      raf = requestAnimationFrame(frame);
+      if (!live) return;
+      if (t0 < 0) t0 = now;
+      const { cards, trigs, stamps, vignette, CW, CH, scale } = live;
+      drawFrame(ctx!, (now - t0) / 1000, CW, CH, scale, cards, trigs, stamps, vignette);
+    }
+    raf = requestAnimationFrame(frame);
 
     return () => {
-      cancelled = true;
-      (canvas as any).__splashCleanup?.();
+      cancelAnimationFrame(raf);
+      ro.disconnect();
     };
   }, []);
 

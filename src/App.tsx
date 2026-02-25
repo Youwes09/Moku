@@ -178,7 +178,7 @@ export default function App() {
         <SplashScreen
           mode="idle"
           showCards={settings.splashCards ?? true}
-          onDismiss={() => { setTimeout(() => setIdle(false), SPLASH_EXIT_MS + 20); }}
+            onDismiss={() => { setTimeout(() => setIdle(false), SPLASH_EXIT_MS + 20); }}
         />
       )}
       {!activeChapter && <TitleBar/>}

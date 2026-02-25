@@ -136,6 +136,7 @@ function TextRow({ value, onChange, label, description, placeholder }: {
   );
 }
 
+
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
 function GeneralTab({ settings, update }: { settings: Settings; update: (p: Partial<Settings>) => void }) {

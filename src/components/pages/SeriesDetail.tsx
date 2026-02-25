@@ -131,18 +131,21 @@ function DownloadDropdown({
         </>
       )}
 
-      <button className={s.dlItem} onClick={() => setShowRange((p) => !p)}>
-        <span>Custom range…</span>
-        <span className={s.dlItemSub}>Enter chapter numbers</span>
-      </button>
-      {showRange && (
+      {!showRange ? (
+        <button className={s.dlItem} onClick={() => setShowRange(true)}>
+          <span>Custom range…</span>
+          <span className={s.dlItemSub}>Enter chapter numbers</span>
+        </button>
+      ) : (
         <div className={s.dlRangeRow}>
+          <button className={s.dlRangeBack} onClick={() => setShowRange(false)} title="Back">‹</button>
           <input
             className={s.dlRangeInput}
             placeholder="From"
             value={rangeFrom}
             onChange={(e) => setRangeFrom(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && enqueueRange()}
+            autoFocus
           />
           <span className={s.dlRangeSep}>–</span>
           <input
@@ -157,7 +160,7 @@ function DownloadDropdown({
             disabled={!rangeFrom.trim() || !rangeTo.trim()}
             onClick={enqueueRange}
           >
-            Queue
+            Go
           </button>
         </div>
       )}

@@ -1,8 +1,0 @@
-{
-  "build": {
-    "beforeBuildCommand": ""
-  },
-  "bundle": {
-    "targets": ["dmg", "macos"]
-  }
-}

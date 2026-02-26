@@ -116,13 +116,6 @@ jobs:
             "c7590aeb645dd7135a05b9f3ea1fee384a4abeb465c0b3638d5b738d20dfe174" \
             "suwayomi-x64"
 
-      - name: Inspect Suwayomi launcher script
-        run: |
-          echo "=== arm64 launcher ==="
-          cat "suwayomi-arm64/Suwayomi Launcher.command" || true
-          echo "=== x64 launcher ==="
-          cat "suwayomi-x64/Suwayomi Launcher.command" || true
-
       - name: Stage Suwayomi sidecars
         run: |
           mkdir -p src-tauri/binaries
@@ -153,6 +146,12 @@ jobs:
           cp -r suwayomi-arm64 src-tauri/binaries/suwayomi-bundle-arm64
           cp -r suwayomi-x64   src-tauri/binaries/suwayomi-bundle-x64
 
+      - name: Patch tauri.conf.json for CI
+        run: |
+          # dist/ is already built by the frontend job — suppress the rebuild.
+          # We patch in-place rather than using --config to avoid Tauri schema issues.
+          sed -i '' 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
+
       - name: Build Tauri app (aarch64)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -164,7 +163,7 @@ jobs:
           APPLE_PASSWORD:             ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID:              ${{ secrets.APPLE_TEAM_ID }}
         with:
-          args: --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json
+          args: --target aarch64-apple-darwin
 
       - name: Build Tauri app (x86_64)
         uses: tauri-apps/tauri-action@v0
@@ -177,7 +176,7 @@ jobs:
           APPLE_PASSWORD:             ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID:              ${{ secrets.APPLE_TEAM_ID }}
         with:
-          args: --target x86_64-apple-darwin --config src-tauri/tauri.macos.conf.json
+          args: --target x86_64-apple-darwin
 
       - name: Upload arm64 .dmg
         uses: actions/upload-artifact@v4

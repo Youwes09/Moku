@@ -142,13 +142,10 @@ jobs:
       - name: Build Tauri app (aarch64)
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN:               ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE:          ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY:     ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID:                   ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD:             ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID:              ${{ secrets.APPLE_TEAM_ID }}
+          GITHUB_TOKEN:           ${{ secrets.GITHUB_TOKEN }}
+          # Ad-hoc signing by default ("-"); override by setting APPLE_SIGNING_IDENTITY secret.
+          # Only set APPLE_CERTIFICATE/APPLE_ID/etc when you have a real Developer ID cert.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
         with:
           args: --target aarch64-apple-darwin
 
@@ -160,13 +157,10 @@ jobs:
       - name: Build Tauri app (x86_64)
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN:               ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE:          ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY:     ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID:                   ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD:             ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID:              ${{ secrets.APPLE_TEAM_ID }}
+          GITHUB_TOKEN:           ${{ secrets.GITHUB_TOKEN }}
+          # Ad-hoc signing by default ("-"); override by setting APPLE_SIGNING_IDENTITY secret.
+          # Only set APPLE_CERTIFICATE/APPLE_ID/etc when you have a real Developer ID cert.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
         with:
           args: --target x86_64-apple-darwin
 

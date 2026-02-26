@@ -77,9 +77,10 @@ jobs:
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
 
-      # bun being present causes tauri-action to misdetect the package manager
-      - name: Remove bun
-        run: brew uninstall --ignore-dependencies bun || true
+      # bun being present causes tauri-action to misdetect the package manager;
+      # unlink it if present (it may not be installed on all runner images)
+      - name: Remove bun if present
+        run: which bun && brew uninstall --ignore-dependencies bun || true
 
       # Import Apple signing cert into a fresh keychain so codesign can find it.
       # If secrets are not set this step is a no-op and the build continues unsigned.
@@ -181,7 +182,7 @@ jobs:
         with:
           args: >
             --target aarch64-apple-darwin
-            --config '{"build":{"beforeBuildCommand":""}}'
+            --config '{"build":{"beforeBuildCommand":""},"bundle":{"targets":["dmg","macos"]}}'
 
       - name: Build Tauri app (x86_64)
         uses: tauri-apps/tauri-action@v0
@@ -196,7 +197,7 @@ jobs:
         with:
           args: >
             --target x86_64-apple-darwin
-            --config '{"build":{"beforeBuildCommand":""}}'
+            --config '{"build":{"beforeBuildCommand":""},"bundle":{"targets":["dmg","macos"]}}'
 
       - name: Upload arm64 .dmg
         uses: actions/upload-artifact@v4

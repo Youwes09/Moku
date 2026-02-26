@@ -1,17 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Allow launching tachidesk-server",
+  "description": "Allow launching suwayomi-server sidecar",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "shell:allow-open",
     {
-      "identifier": "shell:allow-spawn",
+      "identifier": "shell:allow-execute",
       "allow": [
         {
-          "name": "tachidesk-server",
-          "cmd": "tachidesk-server"
+          "name": "suwayomi-server",
+          "sidecar": true
         }
       ]
     }

@@ -116,13 +116,21 @@ jobs:
             "c7590aeb645dd7135a05b9f3ea1fee384a4abeb465c0b3638d5b738d20dfe174" \
             "suwayomi-x64"
 
+      - name: Inspect Suwayomi launcher script
+        run: |
+          echo "=== arm64 launcher ==="
+          cat "suwayomi-arm64/Suwayomi Launcher.command" || true
+          echo "=== x64 launcher ==="
+          cat "suwayomi-x64/Suwayomi Launcher.command" || true
+
       - name: Stage Suwayomi sidecars
         run: |
           mkdir -p src-tauri/binaries
 
           find_launcher() {
             local dir="$1"
-            find "$dir" -maxdepth 1 -type f -name "Suwayomi-Server" | head -1
+            # v2.1.1867 macOS tarball ships "Suwayomi Launcher.command" (space, .command)
+            find "$dir" -maxdepth 1 -type f -name "*.command" | head -1
           }
 
           ARM_LAUNCHER=$(find_launcher suwayomi-arm64)

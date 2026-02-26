@@ -8,7 +8,6 @@ on:
         required: true
 
 jobs:
-  # Build frontend on Ubuntu (cheaper) and share via artifact
   frontend:
     name: Build frontend
     runs-on: ubuntu-latest
@@ -37,9 +36,8 @@ jobs:
           path: dist/
           retention-days: 1
 
-  # Both arch builds on one runner to avoid runner availability issues
   tauri:
-    name: Tauri (macOS universal)
+    name: Tauri (macOS)
     needs: frontend
     runs-on: macos-latest
     permissions:
@@ -73,24 +71,16 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # node_modules needed so tauri-cli is available on the runner
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
 
-      # bun being present causes tauri-action to misdetect the package manager;
-      # unlink it if present (it may not be installed on all runner images)
-      - name: Remove bun if present
-        run: which bun && brew uninstall --ignore-dependencies bun || true
-
-      # Import Apple signing cert into a fresh keychain so codesign can find it.
-      # If secrets are not set this step is a no-op and the build continues unsigned.
       - name: Import Apple signing certificate
         env:
           APPLE_CERTIFICATE:          ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           if [ -z "$APPLE_CERTIFICATE" ]; then
-            echo "No certificate set — building unsigned."
+            echo "No certificate configured — building unsigned."
             exit 0
           fi
           CERT_PATH=$RUNNER_TEMP/certificate.p12
@@ -104,20 +94,16 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain
 
-      # Download both Suwayomi arch binaries up front
       - name: Download Suwayomi binaries
         run: |
           download_suwayomi() {
-            local asset="$1"
-            local expected_sha="$2"
-            local out="$3"
-
+            local asset="$1" sha="$2" outdir="$3"
             curl -fsSL \
               "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/${asset}" \
-              -o "${out}.tar.gz"
-            echo "${expected_sha}  ${out}.tar.gz" | shasum -a 256 -c -
-            mkdir -p "${out}"
-            tar -xzf "${out}.tar.gz" -C "${out}" --strip-components=1
+              -o "${outdir}.tar.gz"
+            echo "${sha}  ${outdir}.tar.gz" | shasum -a 256 -c -
+            mkdir -p "${outdir}"
+            tar -xzf "${outdir}.tar.gz" -C "${outdir}" --strip-components=1
           }
 
           download_suwayomi \
@@ -136,21 +122,14 @@ jobs:
 
           find_launcher() {
             local dir="$1"
-            local result
-
-            result=$(find "$dir" -maxdepth 1 -type f -name "Suwayomi-Server" | head -1)
-            if [ -z "$result" ]; then
-              result=$(find "$dir" -maxdepth 1 -type f -perm +111 \
-                ! -name "*.jar" ! -name "*.dylib" | head -1)
-            fi
-            echo "$result"
+            find "$dir" -maxdepth 1 -type f -name "Suwayomi-Server" | head -1
           }
 
           ARM_LAUNCHER=$(find_launcher suwayomi-arm64)
           X64_LAUNCHER=$(find_launcher suwayomi-x64)
 
           if [ -z "$ARM_LAUNCHER" ] || [ -z "$X64_LAUNCHER" ]; then
-            echo "ERROR: could not find launchers"
+            echo "ERROR: could not find launchers — tarball contents:"
             ls -lR suwayomi-arm64 suwayomi-x64
             exit 1
           fi
@@ -163,12 +142,9 @@ jobs:
           chmod +x src-tauri/binaries/suwayomi-server-aarch64-apple-darwin
           chmod +x src-tauri/binaries/suwayomi-server-x86_64-apple-darwin
 
-          # Bundle the full extracted dirs so launchers can find their JDK+JAR
-          # at runtime via relative paths inside the .app Resources directory.
           cp -r suwayomi-arm64 src-tauri/binaries/suwayomi-bundle-arm64
           cp -r suwayomi-x64   src-tauri/binaries/suwayomi-bundle-x64
 
-      # Build arm64 first, then x64 — sequential on the same runner
       - name: Build Tauri app (aarch64)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -180,9 +156,7 @@ jobs:
           APPLE_PASSWORD:             ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID:              ${{ secrets.APPLE_TEAM_ID }}
         with:
-          args: >
-            --target aarch64-apple-darwin
-            --config '{"build":{"beforeBuildCommand":""},"bundle":{"targets":["dmg","macos"]}}'
+          args: --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json
 
       - name: Build Tauri app (x86_64)
         uses: tauri-apps/tauri-action@v0
@@ -195,9 +169,7 @@ jobs:
           APPLE_PASSWORD:             ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID:              ${{ secrets.APPLE_TEAM_ID }}
         with:
-          args: >
-            --target x86_64-apple-darwin
-            --config '{"build":{"beforeBuildCommand":""},"bundle":{"targets":["dmg","macos"]}}'
+          args: --target x86_64-apple-darwin --config src-tauri/tauri.macos.conf.json
 
       - name: Upload arm64 .dmg
         uses: actions/upload-artifact@v4
@@ -227,7 +199,6 @@ jobs:
           path: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/
           retention-days: 1
 
-  # lipo the two .app bundles into a single universal .dmg
   universal:
     name: Universal .dmg
     needs: tauri
@@ -252,9 +223,6 @@ jobs:
           X64_APP=$(find apps/x64  -name "*.app" -maxdepth 1 | head -1)
           APP_NAME=$(basename "$ARM_APP")
 
-          echo "arm64: $ARM_APP"
-          echo "x64:   $X64_APP"
-
           mkdir -p universal
           cp -r "$ARM_APP" "universal/${APP_NAME}"
 
@@ -273,12 +241,10 @@ jobs:
           mkdir dmg-stage
           cp -r "universal/${APP_NAME}" dmg-stage/
           ln -s /Applications dmg-stage/Applications
-
           hdiutil create \
             -volname "Moku" \
             -srcfolder dmg-stage \
-            -ov \
-            -format UDZO \
+            -ov -format UDZO \
             "moku-universal.dmg"
 
       - name: Upload universal .dmg

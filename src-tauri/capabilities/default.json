@@ -10,7 +10,7 @@
       "identifier": "shell:allow-execute",
       "allow": [
         {
-          "name": "suwayomi-server",
+          "name": "binaries/suwayomi-server",
           "sidecar": true
         }
       ]

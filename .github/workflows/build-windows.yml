@@ -81,12 +81,20 @@ jobs:
 
           echo "ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff  suwayomi-windows.zip" | sha256sum -c -
 
-          mkdir -p suwayomi-extracted
           unzip -q suwayomi-windows.zip -d suwayomi-extracted-raw
-          TOP=$(ls suwayomi-extracted-raw | head -1)
-          if [ -d "suwayomi-extracted-raw/$TOP" ]; then
-            mv "suwayomi-extracted-raw/$TOP"/* suwayomi-extracted/
+
+          # Detect whether the zip has a single top-level directory wrapper.
+          # If exactly one entry exists at depth-1 and it is a directory, strip it.
+          TOP_DIRS=$(find suwayomi-extracted-raw -mindepth 1 -maxdepth 1 -type d)
+          TOP_FILES=$(find suwayomi-extracted-raw -mindepth 1 -maxdepth 1 -type f)
+          TOP_DIR_COUNT=$(echo "$TOP_DIRS" | grep -c . || true)
+
+          mkdir -p suwayomi-extracted
+          if [ "$TOP_DIR_COUNT" -eq 1 ] && [ -z "$TOP_FILES" ]; then
+            # Single wrapping directory — strip it
+            mv "$TOP_DIRS"/* suwayomi-extracted/
           else
+            # Files already at root level — move everything as-is
             mv suwayomi-extracted-raw/* suwayomi-extracted/
           fi
 
@@ -105,13 +113,22 @@ jobs:
         run: |
           mkdir -p src-tauri/binaries
 
-          LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -name "Suwayomi Launcher.exe" | head -1)
-          if [ -z "$LAUNCHER" ]; then
-            LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -name "Suwayomi-Launcher.exe" | head -1)
-          fi
+          # 1. Prefer an exe whose name contains "Launcher" (case-insensitive),
+          #    searched recursively but NOT inside any jre/ or runtime/ subtree.
+          LAUNCHER=$(find suwayomi-extracted -name "*[Ll]auncher*.exe" \
+            ! -path "*/jre/*" ! -path "*/runtime/*" | head -1)
+
+          # 2. Fall back to any top-level .exe that isn't a JVM executable.
           if [ -z "$LAUNCHER" ]; then
             LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -name "*.exe" \
-              ! -name "java.exe" ! -name "javaw.exe" | head -1)
+              ! -name "java.exe" ! -name "javaw.exe" ! -name "javaw_g.exe" | head -1)
+          fi
+
+          # 3. Wider recursive search, still excluding the JRE tree.
+          if [ -z "$LAUNCHER" ]; then
+            LAUNCHER=$(find suwayomi-extracted -name "*.exe" \
+              ! -path "*/jre/*" ! -path "*/runtime/*" \
+              ! -name "java.exe" ! -name "javaw.exe" ! -name "javaw_g.exe" | head -1)
           fi
 
           if [ -z "$LAUNCHER" ]; then

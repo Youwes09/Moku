@@ -2,22 +2,54 @@ import { useEffect, useState, useMemo, useRef, memo, useCallback } from "react";
 import { ArrowLeft, BookmarkSimple, FolderSimplePlus, Folder, CircleNotch } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import { GET_ALL_MANGA, GET_LIBRARY, GET_SOURCES, FETCH_SOURCE_MANGA, UPDATE_MANGA } from "../../lib/queries";
-import { cache, CACHE_KEYS } from "../../lib/cache";
+import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
 import { dedupeSources, dedupeMangaById } from "../../lib/sourceUtils";
 import { useStore } from "../../store";
 import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
 import type { Manga, Source } from "../../lib/types";
 import s from "./GenreDrillPage.module.css";
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-const PAGE_SIZE         = 50;   // how many items to show at once
-const INITIAL_PAGES     = 3;    // source API pages to fetch upfront per source
-const MAX_SOURCES       = 12;   // max sources to query concurrently
-const CONCURRENCY       = 4;    // parallel source fetches
+// ── Constants ─────────────────────────────────────────────────────────────────
+const PAGE_SIZE     = 50;
+const INITIAL_PAGES = 3;
+const MAX_SOURCES   = 12;
+const CONCURRENCY   = 4;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * genreFilter in the store is either a single tag ("Action") or a `+`-joined
+ * multi-tag string ("Action+Romance"). Parse it into an array.
+ *
+ * Callers set multi-tag filters via:
+ *   setGenreFilter("Action+Romance")
+ *
+ * The Explore feed's "See all" button continues to pass single strings and
+ * requires no change.
+ */
+function parseTags(genreFilter: string): string[] {
+  return genreFilter.split("+").map((t) => t.trim()).filter(Boolean);
+}
+
+/** "Action", "Action & Romance", "Action, Romance & Isekai" */
+function tagsLabel(tags: string[]): string {
+  if (tags.length === 1) return tags[0];
+  return tags.slice(0, -1).join(", ") + " & " + tags[tags.length - 1];
+}
+
+/**
+ * Client-side AND filter.
+ * Sources only accept a single query string, so we send the first tag and
+ * drop results that don't also have the remaining tags in their genre list.
+ */
+function matchesAllTags(m: Manga, tags: string[]): boolean {
+  const genres = (m.genre ?? []).map((g) => g.toLowerCase());
+  return tags.every((t) => genres.includes(t.toLowerCase()));
+}
 
 async function runConcurrent<T>(
   items: T[],
-  fn: (item: T) => Promise<void>,
+  fn:    (item: T) => Promise<void>,
   signal: AbortSignal,
 ): Promise<void> {
   let i = 0;
@@ -46,13 +78,18 @@ const CoverImg = memo(function CoverImg({ src, alt, className }: { src: string; 
 
 // ── GenreDrillPage ────────────────────────────────────────────────────────────
 export default function GenreDrillPage() {
-  const genre               = useStore((st) => st.genreFilter);
+  const genreFilter         = useStore((st) => st.genreFilter);
   const setGenreFilter      = useStore((st) => st.setGenreFilter);
   const setPreviewManga     = useStore((st) => st.setPreviewManga);
   const settings            = useStore((st) => st.settings);
   const folders             = useStore((st) => st.settings.folders);
   const addFolder           = useStore((st) => st.addFolder);
   const assignMangaToFolder = useStore((st) => st.assignMangaToFolder);
+
+  // Parse the filter string into individual tags
+  const tags  = useMemo(() => parseTags(genreFilter), [genreFilter]);
+  // First tag is sent as the source query string (sources accept only one term)
+  const primaryTag = tags[0] ?? "";
 
   const [libraryManga, setLibraryManga]     = useState<Manga[]>([]);
   const [sourceManga, setSourceManga]       = useState<Manga[]>([]);
@@ -62,12 +99,13 @@ export default function GenreDrillPage() {
   const [ctx, setCtx] = useState<{ x: number; y: number; manga: Manga } | null>(null);
 
   // Per-source next-page tracker; -1 means exhausted
-  const nextPageRef  = useRef<Map<string, number>>(new Map());
-  const sourcesRef   = useRef<Source[]>([]);
-  const abortRef     = useRef<AbortController | null>(null);
+  const nextPageRef = useRef<Map<string, number>>(new Map());
+  const sourcesRef  = useRef<Source[]>([]);
+  const abortRef    = useRef<AbortController | null>(null);
 
+  // ── Initial load ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!genre) return;
+    if (tags.length === 0) return;
 
     abortRef.current?.abort();
     const ctrl = new AbortController();
@@ -81,7 +119,7 @@ export default function GenreDrillPage() {
 
     const preferredLang = settings.preferredExtensionLang || "en";
 
-    // ── Library (fire-and-forget, doesn't block skeleton removal) ─────────
+    // ── Library (local DB, instant) ───────────────────────────────────────
     cache.get(CACHE_KEYS.LIBRARY, () =>
       Promise.all([
         gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA),
@@ -94,46 +132,67 @@ export default function GenreDrillPage() {
     .then((manga) => { if (!ctrl.signal.aborted) setLibraryManga(manga); })
     .catch((e) => { if (e?.name !== "AbortError") console.error(e); });
 
-    // ── Sources: stream results in as each source responds ────────────────
+    // ── Sources: stream results as each source responds ───────────────────
+    // Source list is stable within a session — cache indefinitely.
     cache.get(CACHE_KEYS.SOURCES, () =>
       gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
-        .then((d) => dedupeSources(d.sources.nodes.filter((s) => s.id !== "0"), preferredLang))
+        .then((d) => dedupeSources(d.sources.nodes.filter((src) => src.id !== "0"), preferredLang)),
+      Infinity,
     ).then(async (allSources) => {
       const sources = allSources.slice(0, MAX_SOURCES);
       sourcesRef.current = sources;
-      // Start all sources at -1 (unknown/exhausted); the fetch loop will set the correct next page
       for (const src of sources) nextPageRef.current.set(src.id, -1);
 
       await runConcurrent(sources, async (src) => {
         if (ctrl.signal.aborted) return;
+
+        // PageSet tracks which pages we've already fetched for this (source, tags) bucket.
+        // On navigation-away → back the pages are still in the TTL store, so fetchPage
+        // returns the cached promise immediately without hitting the network.
+        const ps = getPageSet(src.id, "SEARCH", tags);
         const pageItems: Manga[] = [];
+
         for (let page = 1; page <= INITIAL_PAGES; page++) {
           if (ctrl.signal.aborted) return;
-          try {
-            const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-              FETCH_SOURCE_MANGA,
-              { source: src.id, type: "SEARCH", page, query: genre },
-              ctrl.signal,
-            );
-            pageItems.push(...d.fetchSourceManga.mangas);
-            if (!d.fetchSourceManga.hasNextPage) {
-              nextPageRef.current.set(src.id, -1);
-              break;
-            } else if (page === INITIAL_PAGES) {
-              // Has more pages beyond what we fetched upfront — mark for "load more"
-              nextPageRef.current.set(src.id, INITIAL_PAGES + 1);
-            }
-          } catch (e: any) {
-            if (e?.name === "AbortError") return;
+
+          const pageKey = CACHE_KEYS.sourceMangaPage(src.id, "SEARCH", page, tags);
+          const result  = await cache
+            .get<{ mangas: Manga[]; hasNextPage: boolean }>(
+              pageKey,
+              () => gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+                FETCH_SOURCE_MANGA,
+                { source: src.id, type: "SEARCH", page, query: primaryTag },
+                ctrl.signal,
+              ).then((d) => d.fetchSourceManga),
+            )
+            .catch((e: any) => {
+              if (e?.name !== "AbortError") console.error(e);
+              return null;
+            });
+
+          if (!result || ctrl.signal.aborted) break;
+
+          ps.add(page);
+
+          // For multi-tag searches: client-side AND filter for tags beyond the first.
+          // Sources only support a single query string, so we send primaryTag and
+          // drop results that don't contain the remaining tags in their genre array.
+          const matching = tags.length > 1
+            ? result.mangas.filter((m) => matchesAllTags(m, tags))
+            : result.mangas;
+
+          pageItems.push(...matching);
+
+          if (!result.hasNextPage) {
             nextPageRef.current.set(src.id, -1);
             break;
+          } else if (page === INITIAL_PAGES) {
+            nextPageRef.current.set(src.id, INITIAL_PAGES + 1);
           }
         }
+
         if (!ctrl.signal.aborted && pageItems.length > 0) {
-          // Dedupe by ID only — title dedup across sources is too aggressive and collapses
-          // legitimate different-source results that share a common title (e.g. "Action" genre)
           setSourceManga((prev) => dedupeMangaById([...prev, ...pageItems]));
-          // Drop the skeleton as soon as we have anything
           setLoadingInitial(false);
         }
       }, ctrl.signal);
@@ -145,34 +204,35 @@ export default function GenreDrillPage() {
     });
 
     return () => { ctrl.abort(); };
-  }, [genre]); // eslint-disable-line react-hooks/exhaustive-deps
+  // genreFilter (not tags) as the dep — tags is derived from it and would
+  // cause an extra render on every parse; genreFilter is the stable identity.
+  }, [genreFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Derived merged list ────────────────────────────────────────────────────
+  // ── Derived merged list ───────────────────────────────────────────────────
   const filtered = useMemo(() => {
-    const libMatches = libraryManga.filter((m) => (m.genre ?? []).includes(genre));
-    const libIds = new Set(libMatches.map((m) => m.id));
-    const srcAll = sourceManga.filter((m) => !libIds.has(m.id));
-    return dedupeMangaById([...libMatches, ...srcAll]);
-  }, [libraryManga, sourceManga, genre]);
+    // For multi-tag: library results must match ALL tags
+    const libMatches = libraryManga.filter((m) => matchesAllTags(m, tags));
+    const libIds     = new Set(libMatches.map((m) => m.id));
+    const srcOnly    = sourceManga.filter((m) => !libIds.has(m.id));
+    return dedupeMangaById([...libMatches, ...srcOnly]);
+  }, [libraryManga, sourceManga, tags]);
 
-  // ── Load more ──────────────────────────────────────────────────────────────
-  const hasMoreVisible  = visibleCount < filtered.length;
-  const hasMoreNetwork  = sourcesRef.current.some((src) => (nextPageRef.current.get(src.id) ?? -1) > 0);
-  const hasMore         = hasMoreVisible || hasMoreNetwork;
+  // ── Load more ─────────────────────────────────────────────────────────────
+  const hasMoreVisible = visibleCount < filtered.length;
+  const hasMoreNetwork = sourcesRef.current.some((src) => (nextPageRef.current.get(src.id) ?? -1) > 0);
+  const hasMore        = hasMoreVisible || hasMoreNetwork;
 
   const loadMore = useCallback(async () => {
     if (loadingMore) return;
 
-    // If there are buffered results, just reveal the next page
+    // Fast path: buffered results already in memory
     if (hasMoreVisible) {
       setVisibleCount((v) => v + PAGE_SIZE);
       return;
     }
 
-    // Fetch next pages from network
-    const sources = sourcesRef.current.filter(
-      (src) => (nextPageRef.current.get(src.id) ?? -1) > 0
-    );
+    // Slow path: fetch next pages from sources
+    const sources = sourcesRef.current.filter((src) => (nextPageRef.current.get(src.id) ?? -1) > 0);
     if (!sources.length) return;
 
     setLoadingMore(true);
@@ -184,18 +244,35 @@ export default function GenreDrillPage() {
       await runConcurrent(sources, async (src) => {
         const page = nextPageRef.current.get(src.id)!;
         if (ctrl.signal.aborted) return;
-        try {
-          const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-            FETCH_SOURCE_MANGA,
-            { source: src.id, type: "SEARCH", page, query: genre },
-            ctrl.signal,
-          );
-          nextPageRef.current.set(src.id, d.fetchSourceManga.hasNextPage ? page + 1 : -1);
-          if (!ctrl.signal.aborted && d.fetchSourceManga.mangas.length > 0)
-            setSourceManga((prev) => dedupeMangaById([...prev, ...d.fetchSourceManga.mangas]));
-        } catch (e: any) {
-          if (e?.name !== "AbortError") nextPageRef.current.set(src.id, -1);
-        }
+
+        const ps      = getPageSet(src.id, "SEARCH", tags);
+        const pageKey = CACHE_KEYS.sourceMangaPage(src.id, "SEARCH", page, tags);
+
+        const result = await cache
+          .get<{ mangas: Manga[]; hasNextPage: boolean }>(
+            pageKey,
+            () => gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+              FETCH_SOURCE_MANGA,
+              { source: src.id, type: "SEARCH", page, query: primaryTag },
+              ctrl.signal,
+            ).then((d) => d.fetchSourceManga),
+          )
+          .catch((e: any) => {
+            if (e?.name !== "AbortError") nextPageRef.current.set(src.id, -1);
+            return null;
+          });
+
+        if (!result || ctrl.signal.aborted) return;
+
+        ps.add(page);
+        nextPageRef.current.set(src.id, result.hasNextPage ? page + 1 : -1);
+
+        const matching = tags.length > 1
+          ? result.mangas.filter((m) => matchesAllTags(m, tags))
+          : result.mangas;
+
+        if (matching.length > 0)
+          setSourceManga((prev) => dedupeMangaById([...prev, ...matching]));
       }, ctrl.signal);
     } finally {
       if (!ctrl.signal.aborted) {
@@ -203,7 +280,7 @@ export default function GenreDrillPage() {
         setLoadingMore(false);
       }
     }
-  }, [loadingMore, hasMoreVisible, genre]);
+  }, [loadingMore, hasMoreVisible, primaryTag, tags]);
 
   // ── Context menu ──────────────────────────────────────────────────────────
   function openCtx(e: React.MouseEvent, m: Manga) {
@@ -245,6 +322,7 @@ export default function GenreDrillPage() {
   }
 
   const visibleItems = filtered.slice(0, visibleCount);
+  const label        = tagsLabel(tags);
 
   return (
     <div className={s.root}>
@@ -253,7 +331,7 @@ export default function GenreDrillPage() {
           <ArrowLeft size={13} weight="light" />
           <span>Back</span>
         </button>
-        <span className={s.title}>{genre}</span>
+        <span className={s.title}>{label}</span>
         {loadingInitial && filtered.length === 0 ? null : (
           <span className={s.resultCount}>
             {visibleItems.length}{filtered.length > visibleCount ? "+" : ""} of {filtered.length}
@@ -274,7 +352,7 @@ export default function GenreDrillPage() {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className={s.empty}>No manga found for "{genre}".</div>
+        <div className={s.empty}>No manga found for "{label}".</div>
       ) : (
         <div className={s.grid}>
           {visibleItems.map((m) => (
@@ -290,8 +368,8 @@ export default function GenreDrillPage() {
             <div className={s.showMoreCell}>
               <button className={s.showMoreBtn} onClick={loadMore} disabled={loadingMore}>
                 {loadingMore
-                  ? <><CircleNotch size={13} weight="light" className="anim-spin" style={{ display:"inline-block" }} /> Loading…</>
-                  : `Show more`}
+                  ? <><CircleNotch size={13} weight="light" className="anim-spin" style={{ display: "inline-block" }} /> Loading…</>
+                  : "Show more"}
               </button>
             </div>
           )}

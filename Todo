@@ -1,37 +1,19 @@
 Todo:
 3. Explore Manga Upscaler & Other Image Processing
 4. Font Weird on Flatpak, Investigate and Fix
-5. Investigate "egl:failed to create dri2 screen"
+5. Investigate "egl:failed to create dri2 screen" & more GPU Issues
 
 Bugs:
 
-- 
-- Opening Explore first time loads nothing, going to different page then going back loads everything relatively instantly? (Explore Page Bug)
-- Add Scroll Wheel Compatibility to Explore, etc (Explore Page Bug)
 - Add Back after Search & Clear on Search
-- Add as Package in Nix Flake & Check Later
-- GenreDrill & GenreFilter pages do not populate completely.
-- Fix Initial Async Loading (Shows Suwayomi Not Loaded Till Refresh)
-- Fix Explore Polling into 115 Sources (It currently includes languages) also Super Laggy
-- Allow to move back from a window and return to previous state, not completely reset (Whole UI Issue)
-16. Contrast Adjustment Option in Settings for Users (UI FOCUSED)
-
-
-- Fix Mangafire Main Dispatcher Issue
-
-
-- Fix Zoom in Reader changing Pages (Zoom Out Threshold in Reader causes Break)
+- Fix Tag-Based Search to Allow for Finding New Manga Rather than PURE-DB
 - Add Download Location Change, Moku-Migration, Flatpak & Normal Installation Directory Checks
+- Fix Storage Glitch (Currently uses Full Space Instead of Free Space)
 
-- Clean up Migrate Model to be more initutive
 
 Features:
 - Add PDF Textbook Support
-- Major revision to disable entire manga-subsection and use as 
-solely as a reader/document launcher.
-- Multiple Tag Filters + Mor Tags, Types, Etc
 - Consider what to do empty space in sidebar (Maybe Daily Reading Time Brainstorm)
-- Properly Kill Tachidesk-Server
 - Migration Features
 - Multi-Page Long Screenshot
 - 
@@ -50,11 +32,13 @@ Testing:
 6. Fix laggy renderer on single page (same cache as longscroll) & set default longstrip
 5. Lock reader on valid chapters to avoid bugs, etc.
 1. Cache issue when opening manga series detail first time (Loading screen addition) & Async Load
-- Fix Download Cards (Series Detail Download UI) & Fix Download Range Expand
 - Fix Grid View for Large Amounts of Chapter (Check Initial D) (Series Detail)
-20. Expand History (Total Time Read, etc)
-12. Delete all Downloads should also cancel all download queues
-13. Cancel Download along with Queue & Download Timeout Feature
+- Properly Kill Tachidesk-Server
+- Fix Reader Marking As Read.
+- Fix scaling on splash screen
+- Idle Screen Test Uses Animations, but Reality still uses old system with Mouse Movement = Dismiss + No Fade Out
+- Idle Screen is Super laggy, needs minimum of 60 fps hence needs more optimization
+- Add Scroll Wheel Compatibility to Explore, etc (Explore Page Bug)
 
 
 Completed:
@@ -74,6 +58,19 @@ Completed:
 18. Disable NSFW Extensions option in settings
 - Filtering by Genre (Accessed by Clicking tags on Manga)
 - Remove Series Detail Mark Read & Unread
+20. Expand History (Total Time Read, etc)
+12. Delete all Downloads should also cancel all download queues
+13. Cancel Download along with Queue & Download Timeout Feature
+- Fix Initial Async Loading (Shows Suwayomi Not Loaded Till Refresh)
+- Allow to move back from a window and return to previous state, not completely reset (Whole UI Issue)
+- Opening Explore first time loads nothing, going to different page then going back loads everything relatively instantly? (Explore Page Bug)
+- Extensions Page no Longer Loading efficiently
+- Map out MangaPreview tags to GenreDrill
+- GenreDrill & GenreFilter pages do not populate completely.
+16. Contrast Adjustment Option in Settings for Users (UI FOCUSED)
+- Fix Zoom in Reader changing Pages (Zoom Out Threshold in Reader causes Break)
+- Clean up Migrate Model to be more initutive
+
 
 
 

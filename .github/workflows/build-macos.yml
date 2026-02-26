@@ -1,0 +1,216 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.3.0)"
+        required: true
+
+env:
+  SUWAYOMI_VERSION: "2.1.1867"
+
+jobs:
+  # ── Build frontend once, share via artifact ────────────────────────────────
+  frontend:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          retention-days: 1
+
+  # ── Per-arch Tauri builds ──────────────────────────────────────────────────
+  tauri:
+    name: Tauri (${{ matrix.target }})
+    needs: frontend
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            suwayomi_asset: "Suwayomi-Server-v${{ env.SUWAYOMI_VERSION }}-macOS-arm64.tar.gz"
+            suwayomi_sha256: "c80abdbba29f7895e9556c6c9481368557d5f930b5f69bcb30639ba498925f3c"
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            suwayomi_asset: "Suwayomi-Server-v${{ env.SUWAYOMI_VERSION }}-macOS-x64.tar.gz"
+            suwayomi_sha256: "c7590aeb645dd7135a05b9f3ea1fee384a4abeb465c0b3638d5b738d20dfe174"
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      # ── Download & verify Suwayomi ────────────────────────────────────────
+      - name: Download Suwayomi (${{ matrix.target }})
+        run: |
+          curl -fsSL \
+            "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v${{ env.SUWAYOMI_VERSION }}/${{ matrix.suwayomi_asset }}" \
+            -o suwayomi.tar.gz
+
+          echo "${{ matrix.suwayomi_sha256 }}  suwayomi.tar.gz" | shasum -a 256 -c -
+
+          mkdir -p suwayomi-extracted
+          tar -xzf suwayomi.tar.gz -C suwayomi-extracted --strip-components=1
+
+      - name: Stage Suwayomi sidecar
+        run: |
+          mkdir -p src-tauri/binaries
+
+          # The v2.1.1867 native macOS tarball ships a launcher called
+          # "Suwayomi-Server" at the top level alongside its bundled JDK.
+          LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -type f -name "Suwayomi-Server" | head -1)
+
+          # Fallback: first top-level executable that isn't a .jar
+          if [ -z "$LAUNCHER" ]; then
+            LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -type f -perm +111 \
+              ! -name "*.jar" ! -name "*.dylib" | head -1)
+          fi
+
+          if [ -z "$LAUNCHER" ]; then
+            echo "ERROR: could not find Suwayomi launcher in tarball"
+            ls -lR suwayomi-extracted
+            exit 1
+          fi
+
+          echo "Using launcher: $LAUNCHER"
+
+          # Tauri sidecar naming: <stem>-<target-triple>
+          cp "$LAUNCHER" "src-tauri/binaries/suwayomi-server-${{ matrix.target }}"
+          chmod +x "src-tauri/binaries/suwayomi-server-${{ matrix.target }}"
+
+          # Copy the full bundle so the launcher can find its JDK + JAR
+          # via relative paths at runtime inside the .app Resources dir.
+          cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
+
+      # ── Build Tauri .app + .dmg ───────────────────────────────────────────
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code-signing — set these repo secrets for a signed/notarised build.
+          # Leave unset for unsigned (Gatekeeper warns on first open, fine for testing).
+          APPLE_CERTIFICATE:          ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY:     ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID:                   ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD:             ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID:              ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          args: --target ${{ matrix.target }}
+
+      - name: Upload arch .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: moku-${{ matrix.target }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          retention-days: 7
+
+      - name: Upload .app bundle (for universal job)
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.target }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/macos/
+          retention-days: 1
+
+  # ── Universal binary ──────────────────────────────────────────────────────
+  universal:
+    name: Universal .dmg
+    needs: tauri
+    runs-on: macos-14
+
+    steps:
+      - name: Download arm64 .app
+        uses: actions/download-artifact@v4
+        with:
+          name: app-aarch64-apple-darwin
+          path: apps/arm64/
+
+      - name: Download x64 .app
+        uses: actions/download-artifact@v4
+        with:
+          name: app-x86_64-apple-darwin
+          path: apps/x64/
+
+      - name: lipo into universal binary
+        run: |
+          ARM_APP=$(find apps/arm64 -name "*.app" -maxdepth 1 | head -1)
+          X64_APP=$(find apps/x64  -name "*.app" -maxdepth 1 | head -1)
+          APP_NAME=$(basename "$ARM_APP")
+
+          echo "arm64: $ARM_APP"
+          echo "x64:   $X64_APP"
+
+          mkdir -p universal
+          cp -r "$ARM_APP" "universal/${APP_NAME}"
+
+          find "universal/${APP_NAME}" -type f | while read -r f; do
+            if file "$f" | grep -q "Mach-O"; then
+              X64_EQUIV="${X64_APP}${f#universal/${APP_NAME}}"
+              if [ -f "$X64_EQUIV" ]; then
+                lipo -create -output "$f" "$f" "$X64_EQUIV" 2>/dev/null || true
+              fi
+            fi
+          done
+
+      - name: Package universal .dmg
+        run: |
+          APP_NAME=$(find universal -name "*.app" -maxdepth 1 | head -1 | xargs basename)
+          mkdir dmg-stage
+          cp -r "universal/${APP_NAME}" dmg-stage/
+          ln -s /Applications dmg-stage/Applications
+
+          hdiutil create \
+            -volname "Moku" \
+            -srcfolder dmg-stage \
+            -ov \
+            -format UDZO \
+            "moku-universal.dmg"
+
+      - name: Upload universal .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: moku-universal
+          path: moku-universal.dmg
+          retention-days: 7

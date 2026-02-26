@@ -36,6 +36,7 @@ export default function App() {
 
   const prevQueueRef = useRef<DownloadQueueItem[]>([]);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleRef     = useRef(false);
 
   // expose devSplash trigger via window for settings
   useEffect(() => {
@@ -43,10 +44,15 @@ export default function App() {
     return () => { delete (window as any).__mokuShowSplash; };
   }, []);
 
+  // Keep idleRef in sync so resetIdle can check it without a stale closure
+  useEffect(() => { idleRef.current = idle; }, [idle]);
+
   useEffect(() => {
     if (!appReady) return;
     function resetIdle() {
-      setIdle(false);
+      // While the idle splash is visible, don't reset — let SplashScreen's own
+      // dismiss flow handle teardown so the exit animation plays fully.
+      if (idleRef.current) return;
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       const idleTimeoutMs = (settings.idleTimeoutMin ?? 5) * 60 * 1000;
       if (idleTimeoutMs === 0) return;
@@ -178,7 +184,7 @@ export default function App() {
         <SplashScreen
           mode="idle"
           showCards={settings.splashCards ?? true}
-            onDismiss={() => { setTimeout(() => setIdle(false), SPLASH_EXIT_MS + 20); }}
+            onDismiss={() => { setTimeout(() => { setIdle(false); }, SPLASH_EXIT_MS + 20); }}
         />
       )}
       {!activeChapter && <TitleBar/>}

@@ -428,10 +428,15 @@ export default function SplashScreen({
   useEffect(() => {
     if (mode !== "idle" || !onDismiss) return;
     function handler() { triggerExit(onDismiss); }
-    window.addEventListener("keydown",    handler, { once: true });
-    window.addEventListener("mousedown",  handler, { once: true });
-    window.addEventListener("touchstart", handler, { once: true });
+    // Delay registering listeners by one frame so the event that triggered
+    // idle (mousemove/mousedown) doesn't immediately dismiss the splash.
+    const t = setTimeout(() => {
+      window.addEventListener("keydown",    handler, { once: true });
+      window.addEventListener("mousedown",  handler, { once: true });
+      window.addEventListener("touchstart", handler, { once: true });
+    }, 200);
     return () => {
+      clearTimeout(t);
       window.removeEventListener("keydown",    handler);
       window.removeEventListener("mousedown",  handler);
       window.removeEventListener("touchstart", handler);

@@ -6,7 +6,7 @@ import { UPDATE_MANGA } from "../../lib/queries";
 import { cache, CACHE_KEYS, getTopSources } from "../../lib/cache";
 import { dedupeSources, dedupeMangaByTitle } from "../../lib/sourceUtils";
 import ContextMenu, { type ContextMenuEntry } from "../context/ContextMenu";
-import { GET_ALL_MANGA, GET_LIBRARY, GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
+import { GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
 import { useStore } from "../../store";
 import type { Manga, Source } from "../../lib/types";
 import SourceList from "../sources/SourceList";
@@ -177,6 +177,35 @@ export default function Explore() {
 
 const FOUNDATIONAL_GENRES = ["Action", "Romance", "Fantasy", "Adventure", "Comedy", "Drama"];
 
+// Single query replacing GET_ALL_MANGA + GET_LIBRARY merge
+const EXPLORE_ALL_MANGA = `
+  query ExploreAllManga {
+    mangas(orderBy: IN_LIBRARY_AT, orderByType: DESC) {
+      nodes {
+        id title thumbnailUrl inLibrary genre status
+        source { id displayName }
+      }
+    }
+  }
+`;
+
+// Fast genre row query against the local DB
+const MANGAS_BY_GENRE_EXPLORE = `
+  query MangasByGenreExplore($genre: String!, $first: Int) {
+    mangas(
+      filter: { genre: { includesInsensitive: $genre } }
+      first: $first
+      orderBy: IN_LIBRARY_AT
+      orderByType: DESC
+    ) {
+      nodes {
+        id title thumbnailUrl inLibrary genre status
+        source { id displayName }
+      }
+    }
+  }
+`;
+
 function ExploreFeed() {
   const [allManga, setAllManga]             = useState<Manga[]>([]);
   const [loadingLib, setLoadingLib]         = useState(true);
@@ -238,10 +267,11 @@ function ExploreFeed() {
     ];
   }
 
-  // ── Library + sources load (retries when suwayomi wasn't ready) ─────────────
+  // ── Data load ─────────────────────────────────────────────────────────────
+  // Library + genre rows: single local DB query each — instant, no source calls.
+  // Popular: still needs fetchSourceManga since there's no local equivalent.
   useEffect(() => {
-    // If we already have data, no need to re-fetch (cache hit path)
-    const alreadyLoaded = allManga.length > 0 && sources.length > 0;
+    const alreadyLoaded = allManga.length > 0;
     if (alreadyLoaded) return;
 
     setLoadingLib(true);
@@ -249,39 +279,29 @@ function ExploreFeed() {
     setLoadError(false);
 
     const preferredLang = settings.preferredExtensionLang || "en";
-
-    // Clear stale failed cache entries so we actually retry
     if (retryCount > 0) {
       cache.clear(CACHE_KEYS.LIBRARY);
       cache.clear(CACHE_KEYS.SOURCES);
       fetchedGenresRef.current = "";
     }
 
-    // Library — fire immediately, independent of sources
+    // Single query for all manga — library flag included
     cache.get(CACHE_KEYS.LIBRARY, () =>
-      Promise.all([
-        gql<{ mangas: { nodes: Manga[] } }>(GET_ALL_MANGA),
-        gql<{ mangas: { nodes: Manga[] } }>(GET_LIBRARY),
-      ]).then(([all, lib]) => {
-        const libMap = new Map(lib.mangas.nodes.map((m) => [m.id, m]));
-        return all.mangas.nodes.map((m) => libMap.get(m.id) ?? m);
-      })
+      gql<{ mangas: { nodes: Manga[] } }>(EXPLORE_ALL_MANGA)
+        .then((d) => d.mangas.nodes)
     ).then(setAllManga)
      .catch((e) => { console.error(e); setLoadError(true); })
      .finally(() => setLoadingLib(false));
 
-    // Sources — then kick off popular AND genres simultaneously
+    // Sources — only needed for Popular section
     cache.get(CACHE_KEYS.SOURCES, () =>
       gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
         .then((d) => dedupeSources(d.sources.nodes, preferredLang))
     ).then((allSources) => {
-      if (allSources.length === 0) { setLoadingPopular(false); setLoadError(true); return; }
-
-      // Cap to 2 sources for the explore feed — halves the network calls
+      if (allSources.length === 0) { setLoadingPopular(false); return; }
       const topSources = getTopSources(allSources).slice(0, 2);
       setSources(allSources);
 
-      // ── Popular — don't block genres ──────────────────────────────────
       cache.get(CACHE_KEYS.POPULAR, () =>
         Promise.allSettled(
           topSources.map((src) =>
@@ -296,48 +316,7 @@ function ExploreFeed() {
           return dedupeMangaByTitle(merged).slice(0, 30);
         })
       ).then(setPopularManga).catch(console.error).finally(() => setLoadingPopular(false));
-
-      // ── Genres — start immediately alongside popular using foundational
-      // genres as a starting point; personalized genres replace these once
-      // library loads. Results stream in as each genre resolves.
-      const genresToFetch = FOUNDATIONAL_GENRES.slice(0, 3);
-      const genreKey = genresToFetch.join(",");
-      if (fetchedGenresRef.current === genreKey) return;
-      fetchedGenresRef.current = genreKey;
-
-      setLoadingGenres(true);
-      abortRef.current?.abort();
-      const ctrl = new AbortController();
-      abortRef.current = ctrl;
-
-      const streamingMap = new Map<string, Manga[]>();
-      Promise.allSettled(
-        genresToFetch.map((genre) =>
-          cache.get(CACHE_KEYS.GENRE(genre), () =>
-            Promise.allSettled(
-              topSources.map((src) =>
-                gql<{ fetchSourceManga: { mangas: Manga[] } }>(FETCH_SOURCE_MANGA, {
-                  source: src.id, type: "SEARCH", page: 1, query: genre,
-                }, ctrl.signal).then((d) => d.fetchSourceManga.mangas)
-              )
-            ).then((results) => {
-              const merged: Manga[] = [];
-              for (const r of results)
-                if (r.status === "fulfilled") merged.push(...r.value);
-              return dedupeMangaByTitle(merged).slice(0, 24);
-            })
-          ).then((mangas) => {
-            if (ctrl.signal.aborted) return;
-            // Stream: each genre paints immediately as it resolves
-            streamingMap.set(genre, mangas);
-            setGenreResults(new Map(streamingMap));
-          })
-        )
-      )
-      .catch((e) => { if (e?.name !== "AbortError") console.error(e); })
-      .finally(() => { if (!ctrl.signal.aborted) setLoadingGenres(false); });
-    })
-      .catch((e) => { console.error(e); setLoadError(true); setLoadingPopular(false); });
+    }).catch((e) => { console.error(e); setLoadError(true); setLoadingPopular(false); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retryCount]);
 
@@ -367,12 +346,13 @@ function ExploreFeed() {
       .map(([g]) => g);
   }, [allManga, history]);
 
-  // ── Re-fetch only when personalized genres differ from what's cached ───────
+  // ── Genre rows: query local DB directly ─────────────────────────────────
+  // One query per genre against the local mangas table — instant, no source I/O.
   useEffect(() => {
-    if (frecencyGenres.length === 0 || sources.length === 0) return;
+    if (frecencyGenres.length === 0 || allManga.length === 0) return;
 
     const genreKey = frecencyGenres.join(",");
-    if (fetchedGenresRef.current === genreKey) return; // already fetched, cache hit
+    if (fetchedGenresRef.current === genreKey) return;
     fetchedGenresRef.current = genreKey;
 
     setLoadingGenres(true);
@@ -380,24 +360,16 @@ function ExploreFeed() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    const topSources = getTopSources(sources).slice(0, 2);
     const streamingMap = new Map<string, Manga[]>();
 
     Promise.allSettled(
       frecencyGenres.map((genre) =>
         cache.get(CACHE_KEYS.GENRE(genre), () =>
-          Promise.allSettled(
-            topSources.map((src) =>
-              gql<{ fetchSourceManga: { mangas: Manga[] } }>(FETCH_SOURCE_MANGA, {
-                source: src.id, type: "SEARCH", page: 1, query: genre,
-              }, ctrl.signal).then((d) => d.fetchSourceManga.mangas)
-            )
-          ).then((results) => {
-            const merged: Manga[] = [];
-            for (const r of results)
-              if (r.status === "fulfilled") merged.push(...r.value);
-            return dedupeMangaByTitle(merged).slice(0, 24);
-          })
+          gql<{ mangas: { nodes: Manga[] } }>(
+            MANGAS_BY_GENRE_EXPLORE,
+            { genre, first: 25 },
+            ctrl.signal,
+          ).then((d) => d.mangas.nodes)
         ).then((mangas) => {
           if (ctrl.signal.aborted) return;
           streamingMap.set(genre, mangas);
@@ -407,7 +379,7 @@ function ExploreFeed() {
     )
     .catch((e) => { if (e?.name !== "AbortError") console.error(e); })
     .finally(() => { if (!ctrl.signal.aborted) setLoadingGenres(false); });
-  }, [frecencyGenres, sources]);
+  }, [frecencyGenres, allManga]);
 
   function openManga(m: Manga) { setPreviewManga(m); }
 

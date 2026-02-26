@@ -1,10 +1,10 @@
 import { useState, useRef, useCallback, useEffect, memo, useMemo } from "react";
 import {
-  MagnifyingGlass, CircleNotch, SlidersHorizontal, Hash, List,
+  MagnifyingGlass, CircleNotch, SlidersHorizontal, Hash, List, Globe,
 } from "@phosphor-icons/react";
 import { gql, thumbUrl } from "../../lib/client";
 import { GET_SOURCES, FETCH_SOURCE_MANGA } from "../../lib/queries";
-import { cache, CACHE_KEYS } from "../../lib/cache";
+import { cache, CACHE_KEYS, getPageSet } from "../../lib/cache";
 import { dedupeSources, dedupeMangaById } from "../../lib/sourceUtils";
 import { useStore } from "../../store";
 import type { Manga, Source } from "../../lib/types";
@@ -13,18 +13,21 @@ import s from "./Search.module.css";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type SearchTab = "keyword" | "tag" | "source";
+type TagMode   = "AND" | "OR";
 
 interface SourceResult {
   source: Source;
   mangas: Manga[];
   loading: boolean;
-  error: string | null;
+  error:   string | null;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CONCURRENCY = 4;
+const CONCURRENCY        = 4;
 const RESULTS_PER_SOURCE = 8;
+const TAG_PAGE_SIZE      = 48;
+const MAX_TAG_SOURCES    = 10; // sources queried when "Search sources" is toggled on
 
 const COMMON_GENRES = [
   "Action","Adventure","Comedy","Drama","Fantasy","Romance",
@@ -34,11 +37,11 @@ const COMMON_GENRES = [
   "Magic","Music","Cooking","Medical","Military","Harem","Ecchi",
 ];
 
-// ── Concurrent fetch helper ───────────────────────────────────────────────────
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
 async function runConcurrent<T>(
   items: T[],
-  fn: (item: T) => Promise<void>,
+  fn:    (item: T) => Promise<void>,
   signal: AbortSignal,
 ): Promise<void> {
   let i = 0;
@@ -52,7 +55,13 @@ async function runConcurrent<T>(
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
 }
 
-// ── Shared card ───────────────────────────────────────────────────────────────
+/** Keep only manga whose genre array includes every tag (case-insensitive). */
+function matchesAllTags(m: Manga, tags: string[]): boolean {
+  const genres = (m.genre ?? []).map((g) => g.toLowerCase());
+  return tags.every((t) => genres.includes(t.toLowerCase()));
+}
+
+// ── Shared card components ────────────────────────────────────────────────────
 
 const CoverImg = memo(function CoverImg({
   src, alt, className,
@@ -114,7 +123,7 @@ export default function Search() {
   const setSearchPrefill = useStore((st) => st.setSearchPrefill);
   const setPreviewManga  = useStore((st) => st.setPreviewManga);
 
-  const [allSources, setAllSources]       = useState<Source[]>([]);
+  const [allSources, setAllSources]         = useState<Source[]>([]);
   const [loadingSources, setLoadingSources] = useState(false);
 
   const pendingPrefill = useRef<string>("");
@@ -132,7 +141,8 @@ export default function Search() {
     setLoadingSources(true);
     cache.get(CACHE_KEYS.SOURCES, () =>
       gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
-        .then((d) => d.sources.nodes.filter((src) => src.id !== "0"))
+        .then((d) => d.sources.nodes.filter((src) => src.id !== "0")),
+      Infinity, // source list is stable within a session
     )
       .then(setAllSources)
       .catch(console.error)
@@ -194,25 +204,26 @@ export default function Search() {
 }
 
 // ── Keyword tab ───────────────────────────────────────────────────────────────
+// Unchanged from v1.
 
 function KeywordTab({
   allSources, loadingSources, availableLangs, hasMultipleLangs,
   preferredLang, pendingPrefill, onMangaClick,
 }: {
-  allSources: Source[];
-  loadingSources: boolean;
-  availableLangs: string[];
+  allSources:      Source[];
+  loadingSources:  boolean;
+  availableLangs:  string[];
   hasMultipleLangs: boolean;
-  preferredLang: string;
-  pendingPrefill: React.MutableRefObject<string>;
-  onMangaClick: (m: Manga) => void;
+  preferredLang:   string;
+  pendingPrefill:  React.MutableRefObject<string>;
+  onMangaClick:    (m: Manga) => void;
 }) {
   const [query, setQuery]               = useState("");
   const [submitted, setSubmitted]       = useState("");
   const [results, setResults]           = useState<SourceResult[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedLangs, setSelectedLangs] = useState<Set<string>>(new Set());
-  const [includeNsfw, setIncludeNsfw]     = useState(false);
+  const [includeNsfw, setIncludeNsfw]   = useState(false);
 
   const abortRef         = useRef<AbortController | null>(null);
   const inputRef         = useRef<HTMLInputElement>(null);
@@ -427,138 +438,253 @@ function KeywordTab({
 }
 
 // ── Tag tab ───────────────────────────────────────────────────────────────────
+//
+// Two data sources, selectable independently:
+//
+// 1. Local DB (always on) — instant MangaFilterInput query with AND/OR support.
+//    "Show more" uses GraphQL offset pagination.
+//
+// 2. Source search (opt-in via "Search sources" toggle) — fires FETCH_SOURCE_MANGA
+//    across the top sources, using getPageSet() + cache.get(sourceMangaPage) so
+//    results survive navigation and "Show more" fetches the next cached page before
+//    hitting the network.
+//    For multi-tag AND: sends the first tag as the source query string (sources only
+//    support one term) and client-filters the results by the remaining tags.
 
-const TAG_PAGE_SIZE    = 50; // items shown per "page"
-const TAG_FETCH_PAGES  = 3;  // source pages to fetch per source on initial load
-const TAG_MAX_SOURCES  = 12; // max sources to query
+const MANGAS_BY_GENRE = `
+  query MangasByGenre($filter: MangaFilterInput, $first: Int, $offset: Int) {
+    mangas(filter: $filter, first: $first, offset: $offset, orderBy: IN_LIBRARY_AT, orderByType: DESC) {
+      nodes {
+        id title thumbnailUrl inLibrary genre status
+        source { id displayName }
+      }
+      pageInfo { hasNextPage }
+      totalCount
+    }
+  }
+`;
+
+function buildGenreFilter(tags: string[], mode: TagMode): Record<string, unknown> {
+  if (tags.length === 0) return {};
+  if (mode === "AND") return { and: tags.map((t) => ({ genre: { includesInsensitive: t } })) };
+  return { or: tags.map((t) => ({ genre: { includesInsensitive: t } })) };
+}
 
 function TagTab({
-  preferredLang, onMangaClick,
+  allSources,
+  loadingSources,
+  preferredLang,
+  onMangaClick,
 }: {
-  allSources: Source[];
+  allSources:     Source[];
   loadingSources: boolean;
-  preferredLang: string;
-  onMangaClick: (m: Manga) => void;
+  preferredLang:  string;
+  onMangaClick:   (m: Manga) => void;
 }) {
-  const [activeTag, setActiveTag]         = useState<string | null>(null);
-  const [tagResults, setTagResults]       = useState<Manga[]>([]);
-  const [loadingTag, setLoadingTag]       = useState(false);
-  const [loadingMore, setLoadingMore]     = useState(false);
-  const [visibleCount, setVisibleCount]   = useState(TAG_PAGE_SIZE);
-  const [tagFilter, setTagFilter]         = useState("");
-  // Track next page to fetch per source for "load more from network"
-  const nextPageRef  = useRef<Map<string, number>>(new Map());
-  const sourcesRef   = useRef<Source[]>([]);
-  const abortRef     = useRef<AbortController | null>(null);
+  const [activeTags, setActiveTags]   = useState<string[]>([]);
+  const [tagMode, setTagMode]         = useState<TagMode>("AND");
+  const [tagFilter, setTagFilter]     = useState("");
 
-  useEffect(() => () => { abortRef.current?.abort(); }, []);
+  // ── Local DB state ────────────────────────────────────────────────────────
+  const [localResults, setLocalResults]         = useState<Manga[]>([]);
+  const [totalCount, setTotalCount]             = useState(0);
+  const [loadingLocal, setLoadingLocal]         = useState(false);
+  const [loadingMoreLocal, setLoadingMoreLocal] = useState(false);
+  const [localOffset, setLocalOffset]           = useState(0);
+  const [localHasNext, setLocalHasNext]         = useState(false);
+  const abortLocalRef = useRef<AbortController | null>(null);
 
-  async function drillTag(tag: string) {
-    if (tag === activeTag && !loadingTag) return;
-    setActiveTag(tag);
-    setTagResults([]);
-    setLoadingTag(true);
-    setVisibleCount(TAG_PAGE_SIZE);
-    nextPageRef.current = new Map();
+  // ── Source search state ───────────────────────────────────────────────────
+  const [searchSources, setSearchSources]         = useState(false);
+  const [sourceResults, setSourceResults]         = useState<Manga[]>([]);
+  const [loadingSourceSearch, setLoadingSourceSearch] = useState(false);
+  const [loadingMoreSource, setLoadingMoreSource] = useState(false);
+  // Per-source next-page tracker; -1 = exhausted
+  const srcNextPageRef = useRef<Map<string, number>>(new Map());
+  const abortSourceRef = useRef<AbortController | null>(null);
 
-    abortRef.current?.abort();
+  useEffect(() => () => {
+    abortLocalRef.current?.abort();
+    abortSourceRef.current?.abort();
+  }, []);
+
+  // ── Local DB query ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (activeTags.length === 0) {
+      setLocalResults([]); setTotalCount(0); setLocalHasNext(false); setLocalOffset(0);
+      return;
+    }
+    abortLocalRef.current?.abort();
     const ctrl = new AbortController();
-    abortRef.current = ctrl;
+    abortLocalRef.current = ctrl;
+    setLocalResults([]); setTotalCount(0); setLocalOffset(0); setLocalHasNext(false);
+    setLoadingLocal(true);
 
-    try {
-      const sources = await cache.get(CACHE_KEYS.SOURCES, () =>
-        gql<{ sources: { nodes: Source[] } }>(GET_SOURCES)
-          .then((d) => d.sources.nodes.filter((s) => s.id !== "0"))
-      );
-      const deduped = dedupeSources(sources, preferredLang).slice(0, TAG_MAX_SOURCES);
-      sourcesRef.current = deduped;
+    gql<{ mangas: { nodes: Manga[]; pageInfo: { hasNextPage: boolean }; totalCount: number } }>(
+      MANGAS_BY_GENRE,
+      { filter: buildGenreFilter(activeTags, tagMode), first: TAG_PAGE_SIZE, offset: 0 },
+      ctrl.signal,
+    ).then((d) => {
+      if (ctrl.signal.aborted) return;
+      setLocalResults(d.mangas.nodes);
+      setTotalCount(d.mangas.totalCount);
+      setLocalHasNext(d.mangas.pageInfo.hasNextPage);
+      setLocalOffset(TAG_PAGE_SIZE);
+    }).catch((e: any) => {
+      if (e?.name !== "AbortError") console.error(e);
+    }).finally(() => {
+      if (!ctrl.signal.aborted) setLoadingLocal(false);
+    });
+  }, [activeTags, tagMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-      // Start all at -1; the fetch loop sets the real next page if hasNextPage is true
-      for (const src of deduped) {
-        nextPageRef.current.set(src.id, -1);
+  // ── Source search ─────────────────────────────────────────────────────────
+  // Fires when toggled on (or when tags change while already on).
+  // Uses getPageSet() + cache.get(sourceMangaPage) so the first page of each
+  // source is re-used from cache if the user navigates away and back.
+  useEffect(() => {
+    if (!searchSources || activeTags.length === 0 || loadingSources) return;
+
+    abortSourceRef.current?.abort();
+    const ctrl = new AbortController();
+    abortSourceRef.current = ctrl;
+
+    setSourceResults([]);
+    srcNextPageRef.current = new Map();
+    setLoadingSourceSearch(true);
+
+    const sources    = dedupeSources(allSources, preferredLang).slice(0, MAX_TAG_SOURCES);
+    const primaryTag = activeTags[0]; // sources only support a single query string
+
+    for (const src of sources) srcNextPageRef.current.set(src.id, -1);
+
+    runConcurrent(sources, async (src) => {
+      if (ctrl.signal.aborted) return;
+
+      const ps      = getPageSet(src.id, "SEARCH", activeTags);
+      const pageKey = CACHE_KEYS.sourceMangaPage(src.id, "SEARCH", 1, activeTags);
+
+      const result = await cache
+        .get<{ mangas: Manga[]; hasNextPage: boolean }>(
+          pageKey,
+          () => gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+            FETCH_SOURCE_MANGA,
+            { source: src.id, type: "SEARCH", page: 1, query: primaryTag },
+            ctrl.signal,
+          ).then((d) => d.fetchSourceManga),
+        )
+        .catch((e: any) => {
+          if (e?.name !== "AbortError") console.error(e);
+          return null;
+        });
+
+      if (!result || ctrl.signal.aborted) return;
+
+      ps.add(1);
+      srcNextPageRef.current.set(src.id, result.hasNextPage ? 2 : -1);
+
+      // Multi-tag AND: client-filter for tags beyond the first
+      const matching = activeTags.length > 1
+        ? result.mangas.filter((m) => matchesAllTags(m, activeTags))
+        : result.mangas;
+
+      if (matching.length > 0) {
+        setSourceResults((prev) => dedupeMangaById([...prev, ...matching]));
+        setLoadingSourceSearch(false); // reveal as results arrive
       }
+    }, ctrl.signal).finally(() => {
+      if (!ctrl.signal.aborted) setLoadingSourceSearch(false);
+    });
 
-      // Stream results in: fetch each source's pages concurrently, update state as each settles
-      await runConcurrent(deduped, async (src) => {
-        if (ctrl.signal.aborted) return;
-        const pageResults: Manga[] = [];
-        // Fetch TAG_FETCH_PAGES pages in series per source
-        for (let page = 1; page <= TAG_FETCH_PAGES; page++) {
-          if (ctrl.signal.aborted) return;
-          try {
-            const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-              FETCH_SOURCE_MANGA,
-              { source: src.id, type: "SEARCH", page, query: tag },
-              ctrl.signal,
-            );
-            pageResults.push(...d.fetchSourceManga.mangas);
-            if (!d.fetchSourceManga.hasNextPage) {
-              nextPageRef.current.set(src.id, -1); // no more pages
-              break;
-            } else if (page === TAG_FETCH_PAGES) {
-              // Still has more pages beyond what we fetched upfront
-              nextPageRef.current.set(src.id, TAG_FETCH_PAGES + 1);
-            }
-          } catch (e: any) {
-            if (e?.name === "AbortError") return;
-            break; // source error — move on
-          }
-        }
-        if (!ctrl.signal.aborted && pageResults.length > 0) {
-          setTagResults((prev) => dedupeMangaById([...prev, ...pageResults]));
-        }
-      }, ctrl.signal);
+    return () => { ctrl.abort(); };
+  }, [searchSources, activeTags, allSources, loadingSources]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load more: local ──────────────────────────────────────────────────────
+  async function loadMoreLocal() {
+    if (loadingMoreLocal || !localHasNext) return;
+    setLoadingMoreLocal(true);
+    abortLocalRef.current?.abort();
+    const ctrl = new AbortController();
+    abortLocalRef.current = ctrl;
+    try {
+      const d = await gql<{ mangas: { nodes: Manga[]; pageInfo: { hasNextPage: boolean } } }>(
+        MANGAS_BY_GENRE,
+        { filter: buildGenreFilter(activeTags, tagMode), first: TAG_PAGE_SIZE, offset: localOffset },
+        ctrl.signal,
+      );
+      if (ctrl.signal.aborted) return;
+      setLocalResults((prev) => [...prev, ...d.mangas.nodes]);
+      setLocalHasNext(d.mangas.pageInfo.hasNextPage);
+      setLocalOffset((o) => o + TAG_PAGE_SIZE);
     } catch (e: any) {
       if (e?.name !== "AbortError") console.error(e);
     } finally {
-      if (!ctrl.signal.aborted) setLoadingTag(false);
+      if (!ctrl.signal.aborted) setLoadingMoreLocal(false);
     }
   }
 
-  async function loadMore() {
-    if (!activeTag || loadingMore) return;
+  // ── Load more: sources ────────────────────────────────────────────────────
+  const sourceHasMore = searchSources &&
+    [...srcNextPageRef.current.values()].some((p) => p > 0);
 
-    // First check if we have more buffered results to show
-    if (visibleCount < tagResults.length) {
-      setVisibleCount((v) => v + TAG_PAGE_SIZE);
-      return;
-    }
-
-    // Otherwise fetch next pages from sources
-    const sourcesToFetch = sourcesRef.current.filter(
-      (src) => (nextPageRef.current.get(src.id) ?? -1) > 0
-    );
-    if (sourcesToFetch.length === 0) return;
-
-    setLoadingMore(true);
-    abortRef.current?.abort();
+  async function loadMoreSource() {
+    if (loadingMoreSource || !sourceHasMore) return;
+    setLoadingMoreSource(true);
+    abortSourceRef.current?.abort();
     const ctrl = new AbortController();
-    abortRef.current = ctrl;
+    abortSourceRef.current = ctrl;
+
+    const sources    = dedupeSources(allSources, preferredLang)
+      .slice(0, MAX_TAG_SOURCES)
+      .filter((src) => (srcNextPageRef.current.get(src.id) ?? -1) > 0);
+    const primaryTag = activeTags[0];
 
     try {
-      await runConcurrent(sourcesToFetch, async (src) => {
-        const page = nextPageRef.current.get(src.id)!;
+      await runConcurrent(sources, async (src) => {
+        const page = srcNextPageRef.current.get(src.id)!;
         if (ctrl.signal.aborted) return;
-        try {
-          const d = await gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
-            FETCH_SOURCE_MANGA,
-            { source: src.id, type: "SEARCH", page, query: activeTag },
-            ctrl.signal,
-          );
-          nextPageRef.current.set(src.id, d.fetchSourceManga.hasNextPage ? page + 1 : -1);
-          if (!ctrl.signal.aborted && d.fetchSourceManga.mangas.length > 0) {
-            setTagResults((prev) => dedupeMangaById([...prev, ...d.fetchSourceManga.mangas]));
-          }
-        } catch (e: any) {
-          if (e?.name !== "AbortError") nextPageRef.current.set(src.id, -1);
-        }
+
+        const ps      = getPageSet(src.id, "SEARCH", activeTags);
+        const pageKey = CACHE_KEYS.sourceMangaPage(src.id, "SEARCH", page, activeTags);
+
+        const result = await cache
+          .get<{ mangas: Manga[]; hasNextPage: boolean }>(
+            pageKey,
+            () => gql<{ fetchSourceManga: { mangas: Manga[]; hasNextPage: boolean } }>(
+              FETCH_SOURCE_MANGA,
+              { source: src.id, type: "SEARCH", page, query: primaryTag },
+              ctrl.signal,
+            ).then((d) => d.fetchSourceManga),
+          )
+          .catch((e: any) => {
+            if (e?.name !== "AbortError") srcNextPageRef.current.set(src.id, -1);
+            return null;
+          });
+
+        if (!result || ctrl.signal.aborted) return;
+
+        ps.add(page);
+        srcNextPageRef.current.set(src.id, result.hasNextPage ? page + 1 : -1);
+
+        const matching = activeTags.length > 1
+          ? result.mangas.filter((m) => matchesAllTags(m, activeTags))
+          : result.mangas;
+
+        if (matching.length > 0)
+          setSourceResults((prev) => dedupeMangaById([...prev, ...matching]));
       }, ctrl.signal);
     } finally {
-      if (!ctrl.signal.aborted) {
-        setVisibleCount((v) => v + TAG_PAGE_SIZE);
-        setLoadingMore(false);
-      }
+      if (!ctrl.signal.aborted) setLoadingMoreSource(false);
     }
+  }
+
+  // ── Tag toggle ────────────────────────────────────────────────────────────
+  function toggleTag(tag: string) {
+    // Clear source sessions when tags change — new query = new page buckets
+    srcNextPageRef.current = new Map();
+    setSourceResults([]);
+    setActiveTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
   }
 
   const filteredGenres = useMemo(() => {
@@ -566,12 +692,19 @@ function TagTab({
     return q ? COMMON_GENRES.filter((g) => g.toLowerCase().includes(q)) : COMMON_GENRES;
   }, [tagFilter]);
 
-  const visibleResults  = tagResults.slice(0, visibleCount);
-  const hasMore = visibleCount < tagResults.length ||
-    sourcesRef.current.some((src) => (nextPageRef.current.get(src.id) ?? -1) > 0);
+  const hasActiveTags = activeTags.length > 0;
+
+  // Merge local + source results (local first, source de-duped against local IDs)
+  const localIds      = useMemo(() => new Set(localResults.map((m) => m.id)), [localResults]);
+  const mergedResults = searchSources
+    ? [...localResults, ...sourceResults.filter((m) => !localIds.has(m.id))]
+    : localResults;
+
+  const totalVisible = localResults.length + (searchSources ? sourceResults.length : 0);
 
   return (
     <div className={s.splitRoot}>
+      {/* ── Sidebar ────────────────────────────────────────────────────── */}
       <div className={s.splitSidebar}>
         <div className={s.splitSearchWrap}>
           <MagnifyingGlass size={12} className={s.splitSearchIcon} weight="light" />
@@ -586,53 +719,130 @@ function TagTab({
           {filteredGenres.map((tag) => (
             <button
               key={tag}
-              className={[s.splitItem, activeTag === tag ? s.splitItemActive : ""].join(" ")}
-              onClick={() => drillTag(tag)}
+              className={[s.splitItem, activeTags.includes(tag) ? s.splitItemActive : ""].join(" ")}
+              onClick={() => toggleTag(tag)}
             >
-              {tag}
+              <span className={s.splitItemLabel}>{tag}</span>
+              {activeTags.includes(tag) && <span className={s.tagCheckMark}>✓</span>}
             </button>
           ))}
           {filteredGenres.length === 0 && <p className={s.splitEmpty}>No matching tags</p>}
         </div>
       </div>
 
+      {/* ── Content ────────────────────────────────────────────────────── */}
       <div className={s.splitContent}>
-        {!activeTag ? (
+        {!hasActiveTags ? (
           <div className={s.empty}>
             <Hash size={32} weight="light" className={s.emptyIcon} />
             <p className={s.emptyText}>Browse by tag</p>
-            <p className={s.emptyHint}>Select a genre tag to see matching manga across your sources.</p>
+            <p className={s.emptyHint}>Select one or more genre tags to find matching manga.</p>
           </div>
         ) : (
           <>
+            {/* Active tag pills + controls */}
+            <div className={s.tagActiveBar}>
+              <div className={s.tagPillRow}>
+                {activeTags.map((tag) => (
+                  <span key={tag} className={s.tagPill}>
+                    {tag}
+                    <button className={s.tagPillRemove} onClick={() => toggleTag(tag)} title={`Remove ${tag}`}>×</button>
+                  </span>
+                ))}
+              </div>
+              <div className={s.tagBarRight}>
+                {activeTags.length > 1 && (
+                  <div className={s.tagModeToggle}>
+                    <button
+                      className={[s.tagModeBtn, tagMode === "AND" ? s.tagModeBtnActive : ""].join(" ")}
+                      onClick={() => setTagMode("AND")}
+                      title="Show manga matching ALL selected tags"
+                    >AND</button>
+                    <button
+                      className={[s.tagModeBtn, tagMode === "OR" ? s.tagModeBtnActive : ""].join(" ")}
+                      onClick={() => setTagMode("OR")}
+                      title="Show manga matching ANY selected tag"
+                    >OR</button>
+                  </div>
+                )}
+                {/* "Search sources" toggle — fetches from external sources */}
+                <button
+                  className={[s.tagModeBtn, searchSources ? s.tagModeBtnActive : ""].join(" ")}
+                  onClick={() => setSearchSources((v) => !v)}
+                  title="Also search across sources (slower, requires network)"
+                  disabled={loadingSources}
+                >
+                  <Globe size={11} weight="light" style={{ marginRight: 3, verticalAlign: "middle" }} />
+                  Sources
+                </button>
+                <button className={s.tagClearAll} onClick={() => setActiveTags([])}>Clear all</button>
+              </div>
+            </div>
+
+            {/* Result header */}
             <div className={s.splitContentHeader}>
-              <span className={s.splitContentTitle}>{activeTag}</span>
-              {loadingTag
+              <span className={s.splitContentTitle}>
+                {activeTags.length === 1 ? activeTags[0] : `${activeTags.length} tags (${tagMode})`}
+                {searchSources && (
+                  <span style={{ marginLeft: 6, fontWeight: 400, opacity: 0.55, fontSize: "0.9em" }}>
+                    + sources
+                  </span>
+                )}
+              </span>
+              {(loadingLocal || loadingSourceSearch)
                 ? <CircleNotch size={13} weight="light" className="anim-spin" style={{ color: "var(--text-faint)" }} />
                 : <span className={s.splitResultCount}>
-                    {visibleResults.length}{tagResults.length > visibleCount ? `+` : ""} of {tagResults.length} results
-                  </span>}
+                    {totalVisible}
+                    {localHasNext || sourceHasMore ? "+" : ""} of {totalCount + sourceResults.length} results
+                  </span>
+              }
             </div>
-            {loadingTag ? (
-              <GridSkeleton count={50} />
-            ) : tagResults.length > 0 ? (
+
+            {/* Results grid */}
+            {loadingLocal ? (
+              <GridSkeleton count={48} />
+            ) : mergedResults.length > 0 ? (
               <div className={s.tagGrid}>
-                {visibleResults.map((m) => (
+                {mergedResults.map((m) => (
                   <MangaCard key={m.id} manga={m} onClick={() => onMangaClick(m)} />
                 ))}
-                {hasMore && (
+
+                {/* Inline skeletons while source results are still streaming in */}
+                {loadingSourceSearch && Array.from({ length: 8 }).map((_, i) => (
+                  <div key={`sk-src-${i}`} className={s.skCard} style={{ width: "auto" }}>
+                    <div className={["skeleton", s.skCover].join(" ")} style={{ aspectRatio: "2/3", width: "100%" }} />
+                    <div className={["skeleton", s.skTitle].join(" ")} />
+                  </div>
+                ))}
+
+                {/* Show more buttons — one per data source */}
+                {(localHasNext || sourceHasMore) && (
                   <div className={s.showMoreCell}>
-                    <button className={s.showMoreBtn} onClick={loadMore} disabled={loadingMore}>
-                      {loadingMore
-                        ? <><CircleNotch size={13} weight="light" className="anim-spin" /> Loading…</>
-                        : "Show more"}
-                    </button>
+                    {localHasNext && (
+                      <button className={s.showMoreBtn} onClick={loadMoreLocal} disabled={loadingMoreLocal}>
+                        {loadingMoreLocal
+                          ? <><CircleNotch size={13} weight="light" className="anim-spin" /> Loading…</>
+                          : "Show more (library)"}
+                      </button>
+                    )}
+                    {sourceHasMore && (
+                      <button className={s.showMoreBtn} onClick={loadMoreSource} disabled={loadingMoreSource}>
+                        {loadingMoreSource
+                          ? <><CircleNotch size={13} weight="light" className="anim-spin" /> Loading…</>
+                          : "Show more (sources)"}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
             ) : (
               <div className={s.empty}>
-                <p className={s.emptyText}>No results for "{activeTag}"</p>
+                <p className={s.emptyText}>No results for {activeTags.join(` ${tagMode} `)}</p>
+                <p className={s.emptyHint}>
+                  {searchSources
+                    ? "Try OR mode or broader tags."
+                    : "Try OR mode, enable Sources, or check that these manga are in your library."}
+                </p>
               </div>
             )}
           </>
@@ -643,15 +853,16 @@ function TagTab({
 }
 
 // ── Source tab ────────────────────────────────────────────────────────────────
+// Unchanged from v1.
 
 function SourceTab({
   allSources, loadingSources, availableLangs, hasMultipleLangs, onMangaClick,
 }: {
-  allSources: Source[];
-  loadingSources: boolean;
-  availableLangs: string[];
+  allSources:       Source[];
+  loadingSources:   boolean;
+  availableLangs:   string[];
   hasMultipleLangs: boolean;
-  onMangaClick: (m: Manga) => void;
+  onMangaClick:     (m: Manga) => void;
 }) {
   const [selectedLang, setSelectedLang]   = useState<string>("all");
   const [activeSource, setActiveSource]   = useState<Source | null>(null);

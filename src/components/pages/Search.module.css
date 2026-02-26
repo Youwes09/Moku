@@ -340,3 +340,72 @@
   border-radius: var(--radius-sm); border: 1px solid var(--border-dim);
   color: var(--text-faint); flex-shrink: 0;
 }
+/* ── Multi-tag bar ───────────────────────────────────────────────────────────── */
+.tagActiveBar {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-5);
+  border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0; flex-wrap: wrap;
+  background: var(--bg-raised);
+  min-height: 40px;
+}
+
+.tagPillRow {
+  display: flex; flex-wrap: wrap; gap: var(--sp-1); flex: 1; min-width: 0;
+}
+
+.tagPill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--font-ui); font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  padding: 3px 6px 3px 8px; border-radius: var(--radius-sm);
+  background: var(--accent-muted); color: var(--accent-fg);
+  border: 1px solid var(--accent-dim);
+  white-space: nowrap;
+}
+
+.tagPillRemove {
+  display: flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: none; border: none; cursor: pointer;
+  color: var(--accent-fg); font-size: 13px; line-height: 1;
+  opacity: 0.7; padding: 0; flex-shrink: 0;
+  transition: opacity var(--t-fast);
+}
+.tagPillRemove:hover { opacity: 1; }
+
+.tagBarRight {
+  display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0;
+}
+
+/* AND / OR toggle */
+.tagModeToggle {
+  display: flex; align-items: center;
+  background: var(--bg-overlay); border: 1px solid var(--border-dim);
+  border-radius: var(--radius-sm); padding: 1px; gap: 1px;
+}
+.tagModeBtn {
+  font-family: var(--font-ui); font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wider); padding: 3px 8px;
+  border-radius: calc(var(--radius-sm) - 1px);
+  border: none; background: none; color: var(--text-faint);
+  cursor: pointer; transition: background var(--t-fast), color var(--t-fast);
+}
+.tagModeBtn:hover { color: var(--text-muted); }
+.tagModeBtnActive {
+  background: var(--accent-muted); color: var(--accent-fg);
+}
+
+.tagClearAll {
+  font-family: var(--font-ui); font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide); color: var(--text-faint);
+  background: none; border: none; cursor: pointer; padding: 3px 0;
+  transition: color var(--t-fast);
+}
+.tagClearAll:hover { color: var(--text-muted); }
+
+/* Checkmark on active tag sidebar items */
+.tagCheckMark {
+  font-size: 10px; margin-left: auto; padding-left: var(--sp-1);
+  color: var(--accent-fg); flex-shrink: 0;
+}

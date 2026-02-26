@@ -157,7 +157,7 @@ fn patch_conf_key(mut text: String, key: &str, value: &str) -> String {
     let replacement = format!("{key} = {value}");
     // Find a line that starts with the key (tolerant of surrounding whitespace)
     if let Some(pos) = text.lines().position(|l| l.trim_start().starts_with(key)) {
-        let lines: Vec<&str> = text.lines().collect();
+        let mut lines: Vec<&str> = text.lines().collect();
         // We need an owned replacement; rebuild from scratch.
         let owned: Vec<String> = lines
             .iter()
@@ -221,6 +221,7 @@ fn resolve_server_binary(
     let candidates = [
         "suwayomi-server-aarch64-apple-darwin",
         "suwayomi-server-x86_64-apple-darwin",
+        "suwayomi-server-x86_64-pc-windows-msvc.exe",
         // plain name as a dev/Linux fallback
         "suwayomi-server",
     ];

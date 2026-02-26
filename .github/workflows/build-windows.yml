@@ -1,0 +1,151 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.3.0)"
+        required: true
+
+jobs:
+  frontend:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-windows
+          path: dist/
+          retention-days: 1
+
+  tauri:
+    name: Tauri (Windows x64)
+    needs: frontend
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist-windows
+          path: dist/
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download Suwayomi (Windows x64)
+        shell: bash
+        run: |
+          curl -fsSL \
+            "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867-windows-x64.zip" \
+            -o suwayomi-windows.zip
+
+          echo "ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff  suwayomi-windows.zip" | shasum -a 256 -c -
+
+          mkdir -p suwayomi-extracted
+          unzip -q suwayomi-windows.zip -d suwayomi-extracted-raw
+          # Strip the top-level directory if present
+          TOP=$(ls suwayomi-extracted-raw | head -1)
+          if [ -d "suwayomi-extracted-raw/$TOP" ]; then
+            mv "suwayomi-extracted-raw/$TOP"/* suwayomi-extracted/
+          else
+            mv suwayomi-extracted-raw/* suwayomi-extracted/
+          fi
+
+      - name: Inspect Suwayomi launcher (find correct filename)
+        shell: bash
+        run: |
+          echo "=== Top-level contents ==="
+          ls -la suwayomi-extracted/
+          echo "=== All .exe files ==="
+          find suwayomi-extracted -name "*.exe" | head -20
+          echo "=== All .cmd/.bat files ==="
+          find suwayomi-extracted -name "*.cmd" -o -name "*.bat" | head -20
+
+      - name: Stage Suwayomi sidecar
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+
+          # Try known launcher names in order of likelihood
+          LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -name "Suwayomi Launcher.exe" | head -1)
+          if [ -z "$LAUNCHER" ]; then
+            LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -name "Suwayomi-Launcher.exe" | head -1)
+          fi
+          if [ -z "$LAUNCHER" ]; then
+            LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -name "*.exe" \
+              ! -name "java.exe" ! -name "javaw.exe" | head -1)
+          fi
+
+          if [ -z "$LAUNCHER" ]; then
+            echo "ERROR: could not find Windows launcher"
+            ls -lR suwayomi-extracted/
+            exit 1
+          fi
+
+          echo "Using launcher: $LAUNCHER"
+
+          # Tauri sidecar naming: <stem>-<target-triple>.exe
+          cp "$LAUNCHER" "src-tauri/binaries/suwayomi-server-x86_64-pc-windows-msvc.exe"
+
+          # Copy full bundle so launcher can find its JRE at runtime
+          cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
+
+      - name: Patch tauri.conf.json for CI
+        shell: bash
+        run: |
+          # Suppress frontend rebuild — dist/ already populated from artifact
+          sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
+
+      - name: Build Tauri app (Windows x64)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target x86_64-pc-windows-msvc
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: moku-windows-x64
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          retention-days: 7

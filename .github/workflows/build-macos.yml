@@ -7,9 +7,6 @@ on:
         description: "Version to build (e.g. 0.3.0)"
         required: true
 
-env:
-  SUWAYOMI_VERSION: "2.1.1867"
-
 jobs:
   # ── Build frontend once, share via artifact ────────────────────────────────
   frontend:
@@ -50,11 +47,11 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             runner: macos-14
-            suwayomi_asset: "Suwayomi-Server-v${{ env.SUWAYOMI_VERSION }}-macOS-arm64.tar.gz"
+            suwayomi_asset: "Suwayomi-Server-v2.1.1867-macOS-arm64.tar.gz"
             suwayomi_sha256: "c80abdbba29f7895e9556c6c9481368557d5f930b5f69bcb30639ba498925f3c"
           - target: x86_64-apple-darwin
             runner: macos-13
-            suwayomi_asset: "Suwayomi-Server-v${{ env.SUWAYOMI_VERSION }}-macOS-x64.tar.gz"
+            suwayomi_asset: "Suwayomi-Server-v2.1.1867-macOS-x64.tar.gz"
             suwayomi_sha256: "c7590aeb645dd7135a05b9f3ea1fee384a4abeb465c0b3638d5b738d20dfe174"
 
     runs-on: ${{ matrix.runner }}
@@ -86,7 +83,7 @@ jobs:
       - name: Download Suwayomi (${{ matrix.target }})
         run: |
           curl -fsSL \
-            "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v${{ env.SUWAYOMI_VERSION }}/${{ matrix.suwayomi_asset }}" \
+            "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/${{ matrix.suwayomi_asset }}" \
             -o suwayomi.tar.gz
 
           echo "${{ matrix.suwayomi_sha256 }}  suwayomi.tar.gz" | shasum -a 256 -c -

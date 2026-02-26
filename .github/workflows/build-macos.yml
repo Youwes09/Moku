@@ -143,6 +143,8 @@ jobs:
           chmod +x src-tauri/binaries/suwayomi-server-aarch64-apple-darwin
           chmod +x src-tauri/binaries/suwayomi-server-x86_64-apple-darwin
 
+          # tauri.conf.json expects exactly "binaries/suwayomi-bundle".
+          # We stage both arch bundles and swap the symlink before each build.
           cp -r suwayomi-arm64 src-tauri/binaries/suwayomi-bundle-arm64
           cp -r suwayomi-x64   src-tauri/binaries/suwayomi-bundle-x64
 
@@ -151,6 +153,11 @@ jobs:
           # dist/ is already built by the frontend job — suppress the rebuild.
           # We patch in-place rather than using --config to avoid Tauri schema issues.
           sed -i '' 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
+
+      - name: Swap bundle for aarch64
+        run: |
+          rm -rf src-tauri/binaries/suwayomi-bundle
+          cp -r src-tauri/binaries/suwayomi-bundle-arm64 src-tauri/binaries/suwayomi-bundle
 
       - name: Build Tauri app (aarch64)
         uses: tauri-apps/tauri-action@v0
@@ -164,6 +171,11 @@ jobs:
           APPLE_TEAM_ID:              ${{ secrets.APPLE_TEAM_ID }}
         with:
           args: --target aarch64-apple-darwin
+
+      - name: Swap bundle for x86_64
+        run: |
+          rm -rf src-tauri/binaries/suwayomi-bundle
+          cp -r src-tauri/binaries/suwayomi-bundle-x64 src-tauri/binaries/suwayomi-bundle
 
       - name: Build Tauri app (x86_64)
         uses: tauri-apps/tauri-action@v0

@@ -79,19 +79,10 @@ jobs:
             "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867-windows-x64.zip" \
             -o suwayomi-windows.zip
 
-          # certutil is the Windows equivalent of shasum
-          ACTUAL=$(certutil -hashfile suwayomi-windows.zip SHA256 | grep -v "^CertUtil" | grep -v "^SHA256" | tr -d ' 
-')
-          EXPECTED="ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff"
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "SHA256 mismatch! got: $ACTUAL"
-            exit 1
-          fi
-          echo "SHA256 verified."
+          echo "ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff  suwayomi-windows.zip" | sha256sum -c -
 
           mkdir -p suwayomi-extracted
           unzip -q suwayomi-windows.zip -d suwayomi-extracted-raw
-          # Strip the top-level directory if present
           TOP=$(ls suwayomi-extracted-raw | head -1)
           if [ -d "suwayomi-extracted-raw/$TOP" ]; then
             mv "suwayomi-extracted-raw/$TOP"/* suwayomi-extracted/
@@ -99,7 +90,7 @@ jobs:
             mv suwayomi-extracted-raw/* suwayomi-extracted/
           fi
 
-      - name: Inspect Suwayomi launcher (find correct filename)
+      - name: Inspect Suwayomi launcher
         shell: bash
         run: |
           echo "=== Top-level contents ==="
@@ -114,7 +105,6 @@ jobs:
         run: |
           mkdir -p src-tauri/binaries
 
-          # Try known launcher names in order of likelihood
           LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -name "Suwayomi Launcher.exe" | head -1)
           if [ -z "$LAUNCHER" ]; then
             LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -name "Suwayomi-Launcher.exe" | head -1)
@@ -132,16 +122,12 @@ jobs:
 
           echo "Using launcher: $LAUNCHER"
 
-          # Tauri sidecar naming: <stem>-<target-triple>.exe
           cp "$LAUNCHER" "src-tauri/binaries/suwayomi-server-x86_64-pc-windows-msvc.exe"
-
-          # Copy full bundle so launcher can find its JRE at runtime
           cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
 
       - name: Patch tauri.conf.json for CI
         shell: bash
         run: |
-          # Suppress frontend rebuild — dist/ already populated from artifact
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
 
       - name: Build Tauri app (Windows x64)

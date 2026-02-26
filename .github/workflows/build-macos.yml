@@ -8,7 +8,7 @@ on:
         required: true
 
 jobs:
-  # ── Build frontend once, share via artifact ────────────────────────────────
+  # Build frontend on Ubuntu (cheaper) and share via artifact
   frontend:
     name: Build frontend
     runs-on: ubuntu-latest
@@ -37,24 +37,13 @@ jobs:
           path: dist/
           retention-days: 1
 
-  # ── Per-arch Tauri builds ──────────────────────────────────────────────────
+  # Both arch builds on one runner to avoid runner availability issues
   tauri:
-    name: Tauri (${{ matrix.target }})
+    name: Tauri (macOS universal)
     needs: frontend
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            runner: macos-14
-            suwayomi_asset: "Suwayomi-Server-v2.1.1867-macOS-arm64.tar.gz"
-            suwayomi_sha256: "c80abdbba29f7895e9556c6c9481368557d5f930b5f69bcb30639ba498925f3c"
-          - target: x86_64-apple-darwin
-            runner: macos-13
-            suwayomi_asset: "Suwayomi-Server-v2.1.1867-macOS-x64.tar.gz"
-            suwayomi_sha256: "c7590aeb645dd7135a05b9f3ea1fee384a4abeb465c0b3638d5b738d20dfe174"
-
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +57,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -79,55 +68,110 @@ jobs:
         with:
           version: latest
 
-      # ── Download & verify Suwayomi ────────────────────────────────────────
-      - name: Download Suwayomi (${{ matrix.target }})
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # node_modules needed so tauri-cli is available on the runner
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      # bun being present causes tauri-action to misdetect the package manager
+      - name: Remove bun
+        run: brew uninstall --ignore-dependencies bun || true
+
+      # Import Apple signing cert into a fresh keychain so codesign can find it.
+      # If secrets are not set this step is a no-op and the build continues unsigned.
+      - name: Import Apple signing certificate
+        env:
+          APPLE_CERTIFICATE:          ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          curl -fsSL \
-            "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/${{ matrix.suwayomi_asset }}" \
-            -o suwayomi.tar.gz
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No certificate set — building unsigned."
+            exit 0
+          fi
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain
 
-          echo "${{ matrix.suwayomi_sha256 }}  suwayomi.tar.gz" | shasum -a 256 -c -
+      # Download both Suwayomi arch binaries up front
+      - name: Download Suwayomi binaries
+        run: |
+          download_suwayomi() {
+            local asset="$1"
+            local expected_sha="$2"
+            local out="$3"
 
-          mkdir -p suwayomi-extracted
-          tar -xzf suwayomi.tar.gz -C suwayomi-extracted --strip-components=1
+            curl -fsSL \
+              "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/${asset}" \
+              -o "${out}.tar.gz"
+            echo "${expected_sha}  ${out}.tar.gz" | shasum -a 256 -c -
+            mkdir -p "${out}"
+            tar -xzf "${out}.tar.gz" -C "${out}" --strip-components=1
+          }
 
-      - name: Stage Suwayomi sidecar
+          download_suwayomi \
+            "Suwayomi-Server-v2.1.1867-macOS-arm64.tar.gz" \
+            "c80abdbba29f7895e9556c6c9481368557d5f930b5f69bcb30639ba498925f3c" \
+            "suwayomi-arm64"
+
+          download_suwayomi \
+            "Suwayomi-Server-v2.1.1867-macOS-x64.tar.gz" \
+            "c7590aeb645dd7135a05b9f3ea1fee384a4abeb465c0b3638d5b738d20dfe174" \
+            "suwayomi-x64"
+
+      - name: Stage Suwayomi sidecars
         run: |
           mkdir -p src-tauri/binaries
 
-          # The v2.1.1867 native macOS tarball ships a launcher called
-          # "Suwayomi-Server" at the top level alongside its bundled JDK.
-          LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -type f -name "Suwayomi-Server" | head -1)
+          find_launcher() {
+            local dir="$1"
+            local result
 
-          # Fallback: first top-level executable that isn't a .jar
-          if [ -z "$LAUNCHER" ]; then
-            LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -type f -perm +111 \
-              ! -name "*.jar" ! -name "*.dylib" | head -1)
-          fi
+            result=$(find "$dir" -maxdepth 1 -type f -name "Suwayomi-Server" | head -1)
+            if [ -z "$result" ]; then
+              result=$(find "$dir" -maxdepth 1 -type f -perm +111 \
+                ! -name "*.jar" ! -name "*.dylib" | head -1)
+            fi
+            echo "$result"
+          }
 
-          if [ -z "$LAUNCHER" ]; then
-            echo "ERROR: could not find Suwayomi launcher in tarball"
-            ls -lR suwayomi-extracted
+          ARM_LAUNCHER=$(find_launcher suwayomi-arm64)
+          X64_LAUNCHER=$(find_launcher suwayomi-x64)
+
+          if [ -z "$ARM_LAUNCHER" ] || [ -z "$X64_LAUNCHER" ]; then
+            echo "ERROR: could not find launchers"
+            ls -lR suwayomi-arm64 suwayomi-x64
             exit 1
           fi
 
-          echo "Using launcher: $LAUNCHER"
+          echo "arm64 launcher: $ARM_LAUNCHER"
+          echo "x64   launcher: $X64_LAUNCHER"
 
-          # Tauri sidecar naming: <stem>-<target-triple>
-          cp "$LAUNCHER" "src-tauri/binaries/suwayomi-server-${{ matrix.target }}"
-          chmod +x "src-tauri/binaries/suwayomi-server-${{ matrix.target }}"
+          cp "$ARM_LAUNCHER" src-tauri/binaries/suwayomi-server-aarch64-apple-darwin
+          cp "$X64_LAUNCHER" src-tauri/binaries/suwayomi-server-x86_64-apple-darwin
+          chmod +x src-tauri/binaries/suwayomi-server-aarch64-apple-darwin
+          chmod +x src-tauri/binaries/suwayomi-server-x86_64-apple-darwin
 
-          # Copy the full bundle so the launcher can find its JDK + JAR
-          # via relative paths at runtime inside the .app Resources dir.
-          cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
+          # Bundle the full extracted dirs so launchers can find their JDK+JAR
+          # at runtime via relative paths inside the .app Resources directory.
+          cp -r suwayomi-arm64 src-tauri/binaries/suwayomi-bundle-arm64
+          cp -r suwayomi-x64   src-tauri/binaries/suwayomi-bundle-x64
 
-      # ── Build Tauri .app + .dmg ───────────────────────────────────────────
-      - name: Build Tauri app
+      # Build arm64 first, then x64 — sequential on the same runner
+      - name: Build Tauri app (aarch64)
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Code-signing — set these repo secrets for a signed/notarised build.
-          # Leave unset for unsigned (Gatekeeper warns on first open, fine for testing).
+          GITHUB_TOKEN:               ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE:          ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY:     ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -135,27 +179,58 @@ jobs:
           APPLE_PASSWORD:             ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID:              ${{ secrets.APPLE_TEAM_ID }}
         with:
-          args: --target ${{ matrix.target }}
+          args: >
+            --target aarch64-apple-darwin
+            --config '{"build":{"beforeBuildCommand":""}}'
 
-      - name: Upload arch .dmg
+      - name: Build Tauri app (x86_64)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN:               ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE:          ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY:     ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID:                   ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD:             ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID:              ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          args: >
+            --target x86_64-apple-darwin
+            --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Upload arm64 .dmg
         uses: actions/upload-artifact@v4
         with:
-          name: moku-${{ matrix.target }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          name: moku-aarch64
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 7
 
-      - name: Upload .app bundle (for universal job)
+      - name: Upload x64 .dmg
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ matrix.target }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/macos/
+          name: moku-x86_64
+          path: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          retention-days: 7
+
+      - name: Upload arm64 .app (for universal job)
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-aarch64-apple-darwin
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/
           retention-days: 1
 
-  # ── Universal binary ──────────────────────────────────────────────────────
+      - name: Upload x64 .app (for universal job)
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-x86_64-apple-darwin
+          path: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/
+          retention-days: 1
+
+  # lipo the two .app bundles into a single universal .dmg
   universal:
     name: Universal .dmg
     needs: tauri
-    runs-on: macos-14
+    runs-on: macos-latest
 
     steps:
       - name: Download arm64 .app

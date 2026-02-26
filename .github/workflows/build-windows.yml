@@ -113,33 +113,23 @@ jobs:
         run: |
           mkdir -p src-tauri/binaries
 
-          # 1. Prefer an exe whose name contains "Launcher" (case-insensitive),
-          #    searched recursively but NOT inside any jre/ or runtime/ subtree.
-          LAUNCHER=$(find suwayomi-extracted -name "*[Ll]auncher*.exe" \
-            ! -path "*/jre/*" ! -path "*/runtime/*" | head -1)
+          # The Windows bundle has no standalone launcher exe — it ships
+          # "Suwayomi Launcher.bat" which calls jre\bin\javaw.exe -jar Suwayomi-Launcher.jar.
+          # Tauri sidecars must be real executables, so we stage javaw.exe as the
+          # sidecar. lib.rs will invoke it with the correct -jar + working-dir args.
+          JAVAW=$(find suwayomi-extracted -path "*/jre/bin/javaw.exe" | head -1)
 
-          # 2. Fall back to any top-level .exe that isn't a JVM executable.
-          if [ -z "$LAUNCHER" ]; then
-            LAUNCHER=$(find suwayomi-extracted -maxdepth 1 -name "*.exe" \
-              ! -name "java.exe" ! -name "javaw.exe" ! -name "javaw_g.exe" | head -1)
-          fi
-
-          # 3. Wider recursive search, still excluding the JRE tree.
-          if [ -z "$LAUNCHER" ]; then
-            LAUNCHER=$(find suwayomi-extracted -name "*.exe" \
-              ! -path "*/jre/*" ! -path "*/runtime/*" \
-              ! -name "java.exe" ! -name "javaw.exe" ! -name "javaw_g.exe" | head -1)
-          fi
-
-          if [ -z "$LAUNCHER" ]; then
-            echo "ERROR: could not find Windows launcher"
+          if [ -z "$JAVAW" ]; then
+            echo "ERROR: could not find jre/bin/javaw.exe"
             ls -lR suwayomi-extracted/
             exit 1
           fi
 
-          echo "Using launcher: $LAUNCHER"
+          echo "Using javaw: $JAVAW"
+          cp "$JAVAW" "src-tauri/binaries/suwayomi-server-x86_64-pc-windows-msvc.exe"
 
-          cp "$LAUNCHER" "src-tauri/binaries/suwayomi-server-x86_64-pc-windows-msvc.exe"
+          # Copy the full bundle so the .jar and jre/ tree are available at runtime.
+          # lib.rs sets the working directory to this folder before spawning.
           cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
 
       - name: Patch tauri.conf.json for CI

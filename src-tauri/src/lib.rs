@@ -197,19 +197,37 @@ fn suwayomi_data_dir() -> PathBuf {
     }
 }
 
+/// Everything needed to spawn the server process.
+struct ServerInvocation {
+    /// Path to the executable (javaw.exe on Windows, the sidecar script on macOS/Linux).
+    bin: std::ffi::OsString,
+    /// Extra args prepended before the Suwayomi rootDir flag.
+    /// On Windows: ["-jar", "<path-to-jar>"]
+    /// Elsewhere: []
+    prefix_args: Vec<String>,
+    /// Working directory for the child process.
+    /// On Windows this must be the bundle folder so javaw can find the JRE and jar.
+    /// Elsewhere: None (inherit).
+    working_dir: Option<PathBuf>,
+}
+
 /// Resolve the server binary path.
 ///
 /// If the frontend passes a non-empty `binary` string (user override in
 /// Settings) we always use that — on Linux this is the nixpkgs/Flatpak path.
 ///
-/// Otherwise we look for the Tauri-bundled sidecar inside the .app's
-/// Resources directory (macOS) or alongside the binary (other platforms).
+/// Otherwise we look for the Tauri-bundled sidecar inside the resource dir
+/// and, on Windows, build the javaw + jar invocation from the suwayomi-bundle.
 fn resolve_server_binary(
     binary: &str,
     app: &tauri::AppHandle,
-) -> Result<std::ffi::OsString, String> {
+) -> Result<ServerInvocation, String> {
     if !binary.trim().is_empty() {
-        return Ok(std::ffi::OsString::from(binary));
+        return Ok(ServerInvocation {
+            bin: std::ffi::OsString::from(binary),
+            prefix_args: vec![],
+            working_dir: None,
+        });
     }
 
     let resource_dir = app
@@ -217,11 +235,29 @@ fn resolve_server_binary(
         .resource_dir()
         .map_err(|e| format!("Could not locate resource dir: {e}"))?;
 
-    // Tauri places sidecars as  <stem>-<target-triple>  in the resource dir.
+    // ── Windows: invoke the bundled javaw.exe with -jar Suwayomi-Launcher.jar ──
+    #[cfg(target_os = "windows")]
+    {
+        let sidecar = resource_dir.join("suwayomi-server-x86_64-pc-windows-msvc.exe");
+        let bundle_dir = resource_dir.join("suwayomi-bundle");
+        let jar = bundle_dir.join("Suwayomi-Launcher.jar");
+
+        if sidecar.exists() && jar.exists() {
+            return Ok(ServerInvocation {
+                bin: sidecar.into_os_string(),
+                prefix_args: vec![
+                    "-jar".to_string(),
+                    jar.to_string_lossy().into_owned(),
+                ],
+                working_dir: Some(bundle_dir),
+            });
+        }
+    }
+
+    // ── macOS / Linux: sidecar script is self-contained ──
     let candidates = [
         "suwayomi-server-aarch64-apple-darwin",
         "suwayomi-server-x86_64-apple-darwin",
-        "suwayomi-server-x86_64-pc-windows-msvc.exe",
         // plain name as a dev/Linux fallback
         "suwayomi-server",
     ];
@@ -229,7 +265,11 @@ fn resolve_server_binary(
     for name in &candidates {
         let p = resource_dir.join(name);
         if p.exists() {
-            return Ok(p.into_os_string());
+            return Ok(ServerInvocation {
+                bin: p.into_os_string(),
+                prefix_args: vec![],
+                working_dir: None,
+            });
         }
     }
 
@@ -251,30 +291,39 @@ fn spawn_server(binary: String, app: tauri::AppHandle) -> Result<(), String> {
     let data_dir = suwayomi_data_dir();
     seed_server_conf(&data_dir);
 
-    let bin = resolve_server_binary(&binary, &app)?;
+    let invocation = resolve_server_binary(&binary, &app)?;
     let shell = app.shell();
-    match shell
-        .command(&bin)
-        // Tell Suwayomi where to put its data (rootDir flag).
+
+    let rootdir_flag = format!(
+        "-Dsuwayomi.tachidesk.config.server.rootDir={}",
+        data_dir.to_string_lossy()
+    );
+
+    // Build the full arg list: prefix_args (e.g. -jar foo.jar) + rootDir flag.
+    let args: Vec<String> = invocation.prefix_args.into_iter().chain(std::iter::once(rootdir_flag)).collect();
+
+    // On Windows, set the working directory to the bundle folder so javaw.exe
+    // can resolve the JRE and jar relative paths correctly.
+    let cmd = shell
+        .command(&invocation.bin)
         .env("JAVA_TOOL_OPTIONS", "-Djava.awt.headless=true")
-        .args([&format!(
-            "-Dsuwayomi.tachidesk.config.server.rootDir={}",
-            data_dir.to_string_lossy()
-        )])
-        .spawn()
-    {
+        .args(&args)
+        .current_dir(invocation.working_dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default()));
+
+    match cmd.spawn() {
         Ok((_rx, child)) => {
-            println!("Spawned server: {:?}", bin);
+            println!("Spawned server: {:?}", invocation.bin);
             let mut guard = state.0.lock().unwrap();
             *guard = Some(child);
             Ok(())
         }
         Err(e) => {
-            eprintln!("Failed to spawn {:?}: {}", bin, e);
+            eprintln!("Failed to spawn {:?}: {}", invocation.bin, e);
             Err(e.to_string())
         }
     }
 }
+
 
 #[tauri::command]
 fn kill_server(app: tauri::AppHandle) -> Result<(), String> {

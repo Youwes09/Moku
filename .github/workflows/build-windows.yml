@@ -79,7 +79,15 @@ jobs:
             "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867-windows-x64.zip" \
             -o suwayomi-windows.zip
 
-          echo "ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff  suwayomi-windows.zip" | shasum -a 256 -c -
+          # certutil is the Windows equivalent of shasum
+          ACTUAL=$(certutil -hashfile suwayomi-windows.zip SHA256 | grep -v "^CertUtil" | grep -v "^SHA256" | tr -d ' 
+')
+          EXPECTED="ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "SHA256 mismatch! got: $ACTUAL"
+            exit 1
+          fi
+          echo "SHA256 verified."
 
           mkdir -p suwayomi-extracted
           unzip -q suwayomi-windows.zip -d suwayomi-extracted-raw

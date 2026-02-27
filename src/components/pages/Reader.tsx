@@ -192,6 +192,7 @@ export default function Reader() {
   const abortRef          = useRef<AbortController | null>(null);
   const visibleChapterRef = useRef<number | null>(null); // single truth for visible chapter
   const stripChaptersRef  = useRef<StripChapter[]>([]);
+  const pageUrlsRef       = useRef<string[]>([]);
 
   const [loading, setLoading]                   = useState(true);
   const [error, setError]                       = useState<string | null>(null);
@@ -221,6 +222,7 @@ export default function Reader() {
 
   settingsRef.current    = settings;
   chapterListRef.current = activeChapterList;
+  pageUrlsRef.current    = pageUrls;
 
   // ── UI autohide ──────────────────────────────────────────────────────────────
   const showUi = useCallback(() => {
@@ -364,65 +366,68 @@ export default function Reader() {
   }, []); // no deps — reads everything from refs
 
   // ── Longstrip: IntersectionObserver for page number + visible chapter ────────
-  // Uses a MutationObserver to auto-observe newly added images so we never need
-  // to recreate this observer when chapters are appended.
+  // ── Longstrip: scroll-driven page + chapter tracking + mark-as-read ──────────
+  // Scroll listener queries the DOM directly on every scroll — no threshold gaps,
+  // no fast-scroll skipping, works equally scrolling up or down.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || style !== "longstrip") return;
 
-    const pageObs = new IntersectionObserver((entries) => {
-      let topPage  = Infinity;
-      let topChId: number | null = null;
-      let topY = Infinity;
+    const READ_LINE_PCT = 0.20; // 20% from top of container = "what the user is reading"
 
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        const target = entry.target as HTMLElement;
-        const p  = Number(target.dataset.page);
-        const ch = Number(target.dataset.chapter);
-        const y  = entry.boundingClientRect.top;
-        // Track the topmost visible image by its position on screen
-        if (y < topY) { topY = y; topPage = p; topChId = ch; }
-      }
+    const onScroll = () => {
+      const containerTop = el.getBoundingClientRect().top;
+      const readLineY    = containerTop + el.clientHeight * READ_LINE_PCT;
+      const imgs = el.querySelectorAll<HTMLElement>("img[data-local-page]");
 
-      if (topPage !== Infinity) setPageNumber(topPage);
+      let activeLocalPage: number | null = null;
+      let activeChId:      number | null = null;
 
-      if (topChId && topChId !== visibleChapterRef.current) {
-        const prev = visibleChapterRef.current;
-        // Mark the chapter we just finished scrolling past
-        if (settingsRef.current?.autoMarkRead && prev && !markedReadRef.current.has(prev)) {
-          markedReadRef.current.add(prev);
-          gql(MARK_CHAPTER_READ, { id: prev, isRead: true }).catch(console.error);
+      for (const img of imgs) {
+        const rect = img.getBoundingClientRect();
+        if (rect.top <= readLineY) {
+          activeLocalPage = Number(img.dataset.localPage);
+          activeChId      = Number(img.dataset.chapter);
+        } else {
+          break; // images are in DOM order top→bottom
         }
-        visibleChapterRef.current = topChId;
-        setVisibleChapterId(topChId);
       }
-    }, { root: el, threshold: 0.1 });
 
-    // Observe all existing images
-    el.querySelectorAll<HTMLElement>("img[data-page]").forEach((img) => pageObs.observe(img));
+      // Fallback: nothing above read line yet — use first image
+      if (activeLocalPage === null && imgs.length > 0) {
+        activeLocalPage = Number(imgs[0].dataset.localPage);
+        activeChId      = Number(imgs[0].dataset.chapter);
+      }
 
-    // Auto-observe any images added later (new strip chunks)
-    const mutObs = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        m.addedNodes.forEach((node) => {
-          if (node instanceof HTMLElement) {
-            if (node.matches("img[data-page]")) {
-              pageObs.observe(node);
-            } else {
-              node.querySelectorAll<HTMLElement>("img[data-page]").forEach((img) => pageObs.observe(img));
-            }
+      if (activeLocalPage !== null) setPageNumber(activeLocalPage);
+
+      if (activeChId && activeChId !== visibleChapterRef.current) {
+        visibleChapterRef.current = activeChId;
+        setVisibleChapterId(activeChId);
+      }
+
+      // Mark as read when active page reaches second-to-last or last page
+      if (settingsRef.current?.autoMarkRead && activeLocalPage !== null && activeChId) {
+        const strip = stripChaptersRef.current;
+        const chunk = strip.find((c) => c.chapterId === activeChId);
+        // Fall back to pageUrls length when autoNext is off and strip is empty
+        const total = chunk ? chunk.urls.length : pageUrlsRef.current.length;
+        if (total > 0 && activeLocalPage >= total - 1) {
+          const ch = activeChId;
+          if (!markedReadRef.current.has(ch)) {
+            markedReadRef.current.add(ch);
+            gql(MARK_CHAPTER_READ, { id: ch, isRead: true }).catch((e) => {
+              markedReadRef.current.delete(ch);
+              console.error("MARK_CHAPTER_READ failed for chapter", ch, e);
+            });
           }
-        });
+        }
       }
-    });
-    mutObs.observe(el, { childList: true, subtree: true });
-
-    return () => {
-      pageObs.disconnect();
-      mutObs.disconnect();
     };
-  // Only recreate when style changes — MutationObserver handles new images
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    onScroll(); // fire once on mount to set initial state
+    return () => el.removeEventListener("scroll", onScroll);
   }, [style]);
 
   // ── Longstrip: sentinel triggers append ──────────────────────────────────────
@@ -451,7 +456,7 @@ export default function Reader() {
     return () => obs.disconnect();
   // Re-run only when mode changes or first chunk arrives (0→N).
   // appendNextChapter is stable (no deps), so it won't cause extra re-runs.
-  }, [style, autoNext, stripChapters.length > 0, appendNextChapter]);
+  }, [style, autoNext, stripChapters.length, appendNextChapter]);
 
   // ── Mark last chapter read when reaching the very bottom ─────────────────────
   useEffect(() => {
@@ -511,17 +516,29 @@ export default function Reader() {
     if (behind) preloadImage(behind);
   }, [pageNumber, pageUrls, settings.preloadPages]);
 
+  // ── Derived display values ───────────────────────────────────────────────────
+  const lastPage = pageUrls.length;
+
+  // In longstrip+autoNext, show the chapter the user is actually looking at,
+  // not the one that was originally opened.
+  const displayChapter = useMemo(() => {
+    if (style !== "longstrip" || !autoNext || !visibleChapterId) return activeChapter;
+    return activeChapterList.find((c) => c.id === visibleChapterId) ?? activeChapter;
+  }, [style, autoNext, visibleChapterId, activeChapter, activeChapterList]);
+
   // ── Adjacent chapters + cache eviction ──────────────────────────────────────
+  // Uses displayChapter so topbar prev/next navigate from what's visible on screen.
   const adjacent = useMemo(() => {
-    if (!activeChapter || !activeChapterList.length)
+    const ref = displayChapter ?? activeChapter;
+    if (!ref || !activeChapterList.length)
       return { prev: null, next: null, remaining: [] };
-    const idx = activeChapterList.findIndex((c) => c.id === activeChapter.id);
+    const idx = activeChapterList.findIndex((c) => c.id === ref.id);
     return {
       prev:      idx > 0                              ? activeChapterList[idx - 1] : null,
       next:      idx < activeChapterList.length - 1   ? activeChapterList[idx + 1] : null,
       remaining: activeChapterList.slice(idx + 1),
     };
-  }, [activeChapter, activeChapterList]);
+  }, [displayChapter, activeChapter, activeChapterList]);
 
   useEffect(() => {
     const pinned = new Set([activeChapter?.id, adjacent.next?.id, adjacent.prev?.id].filter(Boolean) as number[]);
@@ -530,25 +547,15 @@ export default function Reader() {
     cacheEvict(pinned);
   }, [adjacent.next?.id, adjacent.prev?.id]);
 
-  // ── Derived display values ───────────────────────────────────────────────────
-  const lastPage = pageUrls.length;
-
-  const displayChapter = useMemo(() => {
-    if (style !== "longstrip" || !autoNext || !visibleChapterId) return activeChapter;
-    return activeChapterList.find((c) => c.id === visibleChapterId) ?? activeChapter;
-  }, [style, autoNext, visibleChapterId, activeChapter, activeChapterList]);
-
   const visibleChunkLastPage = useMemo(() => {
     if (style !== "longstrip" || !autoNext) return lastPage;
-    const chunk = stripChapters.find((c) => c.chapterId === (visibleChapterId ?? activeChapter?.id));
+    const chId  = visibleChapterId ?? activeChapter?.id;
+    const chunk = stripChapters.find((c) => c.chapterId === chId);
     return chunk?.urls.length ?? lastPage;
   }, [style, autoNext, stripChapters, visibleChapterId, activeChapter?.id, lastPage]);
 
-  const visibleChunkPage = useMemo(() => {
-    if (style !== "longstrip" || !autoNext) return pageNumber;
-    const chunk = stripChapters.find((c) => c.chapterId === (visibleChapterId ?? activeChapter?.id));
-    return chunk ? Math.max(1, pageNumber - chunk.startGlobalIdx) : pageNumber;
-  }, [style, autoNext, stripChapters, visibleChapterId, activeChapter?.id, pageNumber]);
+  // pageNumber is always local (per-chapter) — no offset math needed
+  const visibleChunkPage = pageNumber;
 
   // ── Auto-mark read + history (non-longstrip) ─────────────────────────────────
   useEffect(() => {
@@ -827,16 +834,17 @@ export default function Reader() {
           <>
             {stripToRender.map((chunk) =>
               chunk.urls.map((url, i) => {
-                const globalIdx = chunk.startGlobalIdx + i;
+                const localPage = i + 1;
                 return (
                   <img
                     key={`${chunk.chapterId}-${i}`}
                     src={url}
-                    alt={`${chunk.chapterName} – Page ${i + 1}`}
-                    data-page={globalIdx + 1}
+                    alt={`${chunk.chapterName} – Page ${localPage}`}
+                    data-local-page={localPage}
                     data-chapter={chunk.chapterId}
+                    data-total={chunk.urls.length}
                     className={[imgCls, settings.pageGap ? s.stripGap : ""].join(" ")}
-                    loading={globalIdx < 3 ? "eager" : "lazy"}
+                    loading={i < 3 ? "eager" : "lazy"}
                     decoding="async"
                     width={aspectCache.has(url) ? Math.round(aspectCache.get(url)! * 1000) : 720}
                     height={1000}

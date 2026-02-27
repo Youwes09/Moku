@@ -10,6 +10,8 @@ Bugs:
 - Add Download Location Change, Moku-Migration, Flatpak & Normal Installation Directory Checks
 - Fix Storage Glitch (Currently uses Full Space Instead of Free Space)
 
+- Fix the Infinite Append/Scroll on Downloaded Manga, (Unable to Transfer Between Downloaded and Internet Based Manga Providing, hence resulting in feature breaking till toggled and retoggled)
+- Fix the Mark as Read (Glitched)
 
 Features:
 - Add PDF Textbook Support

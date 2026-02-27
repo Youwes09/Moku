@@ -459,11 +459,16 @@ interface StorageInfo {
   path:        string;
 }
 
-function StorageBar({ used, limit, total }: { used: number; limit: number | null; total: number }) {
-  const cap      = limit ?? total;
-  const pctUsed  = cap > 0 ? Math.min(100, (used / cap) * 100) : 0;
-  const critical = pctUsed > 90;
-  const warning  = pctUsed > 75;
+function StorageBar({ used, free, limit, total }: { used: number; free: number; limit: number | null; total: number }) {
+  // "Available space" = what's actually usable: already-used manga bytes + free bytes on disk.
+  // We intentionally do NOT use total_bytes (full drive size) as the cap — other apps / OS
+  // overhead eat into that, and it makes our bar look almost empty even when downloads are large.
+  const available = used + free; // usable space relevant to downloads
+  const cap       = limit !== null ? Math.min(limit, available) : available;
+  const pctUsed   = cap > 0 ? Math.min(100, (used / cap) * 100) : 0;
+  const critical  = pctUsed > 90;
+  const warning   = pctUsed > 75;
+  const freeInCap = Math.max(0, cap - used);
 
   return (
     <div className={s.storageBarWrap}>
@@ -475,10 +480,12 @@ function StorageBar({ used, limit, total }: { used: number; limit: number | null
       </div>
       <div className={s.storageBarLabels}>
         <span className={s.storageBarUsed}>{fmtBytes(used)} used</span>
-        <span className={s.storageBarFree}>{fmtBytes(Math.max(0, cap - used))} free</span>
+        <span className={s.storageBarFree}>{fmtBytes(freeInCap)} free</span>
       </div>
-      {limit !== null && total > 0 && (
-        <p className={s.storageBarNote}>Limit {fmtBytes(limit)} of {fmtBytes(total)} total</p>
+      {limit !== null && (
+        <p className={s.storageBarNote}>
+          Limit {fmtBytes(limit)} · {fmtBytes(free)} free on disk of {fmtBytes(total)} total
+        </p>
       )}
     </div>
   );
@@ -537,7 +544,7 @@ function StorageTab({ settings, update }: { settings: Settings; update: (p: Part
         {error   && <p className={s.storageLoading} style={{ color: "var(--color-error)" }}>{error}</p>}
         {!loading && !error && info && (
           <>
-            <StorageBar used={mangaBytes} limit={limitBytes} total={totalBytes} />
+            <StorageBar used={mangaBytes} free={freeBytes} limit={limitBytes} total={totalBytes} />
             <div className={s.storageLegend}>
               <div className={s.storageLegendRow}>
                 <span className={[s.storageDot, s.storageDotManga].join(" ")} />
@@ -587,8 +594,8 @@ function StorageTab({ settings, update }: { settings: Settings; update: (p: Part
             </div>
           )}
         </div>
-        {totalBytes > 0 && limitGb !== null && limitBytes !== null && limitBytes > freeBytes && (
-          <p className={s.storageLimitHint}>Limit exceeds available free space ({fmtBytes(freeBytes)})</p>
+        {totalBytes > 0 && limitGb !== null && limitBytes !== null && limitBytes > (freeBytes + mangaBytes) && (
+          <p className={s.storageLimitHint}>Limit exceeds available space ({fmtBytes(freeBytes)} free on disk)</p>
         )}
       </div>
 

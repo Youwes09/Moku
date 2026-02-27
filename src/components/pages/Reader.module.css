@@ -127,11 +127,13 @@
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
   -webkit-overflow-scrolling: touch;
+  position: relative;
 }
 
 .viewerStrip {
   justify-content: flex-start;
   padding: var(--sp-4) 0;
+  overflow-anchor: auto; /* browser preserves scroll pos when nodes are added/removed above */
 }
 
 /* ── Images ── */
@@ -141,10 +143,14 @@
 }
 .img.optimizeContrast { image-rendering: -webkit-optimize-contrast; }
 
-/* Fit modes */
+/* Fit modes.
+   height: auto on .img is the load-bearing rule: the img element is given
+   height={1000} as a layout hint while the image is loading (prevents reflow).
+   Once the image is fully painted the browser must resolve height from the
+   intrinsic dimensions, not the HTML attribute — `height: auto` enforces that. */
 .fitWidth    { max-width: var(--max-page-width); width: 100%; height: auto; }
-.fitHeight   { max-height: calc(100vh - 80px); width: auto; max-width: 100%; }
-.fitScreen   { max-width: 100%; max-height: calc(100vh - 80px); object-fit: contain; }
+.fitHeight   { max-height: calc(100vh - 80px); width: auto; max-width: 100%; height: auto; }
+.fitScreen   { max-width: 100%; max-height: calc(100vh - 80px); object-fit: contain; height: auto; }
 .fitOriginal { max-width: none; width: auto; height: auto; }
 
 /* Longstrip */

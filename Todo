@@ -3,6 +3,7 @@ Todo:
 4. Font Weird on Flatpak, Investigate and Fix
 5. Investigate "egl:failed to create dri2 screen" & more GPU Issues
 
+
 Bugs:
 
 - Add Back after Search & Clear on Search
@@ -10,15 +11,14 @@ Bugs:
 - Add Download Location Change, Moku-Migration, Flatpak & Normal Installation Directory Checks
 - Fix Storage Glitch (Currently uses Full Space Instead of Free Space)
 
-- Fix the Infinite Append/Scroll on Downloaded Manga, (Unable to Transfer Between Downloaded and Internet Based Manga Providing, hence resulting in feature breaking till toggled and retoggled)
-- Fix the Mark as Read (Glitched)
+
 
 Features:
 - Add PDF Textbook Support
 - Consider what to do empty space in sidebar (Maybe Daily Reading Time Brainstorm)
 - Migration Features
 - Multi-Page Long Screenshot
-- 
+- Add Consumet Api (Anime & Light Novel Support)
 
 
 Big Revisions:
@@ -31,16 +31,9 @@ Big Revisions:
 
 
 Testing:
-6. Fix laggy renderer on single page (same cache as longscroll) & set default longstrip
-5. Lock reader on valid chapters to avoid bugs, etc.
-1. Cache issue when opening manga series detail first time (Loading screen addition) & Async Load
-- Fix Grid View for Large Amounts of Chapter (Check Initial D) (Series Detail)
-- Properly Kill Tachidesk-Server
-- Fix Reader Marking As Read.
-- Fix scaling on splash screen
-- Idle Screen Test Uses Animations, but Reality still uses old system with Mouse Movement = Dismiss + No Fade Out
-- Idle Screen is Super laggy, needs minimum of 60 fps hence needs more optimization
-- Add Scroll Wheel Compatibility to Explore, etc (Explore Page Bug)
+
+- Fix the Infinite Append/Scroll on Downloaded Manga, (Unable to Transfer Between Downloaded and Internet Based Manga Providing, hence resulting in feature breaking till toggled and retoggled)
+- Fix the Mark as Read (Glitched)
 
 
 Completed:
@@ -72,6 +65,16 @@ Completed:
 16. Contrast Adjustment Option in Settings for Users (UI FOCUSED)
 - Fix Zoom in Reader changing Pages (Zoom Out Threshold in Reader causes Break)
 - Clean up Migrate Model to be more initutive
+6. Fix laggy renderer on single page (same cache as longscroll) & set default longstrip
+5. Lock reader on valid chapters to avoid bugs, etc.
+1. Cache issue when opening manga series detail first time (Loading screen addition) & Async Load
+- Fix Grid View for Large Amounts of Chapter (Check Initial D) (Series Detail)
+- Properly Kill Tachidesk-Server
+- Fix scaling on splash screen
+- Idle Screen Test Uses Animations, but Reality still uses old system with Mouse Movement = Dismiss + No Fade Out
+- Idle Screen is Super laggy, needs minimum of 60 fps hence needs more optimization
+- Add Scroll Wheel Compatibility to Explore, etc (Explore Page Bug)
+
 
 
 

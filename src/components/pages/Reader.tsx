@@ -40,8 +40,6 @@ function fetchPages(chapterId: number, signal?: AbortSignal): Promise<string[]> 
 
   if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
 
-  // The inflight promise is shared — never pass a caller's signal into it,
-  // because one caller aborting would kill the fetch for everyone else waiting.
   if (!inflight.has(chapterId)) {
     const p = gql<{ fetchChapterPages: { pages: string[] } }>(
       FETCH_CHAPTER_PAGES, { chapterId },
@@ -56,10 +54,8 @@ function fetchPages(chapterId: number, signal?: AbortSignal): Promise<string[]> 
 
   const base = inflight.get(chapterId)!;
 
-  // No abort signal — return the shared promise directly
   if (!signal) return base;
 
-  // Wrap so this caller can abort their own wait without cancelling the network request
   return new Promise((resolve, reject) => {
     signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
     base.then(resolve, reject);
@@ -186,13 +182,16 @@ export default function Reader() {
   const sentinelRef  = useRef<HTMLDivElement>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Live-value refs — updated every render, readable inside effects without stale closures
-  const settingsRef    = useRef<typeof settings | null>(null);
-  const chapterListRef = useRef<typeof activeChapterList>([]);
-  const loadingIdRef   = useRef<number | null>(null);
-  const markedReadRef  = useRef<Set<number>>(new Set());
-  const appendedRef    = useRef<Set<number>>(new Set());
-  const abortRef       = useRef<AbortController | null>(null);
+  // Live-value refs — always current, safe to read inside effects/callbacks
+  const settingsRef       = useRef<typeof settings | null>(null);
+  const chapterListRef    = useRef<typeof activeChapterList>([]);
+  const loadingIdRef      = useRef<number | null>(null);
+  const markedReadRef     = useRef<Set<number>>(new Set());
+  const appendedRef       = useRef<Set<number>>(new Set());
+  const appendingRef      = useRef(false);   // prevents concurrent appends
+  const abortRef          = useRef<AbortController | null>(null);
+  const visibleChapterRef = useRef<number | null>(null); // single truth for visible chapter
+  const stripChaptersRef  = useRef<StripChapter[]>([]);
 
   const [loading, setLoading]                   = useState(true);
   const [error, setError]                       = useState<string | null>(null);
@@ -203,7 +202,8 @@ export default function Reader() {
   const [pageGroups, setPageGroups]             = useState<number[][]>([]);
   const [stripChapters, setStripChapters]       = useState<StripChapter[]>([]);
   const [visibleChapterId, setVisibleChapterId] = useState<number | null>(null);
-  const stripChaptersRef = useRef<StripChapter[]>([]);
+
+  // Keep refs in sync every render
   stripChaptersRef.current = stripChapters;
 
   const {
@@ -219,7 +219,6 @@ export default function Reader() {
   const maxW     = settings.maxPageWidth ?? 900;
   const autoNext = settings.autoNextChapter ?? false;
 
-  // Sync live refs every render
   settingsRef.current    = settings;
   chapterListRef.current = activeChapterList;
 
@@ -242,9 +241,11 @@ export default function Reader() {
     if (!activeChapter) {
       abortRef.current?.abort();
       appendedRef.current   = new Set();
+      appendingRef.current  = false;
       markedReadRef.current = new Set();
       setStripChapters([]);
       setVisibleChapterId(null);
+      visibleChapterRef.current = null;
       return;
     }
 
@@ -254,14 +255,16 @@ export default function Reader() {
 
     const targetId = activeChapter.id;
     loadingIdRef.current  = targetId;
-    appendedRef.current       = new Set();
-    markedReadRef.current     = new Set();
+    appendedRef.current   = new Set([targetId]); // seed so we never double-append ch1
+    appendingRef.current  = false;
+    markedReadRef.current = new Set();
     setLoading(true);
     setError(null);
     setPageGroups([]);
     setPageReady(false);
     setStripChapters([]);
     setVisibleChapterId(null);
+    visibleChapterRef.current = null;
 
     fetchPages(targetId, ctrl.signal)
       .then(async (urls) => {
@@ -271,46 +274,15 @@ export default function Reader() {
         setPageUrls(urls);
         setPageReady(true);
         if (style === "longstrip" && autoNext) {
-          setStripChapters([{ chapterId: targetId, chapterName: activeChapter.name, urls, startGlobalIdx: 0 }]);
+          const firstChunk: StripChapter = {
+            chapterId: targetId,
+            chapterName: activeChapter.name,
+            urls,
+            startGlobalIdx: 0,
+          };
+          setStripChapters([firstChunk]);
           setVisibleChapterId(targetId);
-          // Manual kick: when stripChapters goes 0→1 the dep-array change
-          // re-creates the observer. If the sentinel is already in the viewport
-          // at that moment the new observer fires immediately and handles the
-          // append itself. But if getBoundingClientRect shows it's already
-          // visible before the observer has a chance to fire, kick directly.
-          const _sentinel = sentinelRef.current;
-          const _el       = containerRef.current;
-          if (_sentinel && _el) {
-            const sr = _sentinel.getBoundingClientRect();
-            const er = _el.getBoundingClientRect();
-            if (sr.top < er.bottom + 500) {
-              const list = chapterListRef.current;
-              const idx  = list.findIndex((c) => c.id === targetId);
-              const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
-              if (next && !appendedRef.current.has(next.id)) {
-                appendedRef.current.add(next.id);
-                fetchPages(next.id)
-                  .then((u) => Promise.all(u.map(measureAspect)).then(() => u))
-                  .then((u) => setStripChapters((cur) => {
-                    if (cur.some((c) => c.chapterId === next.id)) return cur;
-                    const last = cur[cur.length - 1];
-                    const newStart = last ? last.startGlobalIdx + last.urls.length : 0;
-                    const updated = [...cur, { chapterId: next.id, chapterName: next.name, urls: u, startGlobalIdx: newStart }];
-                    if (updated.length > 3) {
-                      const container = containerRef.current;
-                      if (container) {
-                        const firstKeptImg = container.querySelector(
-                          `img[data-chapter="${updated[1].chapterId}"]`
-                        ) as HTMLElement | null;
-                        if (firstKeptImg) container.scrollTop -= firstKeptImg.offsetTop;
-                      }
-                      return updated.slice(-3);
-                    }
-                    return updated;
-                  })).catch((err) => { console.error(err); appendedRef.current.delete(next.id); });
-              }
-            }
-          }
+          visibleChapterRef.current = targetId;
         }
         setLoading(false);
       })
@@ -321,147 +293,204 @@ export default function Reader() {
       });
   }, [activeChapter?.id]);
 
-  // ── Longstrip: IntersectionObserver for page number + visible chapter ─────────
-  // Watches every img[data-page]. Fires on scroll, keyboard jump, or any navigation.
+  // ── Append next chapter to the strip ────────────────────────────────────────
+  // Extracted so both the sentinel observer and the "already in viewport" check
+  // use exactly the same code path.
+  const appendNextChapter = useCallback(() => {
+    if (appendingRef.current) return;
+
+    const strip = stripChaptersRef.current;
+    const lastChunk = strip[strip.length - 1];
+    if (!lastChunk) return;
+
+    const list    = chapterListRef.current;
+    const lastIdx = list.findIndex((c) => c.id === lastChunk.chapterId);
+    if (lastIdx < 0 || lastIdx >= list.length - 1) return;
+
+    const nextEntry = list[lastIdx + 1];
+    if (!nextEntry || appendedRef.current.has(nextEntry.id)) return;
+
+    appendedRef.current.add(nextEntry.id);
+    appendingRef.current = true;
+
+    fetchPages(nextEntry.id)
+      .then((urls) => Promise.all(urls.map(measureAspect)).then(() => urls))
+      .then((urls) => {
+        setStripChapters((cur) => {
+          if (cur.some((c) => c.chapterId === nextEntry.id)) return cur;
+
+          const last     = cur[cur.length - 1];
+          const newStart = last ? last.startGlobalIdx + last.urls.length : 0;
+          const updated  = [...cur, {
+            chapterId: nextEntry.id,
+            chapterName: nextEntry.name,
+            urls,
+            startGlobalIdx: newStart,
+          }];
+
+          // Trim to 3 chunks max. Fix scroll compensation: subtract the height
+          // of the removed chunk (sum of its images), not the kept element's offsetTop.
+          if (updated.length > 3) {
+            const container = containerRef.current;
+            if (container) {
+              const removedChunk = updated[0];
+              let removedHeight = 0;
+              container.querySelectorAll<HTMLElement>(
+                `img[data-chapter="${removedChunk.chapterId}"]`
+              ).forEach((img) => {
+                removedHeight += img.offsetHeight + (settingsRef.current?.pageGap ? 8 : 0);
+              });
+              if (removedHeight > 0) {
+                // Use requestAnimationFrame so the DOM has updated before we adjust
+                requestAnimationFrame(() => {
+                  if (containerRef.current) {
+                    containerRef.current.scrollTop -= removedHeight;
+                  }
+                });
+              }
+            }
+            return updated.slice(-3);
+          }
+
+          return updated;
+        });
+        appendingRef.current = false;
+      })
+      .catch((err) => {
+        console.error("appendNextChapter failed:", err);
+        appendedRef.current.delete(nextEntry.id); // allow retry
+        appendingRef.current = false;
+      });
+  }, []); // no deps — reads everything from refs
+
+  // ── Longstrip: IntersectionObserver for page number + visible chapter ────────
+  // Uses a MutationObserver to auto-observe newly added images so we never need
+  // to recreate this observer when chapters are appended.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || style !== "longstrip") return;
 
-    const obs = new IntersectionObserver((entries) => {
-      let topPage = Infinity;
+    const pageObs = new IntersectionObserver((entries) => {
+      let topPage  = Infinity;
       let topChId: number | null = null;
+      let topY = Infinity;
+
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
-        const p  = Number((entry.target as HTMLElement).dataset.page);
-        const ch = Number((entry.target as HTMLElement).dataset.chapter);
-        if (p < topPage) { topPage = p; topChId = ch; }
+        const target = entry.target as HTMLElement;
+        const p  = Number(target.dataset.page);
+        const ch = Number(target.dataset.chapter);
+        const y  = entry.boundingClientRect.top;
+        // Track the topmost visible image by its position on screen
+        if (y < topY) { topY = y; topPage = p; topChId = ch; }
       }
+
       if (topPage !== Infinity) setPageNumber(topPage);
-      if (topChId && topChId !== visibleChapterId) {
-        // Mark the chapter we just left as read
-        if (settingsRef.current?.autoMarkRead && visibleChapterId && !markedReadRef.current.has(visibleChapterId)) {
-          markedReadRef.current.add(visibleChapterId);
-          gql(MARK_CHAPTER_READ, { id: visibleChapterId, isRead: true }).catch(console.error);
+
+      if (topChId && topChId !== visibleChapterRef.current) {
+        const prev = visibleChapterRef.current;
+        // Mark the chapter we just finished scrolling past
+        if (settingsRef.current?.autoMarkRead && prev && !markedReadRef.current.has(prev)) {
+          markedReadRef.current.add(prev);
+          gql(MARK_CHAPTER_READ, { id: prev, isRead: true }).catch(console.error);
         }
+        visibleChapterRef.current = topChId;
         setVisibleChapterId(topChId);
       }
     }, { root: el, threshold: 0.1 });
 
-    el.querySelectorAll("img[data-page]").forEach((img) => obs.observe(img));
-    return () => obs.disconnect();
-  }, [style, stripChapters, pageUrls, visibleChapterId]);
+    // Observe all existing images
+    el.querySelectorAll<HTMLElement>("img[data-page]").forEach((img) => pageObs.observe(img));
 
-  // ── Longstrip: sentinel triggers append (or plain chapter advance) ────────────
-  // The sentinel div sits at the very bottom of the strip. When it enters the
-  // viewport — via scroll, keyboard jump, or any other means — we fetch the
-  // next chapter. rootMargin pre-fires 500px before it's actually visible.
+    // Auto-observe any images added later (new strip chunks)
+    const mutObs = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        m.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement) {
+            if (node.matches("img[data-page]")) {
+              pageObs.observe(node);
+            } else {
+              node.querySelectorAll<HTMLElement>("img[data-page]").forEach((img) => pageObs.observe(img));
+            }
+          }
+        });
+      }
+    });
+    mutObs.observe(el, { childList: true, subtree: true });
+
+    return () => {
+      pageObs.disconnect();
+      mutObs.disconnect();
+    };
+  // Only recreate when style changes — MutationObserver handles new images
+  }, [style]);
+
+  // ── Longstrip: sentinel triggers append ──────────────────────────────────────
   useEffect(() => {
     const sentinel = sentinelRef.current;
     const el       = containerRef.current;
-    // Gatekeeper: don't observe until chapter 1 is actually in the DOM.
-    // stripChapters is in the dep array, so this effect re-runs the moment
-    // content exists — and the new observer fires immediately for an already-
-    // visible sentinel.
-    if (!sentinel || !el || style !== "longstrip") return;
-    // Gatekeeper for autoNext: don't create the observer until the strip has
-    // content. On mount the sentinel is at the top of an empty container —
-    // it fires immediately, sees no strip, and goes permanently idle.
-    // stripChapters is a dep so this effect re-runs the moment ch1 is seeded,
-    // creating a fresh observer that accurately checks the sentinel position.
-    // Non-autoNext uses loadingIdRef not stripChapters — no gate needed there.
-    if (autoNext && stripChapters.length === 0) return;
+    if (!sentinel || !el || style !== "longstrip" || !autoNext) return;
+    // Don't install until we have content — empty strip means sentinel is at
+    // the top and would fire immediately.
+    if (stripChapters.length === 0) return;
 
     const obs = new IntersectionObserver(([entry]) => {
       if (!entry.isIntersecting) return;
-
-      if (!autoNext) {
-        const list = chapterListRef.current;
-        const idx  = list.findIndex((c) => c.id === loadingIdRef.current);
-        const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
-        if (next) openReader(next, list);
-        return;
-      }
-
-      // Read from ref — always current, no stale closure, no updater needed
-      const strip   = stripChaptersRef.current;
-      const lastChunk = strip[strip.length - 1];
-      if (!lastChunk) return;
-
-      const list    = chapterListRef.current;
-      const lastIdx = list.findIndex((c) => c.id === lastChunk.chapterId);
-      if (lastIdx < 0 || lastIdx >= list.length - 1) return;
-
-      const nextEntry = list[lastIdx + 1];
-      if (!nextEntry || appendedRef.current.has(nextEntry.id)) return;
-
-      // Lock immediately and synchronously — before any async work
-      appendedRef.current.add(nextEntry.id);
-
-      fetchPages(nextEntry.id)
-        .then((urls) => Promise.all(urls.map(measureAspect)).then(() => urls))
-        .then((urls) => {
-          setStripChapters((cur) => {
-            if (cur.some((c) => c.chapterId === nextEntry.id)) return cur;
-            const last     = cur[cur.length - 1];
-            const newStart = last ? last.startGlobalIdx + last.urls.length : 0;
-            const next     = [...cur, { chapterId: nextEntry.id, chapterName: nextEntry.name, urls, startGlobalIdx: newStart }];
-            if (next.length > 3) {
-              // Compensate scroll so the viewport doesn't jump when the
-              // first chunk is trimmed off the top of the DOM.
-              const container = containerRef.current;
-              if (container) {
-                const firstKeptImg = container.querySelector(
-                  `img[data-chapter="${next[1].chapterId}"]`
-                ) as HTMLElement | null;
-                if (firstKeptImg) {
-                  container.scrollTop -= firstKeptImg.offsetTop;
-                }
-              }
-              return next.slice(-3);
-            }
-            return next;
-          });
-        }).catch((err) => {
-          console.error(err);
-          appendedRef.current.delete(nextEntry.id); // allow retry on failure
-        });
+      appendNextChapter();
     }, { root: el, rootMargin: "0px 0px 500px 0px", threshold: 0 });
 
     obs.observe(sentinel);
-    return () => obs.disconnect();
-  // stripChapters.length as dep: observer re-mounts exactly once when ch1
-  // arrives (0→1), not on every subsequent append.
-  }, [style, autoNext, stripChapters.length, openReader]);
 
-  // Mark last chunk read when reaching the very bottom of the strip
+    // If sentinel is already visible right now, kick immediately
+    const sr = sentinel.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    if (sr.top < er.bottom + 500) {
+      appendNextChapter();
+    }
+
+    return () => obs.disconnect();
+  // Re-run only when mode changes or first chunk arrives (0→N).
+  // appendNextChapter is stable (no deps), so it won't cause extra re-runs.
+  }, [style, autoNext, stripChapters.length > 0, appendNextChapter]);
+
+  // ── Mark last chapter read when reaching the very bottom ─────────────────────
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || style !== "longstrip" || !autoNext) return;
+    if (!el || style !== "longstrip") return;
+
     const onScroll = () => {
       if (el.scrollTop + el.clientHeight < el.scrollHeight - 40) return;
-      setStripChapters((cur) => {
-        const last = cur[cur.length - 1];
-        if (last && settingsRef.current?.autoMarkRead && !markedReadRef.current.has(last.chapterId)) {
-          markedReadRef.current.add(last.chapterId);
-          gql(MARK_CHAPTER_READ, { id: last.chapterId, isRead: true }).catch(console.error);
-        }
-        return cur;
-      });
+      const last = stripChaptersRef.current[stripChaptersRef.current.length - 1];
+      if (!last) return;
+      if (settingsRef.current?.autoMarkRead && !markedReadRef.current.has(last.chapterId)) {
+        markedReadRef.current.add(last.chapterId);
+        gql(MARK_CHAPTER_READ, { id: last.chapterId, isRead: true }).catch(console.error);
+      }
     };
+
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [style, autoNext, stripChapters]);
+  // Only depends on style — reads strip from ref, so no stale closure issues
+  }, [style]);
 
   // Rebuild strip when autoNext is toggled while longstrip is active
   useEffect(() => {
     if (style !== "longstrip" || !pageUrls.length || !activeChapter) return;
-    appendedRef.current = new Set();
+    appendedRef.current  = new Set([activeChapter.id]);
+    appendingRef.current = false;
     if (autoNext) {
-      setStripChapters([{ chapterId: activeChapter.id, chapterName: activeChapter.name, urls: pageUrls, startGlobalIdx: 0 }]);
+      setStripChapters([{
+        chapterId: activeChapter.id,
+        chapterName: activeChapter.name,
+        urls: pageUrls,
+        startGlobalIdx: 0,
+      }]);
       setVisibleChapterId(activeChapter.id);
+      visibleChapterRef.current = activeChapter.id;
     } else {
       setStripChapters([]);
       setVisibleChapterId(null);
+      visibleChapterRef.current = null;
     }
     if (containerRef.current) containerRef.current.scrollTop = 0;
   }, [autoNext, style]);
@@ -470,32 +499,6 @@ export default function Reader() {
   useEffect(() => {
     if (style !== "longstrip" && containerRef.current) containerRef.current.scrollTop = 0;
   }, [pageNumber, style]);
-
-  // ── Double-page grouping ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (style !== "double" || !pageUrls.length) { setPageGroups([]); return; }
-    let cancelled = false;
-    const snap = pageUrls;
-    Promise.all(snap.map(measureAspect)).then((aspects) => {
-      if (cancelled || snap !== pageUrls) return;
-      const offset = settings.offsetDoubleSpreads;
-      const groups: number[][] = [[1]];
-      if (offset) groups.push([2]);
-      let i = offset ? 3 : 2;
-      while (i <= snap.length) {
-        const a     = aspects[i - 1];
-        const nextA = aspects[i] ?? 0;
-        if (a > 1.2 || i === snap.length || nextA > 1.2) {
-          groups.push([i++]);
-        } else {
-          groups.push(rtl ? [i + 1, i] : [i, i + 1]);
-          i += 2;
-        }
-      }
-      setPageGroups(groups);
-    });
-    return () => { cancelled = true; };
-  }, [pageUrls, style, settings.offsetDoubleSpreads, rtl]);
 
   // ── Preload adjacent pages ───────────────────────────────────────────────────
   useEffect(() => {
@@ -547,7 +550,7 @@ export default function Reader() {
     return chunk ? Math.max(1, pageNumber - chunk.startGlobalIdx) : pageNumber;
   }, [style, autoNext, stripChapters, visibleChapterId, activeChapter?.id, pageNumber]);
 
-  // ── Auto-mark read + history ─────────────────────────────────────────────────
+  // ── Auto-mark read + history (non-longstrip) ─────────────────────────────────
   useEffect(() => {
     if (!activeChapter || !lastPage) return;
     if (activeManga) {
@@ -557,14 +560,40 @@ export default function Reader() {
         chapterName: activeChapter.name, pageNumber, readAt: Date.now(),
       });
     }
-    if (style === "longstrip" && autoNext) return; // handled by IntersectionObserver
+    if (style === "longstrip") return; // handled by scroll/intersection observers
     if (settings.autoMarkRead && pageNumber === lastPage) {
       if (!markedReadRef.current.has(activeChapter.id)) {
         markedReadRef.current.add(activeChapter.id);
         gql(MARK_CHAPTER_READ, { id: activeChapter.id, isRead: true }).catch(console.error);
       }
     }
-  }, [pageNumber, lastPage, activeChapter?.id, settings.autoMarkRead, style, autoNext]);
+  }, [pageNumber, lastPage, activeChapter?.id, settings.autoMarkRead, style]);
+
+  // ── Double-page grouping ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (style !== "double" || !pageUrls.length) { setPageGroups([]); return; }
+    let cancelled = false;
+    const snap = pageUrls;
+    Promise.all(snap.map(measureAspect)).then((aspects) => {
+      if (cancelled || snap !== pageUrls) return;
+      const offset = settings.offsetDoubleSpreads;
+      const groups: number[][] = [[1]];
+      if (offset) groups.push([2]);
+      let i = offset ? 3 : 2;
+      while (i <= snap.length) {
+        const a     = aspects[i - 1];
+        const nextA = aspects[i] ?? 0;
+        if (a > 1.2 || i === snap.length || nextA > 1.2) {
+          groups.push([i++]);
+        } else {
+          groups.push(rtl ? [i + 1, i] : [i, i + 1]);
+          i += 2;
+        }
+      }
+      setPageGroups(groups);
+    });
+    return () => { cancelled = true; };
+  }, [pageUrls, style, settings.offsetDoubleSpreads, rtl]);
 
   // ── Navigation ───────────────────────────────────────────────────────────────
   const advanceGroup = useCallback((forward: boolean) => {
@@ -815,7 +844,7 @@ export default function Reader() {
                 );
               })
             )}
-            {/* Entering viewport (or within 500px of it) triggers next-chapter fetch */}
+            {/* Sentinel: entering viewport triggers next-chapter fetch */}
             <div ref={sentinelRef} style={{ height: 1, flexShrink: 0, overflowAnchor: "none" }} />
           </>
         ) : (pageReady && (

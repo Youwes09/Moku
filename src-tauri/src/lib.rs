@@ -157,7 +157,7 @@ fn patch_conf_key(mut text: String, key: &str, value: &str) -> String {
     let replacement = format!("{key} = {value}");
     // Find a line that starts with the key (tolerant of surrounding whitespace)
     if let Some(pos) = text.lines().position(|l| l.trim_start().starts_with(key)) {
-        let mut lines: Vec<&str> = text.lines().collect();
+        let lines: Vec<&str> = text.lines().collect();
         // We need an owned replacement; rebuild from scratch.
         let owned: Vec<String> = lines
             .iter()

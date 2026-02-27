@@ -10,7 +10,7 @@ import {
   ENQUEUE_DOWNLOAD, ENQUEUE_CHAPTERS_DOWNLOAD,
 } from "../../lib/queries";
 import { useStore, type FitMode } from "../../store";
-import { matchesKeybind, toggleFullscreen } from "../../lib/keybinds";
+import { matchesKeybind, toggleFullscreen, DEFAULT_KEYBINDS, type Keybinds } from "../../lib/keybinds";
 import s from "./Reader.module.css";
 
 // ── Page cache (module-level, survives re-renders) ────────────────────────────
@@ -75,7 +75,7 @@ function decodeImage(url: string): Promise<void> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload  = () => { img.decode ? img.decode().then(resolve, resolve) : resolve(); };
-    img.onerror = resolve;
+    img.onerror = () => resolve();
     img.src = url;
   });
 }
@@ -638,7 +638,7 @@ export default function Reader() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === "INPUT") return;
-      const kb   = settingsRef.current?.keybinds   ?? {};
+      const kb: Keybinds = settingsRef.current?.keybinds ?? DEFAULT_KEYBINDS;
       const maxW = settingsRef.current?.maxPageWidth ?? 900;
       const rtl  = settingsRef.current?.readingDirection === "rtl";
 

@@ -17,7 +17,7 @@ import s from "./Reader.module.css";
 const pageCache  = new Map<number, string[]>();
 const inflight   = new Map<number, Promise<string[]>>();
 const cacheOrder: number[] = [];
-const MAX_CACHED = 6;
+const MAX_CACHED = 10;
 
 function cacheTouch(id: number) {
   const i = cacheOrder.indexOf(id);
@@ -182,15 +182,14 @@ export default function Reader() {
   const sentinelRef  = useRef<HTMLDivElement>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Live-value refs — always current, safe to read inside effects/callbacks
   const settingsRef       = useRef<typeof settings | null>(null);
   const chapterListRef    = useRef<typeof activeChapterList>([]);
   const loadingIdRef      = useRef<number | null>(null);
   const markedReadRef     = useRef<Set<number>>(new Set());
   const appendedRef       = useRef<Set<number>>(new Set());
-  const appendingRef      = useRef(false);   // prevents concurrent appends
+  const appendingRef      = useRef(false);
   const abortRef          = useRef<AbortController | null>(null);
-  const visibleChapterRef = useRef<number | null>(null); // single truth for visible chapter
+  const visibleChapterRef = useRef<number | null>(null);
   const stripChaptersRef  = useRef<StripChapter[]>([]);
   const pageUrlsRef       = useRef<string[]>([]);
 
@@ -204,7 +203,6 @@ export default function Reader() {
   const [stripChapters, setStripChapters]       = useState<StripChapter[]>([]);
   const [visibleChapterId, setVisibleChapterId] = useState<number | null>(null);
 
-  // Keep refs in sync every render
   stripChaptersRef.current = stripChapters;
 
   const {
@@ -257,7 +255,7 @@ export default function Reader() {
 
     const targetId = activeChapter.id;
     loadingIdRef.current  = targetId;
-    appendedRef.current   = new Set([targetId]); // seed so we never double-append ch1
+    appendedRef.current   = new Set([targetId]);
     appendingRef.current  = false;
     markedReadRef.current = new Set();
     setLoading(true);
@@ -296,8 +294,6 @@ export default function Reader() {
   }, [activeChapter?.id]);
 
   // ── Append next chapter to the strip ────────────────────────────────────────
-  // Extracted so both the sentinel observer and the "already in viewport" check
-  // use exactly the same code path.
   const appendNextChapter = useCallback(() => {
     if (appendingRef.current) return;
 
@@ -316,7 +312,11 @@ export default function Reader() {
     appendingRef.current = true;
 
     fetchPages(nextEntry.id)
-      .then((urls) => Promise.all(urls.map(measureAspect)).then(() => urls))
+      .then((urls) => {
+        // Kick off aspect measurement in background — don't block appending on it
+        urls.forEach((url) => measureAspect(url).catch(() => {}));
+        return urls;
+      })
       .then((urls) => {
         setStripChapters((cur) => {
           if (cur.some((c) => c.chapterId === nextEntry.id)) return cur;
@@ -330,8 +330,6 @@ export default function Reader() {
             startGlobalIdx: newStart,
           }];
 
-          // Trim to 3 chunks max. Fix scroll compensation: subtract the height
-          // of the removed chunk (sum of its images), not the kept element's offsetTop.
           if (updated.length > 3) {
             const container = containerRef.current;
             if (container) {
@@ -343,7 +341,6 @@ export default function Reader() {
                 removedHeight += img.offsetHeight + (settingsRef.current?.pageGap ? 8 : 0);
               });
               if (removedHeight > 0) {
-                // Use requestAnimationFrame so the DOM has updated before we adjust
                 requestAnimationFrame(() => {
                   if (containerRef.current) {
                     containerRef.current.scrollTop -= removedHeight;
@@ -360,20 +357,17 @@ export default function Reader() {
       })
       .catch((err) => {
         console.error("appendNextChapter failed:", err);
-        appendedRef.current.delete(nextEntry.id); // allow retry
+        appendedRef.current.delete(nextEntry.id);
         appendingRef.current = false;
       });
-  }, []); // no deps — reads everything from refs
+  }, []);
 
-  // ── Longstrip: IntersectionObserver for page number + visible chapter ────────
   // ── Longstrip: scroll-driven page + chapter tracking + mark-as-read ──────────
-  // Scroll listener queries the DOM directly on every scroll — no threshold gaps,
-  // no fast-scroll skipping, works equally scrolling up or down.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || style !== "longstrip") return;
 
-    const READ_LINE_PCT = 0.20; // 20% from top of container = "what the user is reading"
+    const READ_LINE_PCT = 0.20;
 
     const onScroll = () => {
       const containerTop = el.getBoundingClientRect().top;
@@ -389,11 +383,10 @@ export default function Reader() {
           activeLocalPage = Number(img.dataset.localPage);
           activeChId      = Number(img.dataset.chapter);
         } else {
-          break; // images are in DOM order top→bottom
+          break;
         }
       }
 
-      // Fallback: nothing above read line yet — use first image
       if (activeLocalPage === null && imgs.length > 0) {
         activeLocalPage = Number(imgs[0].dataset.localPage);
         activeChId      = Number(imgs[0].dataset.chapter);
@@ -406,11 +399,9 @@ export default function Reader() {
         setVisibleChapterId(activeChId);
       }
 
-      // Mark as read when active page reaches second-to-last or last page
       if (settingsRef.current?.autoMarkRead && activeLocalPage !== null && activeChId) {
         const strip = stripChaptersRef.current;
         const chunk = strip.find((c) => c.chapterId === activeChId);
-        // Fall back to pageUrls length when autoNext is off and strip is empty
         const total = chunk ? chunk.urls.length : pageUrlsRef.current.length;
         if (total > 0 && activeLocalPage >= total - 1) {
           const ch = activeChId;
@@ -426,17 +417,18 @@ export default function Reader() {
     };
 
     el.addEventListener("scroll", onScroll, { passive: true });
-    onScroll(); // fire once on mount to set initial state
+    onScroll();
     return () => el.removeEventListener("scroll", onScroll);
   }, [style]);
 
   // ── Longstrip: sentinel triggers append ──────────────────────────────────────
+  // activeChapter?.id in deps ensures the observer reinstalls fresh on every
+  // manga switch — without it, switching manga reuses the stale observer which
+  // has already fired and won't re-fire for the new chapter's sentinel position.
   useEffect(() => {
     const sentinel = sentinelRef.current;
     const el       = containerRef.current;
     if (!sentinel || !el || style !== "longstrip" || !autoNext) return;
-    // Don't install until we have content — empty strip means sentinel is at
-    // the top and would fire immediately.
     if (stripChapters.length === 0) return;
 
     const obs = new IntersectionObserver(([entry]) => {
@@ -446,7 +438,6 @@ export default function Reader() {
 
     obs.observe(sentinel);
 
-    // If sentinel is already visible right now, kick immediately
     const sr = sentinel.getBoundingClientRect();
     const er = el.getBoundingClientRect();
     if (sr.top < er.bottom + 500) {
@@ -454,9 +445,8 @@ export default function Reader() {
     }
 
     return () => obs.disconnect();
-  // Re-run only when mode changes or first chunk arrives (0→N).
-  // appendNextChapter is stable (no deps), so it won't cause extra re-runs.
-  }, [style, autoNext, stripChapters.length, appendNextChapter]);
+  }, [style, autoNext, stripChapters.length, activeChapter?.id, appendNextChapter]);
+  //                                          ^^^^^^^^^^^^^^^^^ reinstall on manga switch
 
   // ── Mark last chapter read when reaching the very bottom ─────────────────────
   useEffect(() => {
@@ -475,7 +465,6 @@ export default function Reader() {
 
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  // Only depends on style — reads strip from ref, so no stale closure issues
   }, [style]);
 
   // Rebuild strip when autoNext is toggled while longstrip is active
@@ -519,15 +508,12 @@ export default function Reader() {
   // ── Derived display values ───────────────────────────────────────────────────
   const lastPage = pageUrls.length;
 
-  // In longstrip+autoNext, show the chapter the user is actually looking at,
-  // not the one that was originally opened.
   const displayChapter = useMemo(() => {
     if (style !== "longstrip" || !autoNext || !visibleChapterId) return activeChapter;
     return activeChapterList.find((c) => c.id === visibleChapterId) ?? activeChapter;
   }, [style, autoNext, visibleChapterId, activeChapter, activeChapterList]);
 
   // ── Adjacent chapters + cache eviction ──────────────────────────────────────
-  // Uses displayChapter so topbar prev/next navigate from what's visible on screen.
   const adjacent = useMemo(() => {
     const ref = displayChapter ?? activeChapter;
     if (!ref || !activeChapterList.length)
@@ -540,12 +526,40 @@ export default function Reader() {
     };
   }, [displayChapter, activeChapter, activeChapterList]);
 
+  // ── Prefetch next 3 chapters into pageCache so strip appends are instant ────
+  // Fires whenever the active chapter changes. Fetches page URL lists for the
+  // next 3 chapters in the background so appendNextChapter always gets a cache
+  // hit instead of waiting on a network round-trip.
   useEffect(() => {
-    const pinned = new Set([activeChapter?.id, adjacent.next?.id, adjacent.prev?.id].filter(Boolean) as number[]);
-    if (adjacent.next) fetchPages(adjacent.next.id).then((u) => u.slice(0, 3).forEach(preloadImage)).catch(() => {});
-    if (adjacent.prev) fetchPages(adjacent.prev.id).then((u) => u.slice(0, 3).forEach(preloadImage)).catch(() => {});
-    cacheEvict(pinned);
-  }, [adjacent.next?.id, adjacent.prev?.id]);
+    if (!activeChapter || !activeChapterList.length) return;
+    const idx = activeChapterList.findIndex((c) => c.id === activeChapter.id);
+    if (idx < 0) return;
+
+    const PREFETCH_AHEAD = 3;
+    const toPin: number[] = [activeChapter.id];
+
+    for (let i = 1; i <= PREFETCH_AHEAD; i++) {
+      const entry = activeChapterList[idx + i];
+      if (!entry) break;
+      toPin.push(entry.id);
+      fetchPages(entry.id)
+        .then((urls) => {
+          // For the immediate next chapter, also preload the first few images
+          // so the browser has them decoded before the sentinel fires.
+          if (i === 1) urls.slice(0, 5).forEach(preloadImage);
+        })
+        .catch(() => {});
+    }
+
+    // Pin one chapter behind too so going back is fast
+    if (idx > 0) {
+      const prev = activeChapterList[idx - 1];
+      toPin.push(prev.id);
+      fetchPages(prev.id).catch(() => {});
+    }
+
+    cacheEvict(new Set(toPin));
+  }, [activeChapter?.id, activeChapterList]);
 
   const visibleChunkLastPage = useMemo(() => {
     if (style !== "longstrip" || !autoNext) return lastPage;
@@ -554,7 +568,6 @@ export default function Reader() {
     return chunk?.urls.length ?? lastPage;
   }, [style, autoNext, stripChapters, visibleChapterId, activeChapter?.id, lastPage]);
 
-  // pageNumber is always local (per-chapter) — no offset math needed
   const visibleChunkPage = pageNumber;
 
   // ── Auto-mark read + history (non-longstrip) ─────────────────────────────────
@@ -567,7 +580,7 @@ export default function Reader() {
         chapterName: activeChapter.name, pageNumber, readAt: Date.now(),
       });
     }
-    if (style === "longstrip") return; // handled by scroll/intersection observers
+    if (style === "longstrip") return;
     if (settings.autoMarkRead && pageNumber === lastPage) {
       if (!markedReadRef.current.has(activeChapter.id)) {
         markedReadRef.current.add(activeChapter.id);
@@ -852,7 +865,6 @@ export default function Reader() {
                 );
               })
             )}
-            {/* Sentinel: entering viewport triggers next-chapter fetch */}
             <div ref={sentinelRef} style={{ height: 1, flexShrink: 0, overflowAnchor: "none" }} />
           </>
         ) : (pageReady && (

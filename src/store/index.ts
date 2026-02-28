@@ -92,7 +92,7 @@ export const DEFAULT_SETTINGS: Settings = {
   offsetDoubleSpreads: false,
   preloadPages: 3,
   autoMarkRead: true,
-  autoNextChapter: false,
+  autoNextChapter: true,
   libraryCropCovers: true,
   libraryPageSize: 48,
   showNsfw: false,

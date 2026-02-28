@@ -9,8 +9,21 @@ Bugs:
 - Add Back after Search & Clear on Search
 - Fix Tag-Based Search to Allow for Finding New Manga Rather than PURE-DB
 - Add Download Location Change, Moku-Migration, Flatpak & Normal Installation Directory Checks
-- Fix Storage Glitch (Currently uses Full Space Instead of Free Space)
 
+
+- Fix Infinite Scroll Hitting Button Non-reactive to Chapter State, hence Resulting in Error. (Doesn't work on single or double digit, but works on select chapters?) (doesnt work 1 - 2 qnd 51 - 52?) Cause unknow
+- - Reader appears to be adding integers? Marks chapters incorrectly, need to stablize and patch. User is able to
+skip chapters,  etc
+- Mark as Read no longer working on select chapters, choose more robust methodology.
+- Reset to top when user clicks next chapter in reader.
+
+
+- Fix Downloaded in Library (Tags Broken) & All
+- Using Delete All Crashes App (But Works)
+- Fix Folder Display in Library 
+- Add Version Tags (To Find Version)
+- Sidebar Icon Highlighted
+- Introduce Deduplication into Library & Search
 
 
 Features:

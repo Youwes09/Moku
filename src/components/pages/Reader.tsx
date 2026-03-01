@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback, useState, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from "react";
 import {
   X, CaretLeft, CaretRight, ArrowLeft, ArrowRight,
   Square, Rows, Download, ArrowsLeftRight,
@@ -80,7 +80,12 @@ function measureAspect(url: string): Promise<number> {
   if (aspectCache.has(url)) return Promise.resolve(aspectCache.get(url)!);
   return new Promise((res) => {
     const img = new Image();
-    img.onload  = () => { aspectCache.set(url, img.naturalWidth / img.naturalHeight); res(aspectCache.get(url)!); };
+    img.onload  = () => {
+      // Guard against 0 dimensions (image not fully decoded yet) and NaN
+      const ratio = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0.67;
+      aspectCache.set(url, ratio);
+      res(ratio);
+    };
     img.onerror = () => res(0.67);
     img.src = url;
   });
@@ -192,6 +197,8 @@ export default function Reader() {
   const visibleChapterRef = useRef<number | null>(null);
   const stripChaptersRef  = useRef<StripChapter[]>([]);
   const pageUrlsRef       = useRef<string[]>([]);
+  // Captured before a head-trim; useLayoutEffect restores scroll synchronously
+  const scrollAnchorRef   = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
 
   const [loading, setLoading]                   = useState(true);
   const [error, setError]                       = useState<string | null>(null);
@@ -204,6 +211,21 @@ export default function Reader() {
   const [visibleChapterId, setVisibleChapterId] = useState<number | null>(null);
 
   stripChaptersRef.current = stripChapters;
+
+  // Restore scroll position synchronously after a head-trim, before paint.
+  // This is the only reliable way to prevent the visible jump — rAF fires
+  // one frame too late and the user sees the incorrect position briefly.
+  useLayoutEffect(() => {
+    const anchor = scrollAnchorRef.current;
+    if (!anchor || !containerRef.current) return;
+    scrollAnchorRef.current = null;
+    const gained = containerRef.current.scrollHeight - anchor.scrollHeight;
+    // gained is negative when nodes were removed (scrollHeight shrank).
+    // Subtract the same amount from scrollTop so visible content stays put.
+    if (gained < 0) {
+      containerRef.current.scrollTop = Math.max(0, anchor.scrollTop + gained);
+    }
+  }, [stripChapters]);
 
   const {
     activeManga, activeChapter, activeChapterList,
@@ -258,6 +280,9 @@ export default function Reader() {
     appendedRef.current   = new Set([targetId]);
     appendingRef.current  = false;
     markedReadRef.current = new Set();
+    // Clear stale aspect ratios — server URLs can return different images
+    // after a re-fetch, and a stale cached ratio renders as a black/collapsed img.
+    aspectCache.clear();
     setLoading(true);
     setError(null);
     setPageGroups([]);
@@ -315,6 +340,10 @@ export default function Reader() {
       .then((urls) => {
         // Kick off aspect measurement in background — don't block appending on it
         urls.forEach((url) => measureAspect(url).catch(() => {}));
+        // Ensure the first several images are already in the browser cache
+        // by the time React renders them — eliminates the blank-image flash
+        // that occurs when a freshly appended chapter hasn't been prefetched.
+        urls.slice(0, 6).forEach(preloadImage);
         return urls;
       })
       .then((urls) => {
@@ -331,22 +360,14 @@ export default function Reader() {
           }];
 
           if (updated.length > 3) {
-            const container = containerRef.current;
-            if (container) {
-              const removedChunk = updated[0];
-              let removedHeight = 0;
-              container.querySelectorAll<HTMLElement>(
-                `img[data-chapter="${removedChunk.chapterId}"]`
-              ).forEach((img) => {
-                removedHeight += img.offsetHeight + (settingsRef.current?.pageGap ? 8 : 0);
-              });
-              if (removedHeight > 0) {
-                requestAnimationFrame(() => {
-                  if (containerRef.current) {
-                    containerRef.current.scrollTop -= removedHeight;
-                  }
-                });
-              }
+            // Snapshot scroll position BEFORE React removes the nodes.
+            // useLayoutEffect will restore it synchronously after the DOM
+            // mutation, preventing any visible jump.
+            if (containerRef.current) {
+              scrollAnchorRef.current = {
+                scrollTop:    containerRef.current.scrollTop,
+                scrollHeight: containerRef.current.scrollHeight,
+              };
             }
             return updated.slice(-3);
           }
@@ -431,20 +452,37 @@ export default function Reader() {
     if (!sentinel || !el || style !== "longstrip" || !autoNext) return;
     if (stripChapters.length === 0) return;
 
+    // Trigger append when the user has scrolled through 80% of the current
+    // strip — early enough that the next chapter is ready before they reach
+    // the end. A fixed-pixel rootMargin can't express "80% of scrollHeight"
+    // so we use a scroll listener for the threshold check, and keep the
+    // IntersectionObserver only as a fallback for the absolute bottom.
+    const onScroll80 = () => {
+      const pct = (el.scrollTop + el.clientHeight) / el.scrollHeight;
+      if (pct >= 0.8) appendNextChapter();
+    };
+    el.addEventListener("scroll", onScroll80, { passive: true });
+
+    // IntersectionObserver as hard backstop at the very bottom
     const obs = new IntersectionObserver(([entry]) => {
       if (!entry.isIntersecting) return;
       appendNextChapter();
-    }, { root: el, rootMargin: "0px 0px 500px 0px", threshold: 0 });
+    }, { root: el, rootMargin: "0px", threshold: 0 });
 
     obs.observe(sentinel);
 
-    const sr = sentinel.getBoundingClientRect();
-    const er = el.getBoundingClientRect();
-    if (sr.top < er.bottom + 500) {
-      appendNextChapter();
-    }
+    // Double-rAF ensures real image heights are committed before we measure.
+    // Fires the 80% check once on mount so short/cached chapters that never
+    // produce a scroll event still trigger an append.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!containerRef.current) return;
+        const pct = (el.scrollTop + el.clientHeight) / el.scrollHeight;
+        if (pct >= 0.8) appendNextChapter();
+      });
+    });
 
-    return () => obs.disconnect();
+    return () => { obs.disconnect(); el.removeEventListener("scroll", onScroll80); };
   }, [style, autoNext, stripChapters.length, activeChapter?.id, appendNextChapter]);
   //                                          ^^^^^^^^^^^^^^^^^ reinstall on manga switch
 
@@ -544,9 +582,12 @@ export default function Reader() {
       toPin.push(entry.id);
       fetchPages(entry.id)
         .then((urls) => {
-          // For the immediate next chapter, also preload the first few images
-          // so the browser has them decoded before the sentinel fires.
-          if (i === 1) urls.slice(0, 5).forEach(preloadImage);
+          // Preload the first several images of every prefetched chapter,
+          // not just the immediate next one — chapters 2–3 ahead would
+          // otherwise start loading cold when appended, causing blank flashes.
+          // Fewer images for farther-ahead chapters to avoid wasting bandwidth.
+          const preloadCount = i === 1 ? 8 : i === 2 ? 4 : 2;
+          urls.slice(0, preloadCount).forEach(preloadImage);
         })
         .catch(() => {});
     }
@@ -859,7 +900,6 @@ export default function Reader() {
                     className={[imgCls, settings.pageGap ? s.stripGap : ""].join(" ")}
                     loading={i < 3 ? "eager" : "lazy"}
                     decoding="async"
-                    width={aspectCache.has(url) ? Math.round(aspectCache.get(url)! * 1000) : 720}
                     height={1000}
                   />
                 );

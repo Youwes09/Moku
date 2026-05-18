@@ -37,5 +37,7 @@ src-tauri/gen/
 # --- Flatpak build artifacts ---
 build-dir/
 repo/
+dist/
+packaging/frontend-dist.tar.gz
 *.flatpak
-.flatpak-builder/
+.flatpak-builder/\n# --- Staged sidecar binaries (platform-specific, never commit) ---\nsrc-tauri/binaries/

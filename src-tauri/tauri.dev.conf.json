@@ -9,5 +9,8 @@
         "devtools": true
       }
     ]
+  },
+  "bundle": {
+    "externalBin": []
   }
 }

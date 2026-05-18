@@ -1,0 +1,25 @@
+{
+  "app": {
+    "windows": [
+      {
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["dmg"],
+    "externalBin": [
+      "binaries/suwayomi-server"
+    ],
+    "resources": {
+      "binaries/suwayomi-bundle": "suwayomi-bundle"
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "exceptionDomain": "localhost",
+      "frameworks": []
+    }
+  }
+}

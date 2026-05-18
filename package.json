@@ -1,41 +1,33 @@
 {
   "name": "moku",
-  "private": true,
-  "version": "0.1.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
-    "tauri:build": "tauri build"
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json"
   },
   "dependencies": {
-    "@phosphor-icons/react": "^2.1.10",
-    "@radix-ui/react-dropdown-menu": "^2.1.16",
-    "@radix-ui/react-progress": "^1.1.8",
-    "@radix-ui/react-scroll-area": "^1.2.10",
-    "@radix-ui/react-tooltip": "^1.2.8",
-    "@tanstack/react-virtual": "^3.13.18",
-    "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-shell": "~2",
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-http": "^2.5.8",
+    "@tauri-apps/plugin-os": "^2.3.2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "@tauri-apps/plugin-store": "~2.4.2",
     "clsx": "^2.1.1",
-    "lucide-react": "^0.575.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.0",
-    "zustand": "^5.0.0"
+    "phosphor-svelte": "^3.1.0",
+    "svelte-spa-router": "^5.1.0",
+    "tauri-plugin-discord-rpc-api": "github:Youwes09/tauri-plugin-discord-rpc",
+    "tauri-plugin-drpc": "^1.0.3"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.40",
-    "tailwindcss": "^3.4.7",
-    "typescript": "^5.5.3",
-    "vite": "^5.4.0"
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "@tauri-apps/cli": "^2.11.0",
+    "svelte": "^5.55.5",
+    "svelte-check": "^4.4.7",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
   }
 }

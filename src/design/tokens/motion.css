@@ -1,0 +1,5 @@
+:root {
+  --t-fast: 0.08s ease;
+  --t-base: 0.14s ease;
+  --t-slow: 0.22s ease;
+}

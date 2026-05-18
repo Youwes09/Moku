@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.moku_project.Moku</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Moku</name>
+  <summary>Manga reader powered by Suwayomi</summary>
+
+  <description>
+    <p>
+      Moku is a desktop manga reader built on top of Suwayomi-Server (Tachidesk),
+      providing a clean native interface for browsing, reading, and managing your
+      manga library across hundreds of sources.
+    </p>
+    <p>
+      Features include library management, chapter tracking, extension support,
+      reading history, notifications, and Discord Rich Presence integration.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.moku_project.Moku.desktop</launchable>
+
+  <url type="homepage">https://github.com/moku-project/Moku</url>
+  <url type="bugtracker">https://github.com/moku-project/Moku/issues</url>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/moku-project/Moku/main/docs/screenshots/Moku-Home.png</image>
+      <caption>Home screen showing your manga library</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/moku-project/Moku/main/docs/screenshots/Moku-Reader.png</image>
+      <caption>Built-in manga reader</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/moku-project/Moku/main/docs/screenshots/Moku-Discover.png</image>
+      <caption>Discover new manga across hundreds of sources</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/moku-project/Moku/main/docs/screenshots/Moku-Downloads.png</image>
+      <caption>Download manager</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/moku-project/Moku/main/docs/screenshots/Moku-Settings.png</image>
+      <caption>Settings</caption>
+    </screenshot>
+  </screenshots>
+
+  <provides>
+    <binary>moku</binary>
+  </provides>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+      <release version="0.9.0" date="2025-04-01">
+      <description>
+        <p>Latest release with improved stability and UI refinements.</p>
+      </description>
+    </release>
+    <release version="0.8.0" date="2025-04-01">
+      <description>
+        <p>Old release with improved stability and UI refinements.</p>
+      </description>
+    </release>
+    <release version="0.4.0" date="2025-03-22">
+      <description>
+        <p>Svelte rewrite with improved UI, bundled server, and cross-platform fixes.</p>
+      </description>
+    </release>
+  </releases>
+</component>

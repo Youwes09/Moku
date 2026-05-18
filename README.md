@@ -1,112 +1,139 @@
 <div align="center">
-  <img src="src/assets/rounded-logo.png" width="96" />
-  <h1>Moku</h1>
-  <p>A fast, minimal manga reader for <a href="https://github.com/Suwayomi/Suwayomi-Server">Suwayomi-Server</a>.<br/>Built with Tauri v2 and React.</p>
+  <img src="docs/banner.svg" width="100%" alt="Moku" />
+</div>
 
-  <table>
-    <tr>
-      <td><img src=".github/screenshots/Library-Page.png" width="100%" /></td>
-      <td><img src=".github/screenshots/Libary-Browse.png" width="100%" /></td>
-      <td><img src=".github/screenshots/Series-Detail.png" width="100%" /></td>
-    </tr>
-    <tr>
-      <td><img src=".github/screenshots/Search-Bar.png" width="100%" /></td>
-      <td><img src=".github/screenshots/Download-Manager.png" width="100%" /></td>
-      <td><img src=".github/screenshots/Settings-1.png" width="100%" /></td>
-    </tr>
-  </table>
+<div align="center">
+
+[![Release](https://www.shieldcn.dev/github/release/moku-project/Moku.svg?variant=outline&size=default)](https://github.com/moku-project/Moku/releases/latest)
+![GitHub Downloads](https://www.shieldcn.dev/github/downloads/moku-project/Moku.svg?variant=outline&size=default)
+[![Stars](https://www.shieldcn.dev/github/stars/moku-project/Moku.svg?variant=outline&size=default)](https://github.com/moku-project/Moku)
+[![Discord](https://www.shieldcn.dev/discord/members/x97hj8zR72.svg?variant=outline&size=default)](https://discord.gg/x97hj8zR72)
+
+</div>
+
+<br/>
+
+Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server). It wraps Suwayomi's GraphQL API in a lightweight Tauri app — no Electron overhead.
+
+---
+
+## Screenshots
+
+<div align="center">
+  <img src="docs/screenshots/Moku-Home.png" width="100%" alt="Home" />
+</div>
+
+<div align="center">
+  <img src="docs/screenshots/Moku-Search.png" width="49%" alt="Search" />
+  <img src="docs/screenshots/Moku-TagSearch.png" width="49%" alt="Tag Search" />
+  <img src="docs/screenshots/Moku-Settings.png" width="49%" alt="Settings" />
+  <img src="docs/screenshots/Moku-Preview.png" width="49%" alt="Preview" />
+  <img src="docs/screenshots/Moku-Downloads.png" width="49%" alt="Downloads" />
+  <img src="docs/screenshots/Moku-ReaderSettings.png" width="49%" alt="Reader Settings" />
+</div>
+
+<div align="center">
+  <a href="docs/screenshots" style="color: #a8c4a8;">View all screenshots →</a>
 </div>
 
 ---
 
 ## Features
 
-### Reader
-- **Single**, **double-page**, and **longstrip** reading modes
-- **Infinite longstrip** — when Auto mode is enabled, the next chapter's pages are appended directly into the scroll without any re-render or gap; the entire series flows as one seamless ribbon
-- Fit modes: fit width, fit height, fit screen, and 1:1 original
-- Per-series zoom control via Ctrl+scroll or a slider popover
-- RTL / LTR reading direction toggle
-- Configurable page gaps
-- Full keyboard navigation with rebindable keybinds
-- UI auto-hides after 3 seconds of inactivity; reappears on cursor movement near edges
-- Chapter-relative page counter that updates live as you scroll through the infinite strip
-- Auto-mark chapters as read when the last page is reached
-
-### Library
-- Grid view of your entire manga collection with lazy-loaded cover art
-- Filter tabs: **Saved**, **Downloaded**, and **All**
-- Genre tag filter chips — multi-select to narrow by any combination of tags
-- In-line search
-- Context menu: open, add/remove from library
-
-### Series Detail
-- Cover, author, artist, status badge, genres, and synopsis
-- Read progress bar with percentage
-- Continue / Start / Re-read button that picks up exactly where you left off (including mid-chapter page)
-- Chapter list with scanlator, upload date, and in-progress page indicator
-- **Grid view** — displays all chapters as numbered tiles; read/unread/in-progress states are visually distinct at a glance; switches between list and grid with a single click
-- Sort by newest or oldest first
-- Jump-to-chapter input
-- Bulk download menu: from current chapter, unread only, or all
-- Per-chapter context menu: mark read/unread, mark all above as read, download, delete, bulk download from here
-- Collapsible source details panel with source ID, language, and source migration
-
-### Search
-- Cross-source search running up to 3 concurrent requests
-- Language filter bar (preferred language default, per-language, or all)
-- Results grouped by source with skeleton loading states
-
-### Sources & Extensions
-- Browse and search installed sources, grouped by extension with per-language expansion
-- Extension manager: install, update, remove, and install from external APK URL
-- Repo refresh with update count badge
-
-### Downloads
-- Download queue with live progress
-
-### History
-- Reading history grouped by day with relative timestamps
-- Per-entry thumbnail, chapter name, and last-read page
-- Full-text search across titles and chapter names
-- One-click clear
-
----
-
-## Requirements
-
-[Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server) must be running. By default Moku expects it at `http://127.0.0.1:4567`.
-
-> Moku will attempt to launch the server automatically on startup if the `suwayomi-server` binary is on your `PATH`.
+- **Library management** — organize manga into folders, track unread counts, filter by genre
+- **Per-folder sorting & filtering** — each folder has its own independent sort (unread, A–Z, recently read, latest chapter, and more) and publication status filter (Ongoing, Completed, Hiatus, etc.)
+- **Built-in reader** — single page, long strip, configurable fit modes, customizable keybinds
+- **Markers** — pin color-coded notes to any page while reading; markers appear as dots on the progress bar and are browseable under Series Detail → Manage → Markers
+- **Extension support** — install and manage Suwayomi extensions directly from the app
+- **Download management** — queue and monitor chapter downloads with progress toasts
+- **Automation** — pre-download titles automatically and optionally delete chapters after they're marked as read (accessible from Series Detail)
+- **Discord Rich Presence** — shows the manga title, current chapter, and an elapsed timer in your Discord status; configurable in Settings → General
+- **Auto-start server** — optionally launch Suwayomi in the background on startup
+- **Multiple themes** — Dark, Light, Midnight, Warm, High Contrast, and more
+- **Auto-updates** — in-app update checker with silent background notifications
+- **Improved NSFW filtering** — expanded tag parser gives the Hide NSFW setting better coverage across sources
 
 ---
 
 ## Installation
 
-**Nix (recommended)**
+<div align="center">
+
+![Runs on Windows](https://www.shieldcn.dev/badge/Runs%20on-Windows-0078D4.svg?logo=windows&logoColor=fff)
+![Runs on Linux](https://www.shieldcn.dev/badge/Runs%20on-Linux-FCC624.svg?logo=linux&logoColor=000)
+![Runs on MacOS](https://www.shieldcn.dev/badge/Runs%20on-MacOS-000000.svg?mode=light&logo=apple&logoColor=fff)
+
+</div>
+
+### Windows
+
+**winget:**
+
+```powershell
+winget install Moku.Moku
+```
+
+> Thanks to [@frozenKelp](https://github.com/frozenKelp) for setting up and maintaining the winget package through v0.9.0.
+
+Or download the `.exe` installer from the [releases page](https://github.com/moku-project/Moku/releases/latest). Suwayomi-Server and a JRE are bundled.
+
+### Linux (Flatpak, recommended)
+
+Suwayomi-Server and a bundled JRE are included — no separate install needed.
 
 ```bash
-nix run github:Youwes09/moku
+flatpak install io.github.moku_app.Moku
+```
+
+Or download the latest `moku.flatpak` from the [releases page](https://github.com/moku-project/Moku/releases/latest) and install manually:
+
+```bash
+flatpak install moku.flatpak
+```
+
+### Nix
+
+```bash
+nix run github:moku-project/Moku
 ```
 
 Add to your flake:
 
 ```nix
-inputs.moku.url = "github:Youwes09/moku";
+inputs.moku.url = "github:moku-project/Moku";
 ```
 
-**From source**
+### macOS
 
-```bash
-git clone https://github.com/Youwes09/moku
-cd moku
-nix build
-./result/bin/moku
-```
+Download the `.dmg` from the [releases page](https://github.com/moku-project/Moku/releases/latest).
+
+> **Note:** Builds are ad-hoc signed. On first launch you may need to run:
+> ```bash
+> xattr -rd com.apple.quarantine /Applications/Moku.app
+> ```
+
+---
+
+## Requirements
+
+If you're not using the bundled Flatpak or Windows installer, [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server) must be running separately. By default Moku connects to `http://127.0.0.1:4567`.
+
+You can point Moku at any Suwayomi instance — local or remote — via **Settings → General → Server URL**.
 
 ---
 
 ## Development
+
+**Prerequisites:** [Rust](https://rustup.rs), [Node.js](https://nodejs.org), [pnpm](https://pnpm.io), and [Tauri v2 prerequisites](https://tauri.app/start/prerequisites/).
+
+```bash
+git clone https://github.com/moku-project/Moku
+cd Moku
+pnpm install
+pnpm tauri:dev
+```
+
+Or with Nix:
 
 ```bash
 nix develop
@@ -114,21 +141,24 @@ pnpm install
 pnpm tauri:dev
 ```
 
-> `tauri:dev` uses `src-tauri/tauri.dev.conf.json` to point at the Vite dev server, keeping the release build config clean for `nix build`.
-
 ---
-
 
 ## Stack
 
 | | |
 |---|---|
 | [Tauri v2](https://tauri.app) | Native app shell |
-| [React](https://react.dev) + [TypeScript](https://www.typescriptlang.org) | UI |
+| [Svelte 5](https://svelte.dev) + [TypeScript](https://www.typescriptlang.org) | UI |
 | [Vite](https://vitejs.dev) | Frontend bundler |
-| [Zustand](https://zustand-demo.pmnd.rs) | State management |
-| [Phosphor Icons](https://phosphoricons.com) | Icon set |
 | [Crane](https://github.com/ipetkov/crane) | Nix Rust builds |
+
+---
+
+## Community
+
+Questions, feedback, or just want to hang out — join the Discord.
+
+[![Discord](https://www.shieldcn.dev/discord/members/x97hj8zR72.svg?variant=secondary&size=large)](https://discord.gg/x97hj8zR72)
 
 ---
 

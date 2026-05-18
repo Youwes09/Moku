@@ -1,0 +1,13 @@
+{
+  "bundle": {
+    "targets": ["appimage", "deb"],
+    "externalBin": [
+      "binaries/suwayomi-launcher-linux"
+    ],
+    "resources": {
+      "binaries/suwayomi-bundle/bin/Suwayomi-Server.jar": "Suwayomi-Server.jar",
+      "binaries/suwayomi-bundle/bin/catch_abort.so": "catch_abort.so",
+      "binaries/suwayomi-bundle/jre": "jre"
+    }
+  }
+}

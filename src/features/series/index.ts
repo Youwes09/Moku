@@ -1,0 +1,10 @@
+export { default as SeriesDetail   } from "./components/SeriesDetail.svelte";
+export { default as SeriesHeader   } from "./components/SeriesHeader.svelte";
+export { default as SeriesActions  } from "./components/SeriesActions.svelte";
+export { default as ChapterList    } from "./components/ChapterList.svelte";
+export { default as AutomationPanel } from "./panels/AutomationPanel.svelte";
+export { default as MarkersPanel    } from "./panels/MarkersPanel.svelte";
+export { default as MigrateModal    } from "./panels/MigrateModal.svelte";
+export { default as TrackingPanel   } from "./panels/TrackingPanel.svelte";
+export { buildChapterList, chaptersAscending } from "./lib/chapterList";
+export type { ChapterDisplayPrefs, ChapterSortMode, ChapterSortDir } from "./lib/chapterList";

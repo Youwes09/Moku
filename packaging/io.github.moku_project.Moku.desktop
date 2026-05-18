@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Moku
+Comment=Manga reader powered by Suwayomi
+Exec=moku
+Icon=io.github.moku_project.Moku
+Terminal=false
+Type=Application
+Categories=Graphics;Viewer;
+Keywords=manga;comics;reader;
+StartupWMClass=moku

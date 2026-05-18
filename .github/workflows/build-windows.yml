@@ -4,12 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (e.g. 0.4.0)"
+        description: "Version to build (e.g. 0.9.0)"
         required: true
       branch:
         description: "Branch to build (e.g. svelte-rewrite)"
         required: false
         default: "main"
+
+permissions:
+  contents: write
 
 jobs:
   frontend:
@@ -84,60 +87,89 @@ jobs:
         shell: bash
         run: |
           curl -fsSL \
-            "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/Suwayomi-Server-v2.1.1867-windows-x64.zip" \
+            "https://github.com/Suwayomi/Suwayomi-Server-preview/releases/download/v2.1.2087/Suwayomi-Server-v2.1.2087-windows-x64.zip" \
             -o suwayomi-windows.zip
-
-          echo "ab6687d278e0dd0984f67abbc853511a7e764f84b126a35d09bfd9b0307321ff  suwayomi-windows.zip" | sha256sum -c -
-
+          echo "65c3ec544190bc4e52f8ba05b49c87448421d9825aaaeb902cb4e34e69ff7207  suwayomi-windows.zip" | sha256sum -c -
           unzip -q suwayomi-windows.zip -d suwayomi-raw
 
-          TOP_DIRS=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type d)
-          TOP_FILES=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type f)
-          TOP_DIR_COUNT=$(echo "$TOP_DIRS" | grep -c . || true)
-
+      - name: Extract Suwayomi bundle
+        shell: bash
+        run: |
           mkdir -p suwayomi-extracted
-          if [ "$TOP_DIR_COUNT" -eq 1 ] && [ -z "$TOP_FILES" ]; then
-            mv "$TOP_DIRS"/* suwayomi-extracted/
+          TOP_DIRS=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type d | wc -l)
+          TOP_FILES=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type f | wc -l)
+          if [ "$TOP_DIRS" -eq 1 ] && [ "$TOP_FILES" -eq 0 ]; then
+            INNER=$(find suwayomi-raw -mindepth 1 -maxdepth 1 -type d | head -1)
+            cp -r "$INNER"/. suwayomi-extracted/
           else
-            mv suwayomi-raw/* suwayomi-extracted/
+            cp -r suwayomi-raw/. suwayomi-extracted/
           fi
 
       - name: Stage Suwayomi bundle
         shell: bash
         run: |
           mkdir -p src-tauri/binaries
-
-          JAVAW=$(find suwayomi-extracted -path "*/jre/bin/javaw.exe" | head -1)
-
-          if [ -z "$JAVAW" ]; then
-            echo "ERROR: could not find jre/bin/javaw.exe — bundle contents:"
-            find suwayomi-extracted -type f | head -40
+          JAVA=$(find suwayomi-extracted -path "*/jre/bin/java.exe" | head -1)
+          JAR=$(find suwayomi-extracted -name "Suwayomi-Server.jar" | head -1)
+          if [ -z "$JAVA" ]; then
+            echo "ERROR: jre/bin/java.exe not found"
+            find suwayomi-extracted -type f | head -50
             exit 1
           fi
-
-          echo "Found javaw: $JAVAW"
-
-          # Copy full bundle so jar + jre tree are available at runtime.
-          # lib.rs looks for suwayomi-bundle/jre/bin/javaw.exe in the resource dir.
+          if [ -z "$JAR" ]; then
+            echo "ERROR: Suwayomi-Server.jar not found"
+            find suwayomi-extracted -type f | head -50
+            exit 1
+          fi
           cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
+
+      - name: Validate staging
+        shell: bash
+        run: |
+          find src-tauri/binaries/suwayomi-bundle -path "*/jre/bin/java.exe" \
+            | grep -q . || (echo "ERROR: jre/bin/java.exe missing" && exit 1)
+          find src-tauri/binaries/suwayomi-bundle -name "Suwayomi-Server.jar" \
+            | grep -q . || (echo "ERROR: Suwayomi-Server.jar missing" && exit 1)
+          echo "Staging OK"
 
       - name: Patch tauri.conf.json for CI
         shell: bash
         run: |
           sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
 
-      - name: Build Tauri app (Windows x64)
+      - name: Delete existing draft release if present
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/moku-project/Moku/releases" \
+            | jq -r '.[] | select(.tag_name == "v${{ github.event.inputs.version }}" and .draft == true) | .id')
+          if [ -n "$RELEASE_ID" ]; then
+            echo "Deleting existing draft release $RELEASE_ID"
+            curl -s -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/moku-project/Moku/releases/$RELEASE_ID"
+            curl -s -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/moku-project/Moku/git/refs/tags/v${{ github.event.inputs.version }}"
+            echo "Deleted draft release and tag"
+          else
+            echo "No existing draft release found"
+          fi
+
+      - name: Build Tauri app + create draft release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: >-
-            --target x86_64-pc-windows-msvc
-            --config '{"bundle":{"resources":["binaries/suwayomi-bundle/**"]}}'  
+          tagName: v${{ github.event.inputs.version }}
+          releaseName: Moku v${{ github.event.inputs.version }}
+          releaseBody: |
+            Moku v${{ github.event.inputs.version }}
 
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: moku-windows-x64
-          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-          retention-days: 7
+            **Windows:** Download `Moku_${{ github.event.inputs.version }}_x64-setup.exe`
+            **macOS arm64:** Download `moku-macos-arm64-${{ github.event.inputs.version }}.dmg`
+            **macOS x64:** Download `moku-macos-x64-${{ github.event.inputs.version }}.dmg`
+            **Linux:** Download `moku.flatpak`
+          releaseDraft: true
+          prerelease: false
+          args: --target x86_64-pc-windows-msvc --config src-tauri/tauri.windows.conf.json

@@ -1,20 +1,48 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Allow launching suwayomi-server sidecar",
-  "windows": ["main"],
+  "description": "Default permissions for Moku",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
+    "core:tray:default",
+    "core:app:allow-default-window-icon",
+    "core:window:allow-hide",
+    "core:window:allow-show",
     "shell:allow-open",
     "shell:allow-kill",
-    {
-      "identifier": "shell:allow-spawn",
-      "allow": [
-        {
-          "name": "binaries/suwayomi-server",
-          "sidecar": true
-        }
-      ]
-    }
+    "shell:allow-spawn",
+    "shell:allow-execute",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-is-maximized",
+    "core:window:allow-is-minimized",
+    "core:window:allow-inner-size",
+    "core:window:allow-outer-size",
+    "core:window:allow-inner-position",
+    "core:window:allow-outer-position",
+    "core:window:allow-scale-factor",
+    "process:default",
+    "process:allow-exit",
+    "process:allow-restart",
+    "http:default",
+    "http:allow-fetch",
+    "store:default",
+    "discord-rpc:default",
+    "discord-rpc:allow-connect",
+    "discord-rpc:allow-disconnect",
+    "discord-rpc:allow-set-activity",
+    "discord-rpc:allow-clear-activity",
+    "discord-rpc:allow-is-running"
   ]
 }

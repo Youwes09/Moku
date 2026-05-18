@@ -1,0 +1,260 @@
+app-id: io.github.moku_project.Moku
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: moku
+separate-locales: false
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --share=network
+
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.portal.FileTransfer
+
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=com.canonical.AppMenu.Registrar
+  - --talk-name=com.canonical.indicator.application
+
+  - --filesystem=xdg-run/discord-ipc-0:ro
+  - --filesystem=xdg-data/moku:create
+  - --filesystem=xdg-download
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/moku/cargo
+
+modules:
+  - name: intltool
+    buildsystem: autotools
+    sources:
+      - type: archive
+        url: https://launchpad.net/intltool/trunk/0.51.0/+download/intltool-0.51.0.tar.gz
+        sha256: 67c74d94196b153b774ab9f89b2fa6c6ba79352407037c8c14d5aeb334e959cd
+
+  - name: libdbusmenu
+    buildsystem: autotools
+    build-options:
+      cflags: -Wno-error
+      env:
+        HAVE_VALGRIND_FALSE: '#'
+        HAVE_VALGRIND_TRUE: ''
+    config-opts:
+      - --with-gtk=3
+      - --disable-static
+      - --disable-dumper
+      - --disable-tests
+      - --disable-gtk-doc
+      - --disable-vala
+      - --disable-introspection
+    cleanup:
+      - /include
+      - /libexec
+      - /lib/pkgconfig
+      - /lib/*.la
+      - /share/doc
+      - /share/libdbusmenu
+      - /share/gtk-doc
+      - /share/gir-1.0
+    sources:
+      - type: archive
+        url: https://launchpad.net/libdbusmenu/16.04/16.04.0/+download/libdbusmenu-16.04.0.tar.gz
+        sha256: b9cc4a2acd74509435892823607d966d424bd9ad5d0b00938f27240a1bfa878a
+
+  - name: libayatana-ido
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DENABLE_TESTS=OFF
+      - -DGSETTINGS_COMPILE=OFF
+    sources:
+      - type: git
+        url: https://github.com/AyatanaIndicators/ayatana-ido.git
+        tag: 0.10.3
+
+  - name: libayatana-indicator
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DENABLE_TESTS=OFF
+      - -DGSETTINGS_COMPILE=OFF
+    sources:
+      - type: git
+        url: https://github.com/AyatanaIndicators/libayatana-indicator.git
+        tag: 0.9.4
+
+  - name: libayatana-appindicator
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DENABLE_TESTS=OFF
+      - -DENABLE_BINDINGS_MONO=OFF
+      - -DENABLE_BINDINGS_VALA=OFF
+      - -DGSETTINGS_COMPILE=OFF
+    sources:
+      - type: git
+        url: https://github.com/AyatanaIndicators/libayatana-appindicator.git
+        tag: 0.5.93
+      - type: shell
+        commands:
+          - sed -i '/add_subdirectory(docs)/d' CMakeLists.txt
+
+  - name: openjdk
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/jre
+      - tar -xf jdk.tar.gz -C /app/jre --strip-components=1
+    sources:
+      - type: file
+        url: https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jre_x64_linux_hotspot_21.0.5_11.tar.gz
+        sha256: 553dda64b3b1c3c16f8afe402377ffebe64fb4a1721a46ed426a91fd18185e62
+        dest-filename: jdk.tar.gz
+
+  - name: catch-abort
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/lib
+      - gcc -shared -fPIC -o /app/lib/catch_abort.so catch_abort.c -ldl -lpthread
+    sources:
+      - type: inline
+        dest-filename: catch_abort.c
+        contents: |
+          #define _GNU_SOURCE
+          #include <stdio.h>
+          #include <dlfcn.h>
+          #include <signal.h>
+          #include <pthread.h>
+          #include <execinfo.h>
+
+          void signalHandler(int signum, siginfo_t* si, void* uc) {
+            void *retaddrs[64];
+            int n = backtrace(retaddrs, sizeof(retaddrs) / sizeof(retaddrs[0]));
+            printf("\n### ABORT :: Backtrace: ###\n");
+            backtrace_symbols_fd(retaddrs, n, STDERR_FILENO);
+            printf("### ABORT :: Exiting this thread. If this causes problems, please report the above backtrace to Suwayomi. ###\n\n");
+            pthread_exit(NULL);
+          }
+
+          __attribute__((constructor))
+          void dlmain() {
+            struct sigaction sa = {0};
+            sa.sa_flags     = SA_SIGINFO | SA_RESTART;
+            sa.sa_sigaction = &signalHandler;
+            sigemptyset(&sa.sa_mask);
+            if (sigaction(SIGTRAP, &sa, NULL) != 0) {
+              printf("[FATAL] sigaction failed\n");
+            }
+            if (sigaction(SIGILL, &sa, NULL) != 0) {
+              printf("[FATAL] sigaction failed\n");
+            }
+          }
+
+  - name: tachidesk-server
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/tachidesk /app/bin /app/tachidesk/default-conf
+      - cp Suwayomi-Server.jar /app/tachidesk/
+
+      - |
+        cat > /app/tachidesk/default-conf/server.conf << 'EOF'
+        server.ip = "127.0.0.1"
+        server.port = 4567
+        server.webUIEnabled = true
+        server.initialOpenInBrowserEnabled = false
+        server.systemTrayEnabled = false
+        server.webUIInterface = "browser"
+        server.webUIFlavor = "WebUI"
+        server.webUIChannel = "PREVIEW"
+        server.electronPath = ""
+        server.debugLogsEnabled = false
+        server.downloadAsCbz = true
+        server.autoDownloadNewChapters = false
+        server.globalUpdateInterval = 12
+        server.maxSourcesInParallel = 6
+        server.extensionRepos = []
+        EOF
+
+      - |
+        cat > /app/bin/tachidesk-server << 'EOF'
+        #!/bin/sh
+
+        DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/Tachidesk"
+        mkdir -p "$DATA_DIR"
+
+        if [ ! -f "$DATA_DIR/server.conf" ]; then
+          cp /app/tachidesk/default-conf/server.conf "$DATA_DIR/server.conf"
+        fi
+
+        sed -i \
+          -e 's|server\.webUIEnabled.*|server.webUIEnabled = false|' \
+          -e 's|server\.initialOpenInBrowserEnabled.*|server.initialOpenInBrowserEnabled = false|' \
+          -e 's|server\.systemTrayEnabled.*|server.systemTrayEnabled = false|' \
+          "$DATA_DIR/server.conf"
+
+        grep -q 'server\.webUIEnabled'                "$DATA_DIR/server.conf" || echo 'server.webUIEnabled = true'                >> "$DATA_DIR/server.conf"
+        grep -q 'server\.initialOpenInBrowserEnabled' "$DATA_DIR/server.conf" || echo 'server.initialOpenInBrowserEnabled = false' >> "$DATA_DIR/server.conf"
+        grep -q 'server\.systemTrayEnabled'           "$DATA_DIR/server.conf" || echo 'server.systemTrayEnabled = false'           >> "$DATA_DIR/server.conf"
+
+        unset DISPLAY
+        unset WAYLAND_DISPLAY
+
+        export _JAVA_OPTIONS="-Djava.awt.headless=true"
+        export JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
+
+        export LD_PRELOAD="/app/lib/catch_abort.so"
+
+        exec /app/jre/bin/java \
+          -Djava.awt.headless=true \
+          -Dapple.awt.UIElement=true \
+          -Dsun.java2d.noddraw=true \
+          -Dsun.awt.disablegui=true \
+          -Dsuwayomi.tachidesk.config.server.rootDir="$DATA_DIR" \
+          -jar /app/tachidesk/Suwayomi-Server.jar
+        EOF
+
+      - chmod +x /app/bin/tachidesk-server
+
+    sources:
+      - type: file
+        url: https://github.com/Suwayomi/Suwayomi-Server-preview/releases/download/v2.1.2087/Suwayomi-Server-v2.1.2087.jar
+        sha256: f589a422674252394c13b289a9c8be691905bf583efb7f4d5f1501ae5e91e6b3
+        dest-filename: Suwayomi-Server.jar
+
+  - name: moku
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/moku/cargo
+        XDG_DATA_HOME: /run/build/moku/xdg-data
+        TAURI_SKIP_DEVSERVER_CHECK: 'true'
+        PKG_CONFIG_PATH: /usr/lib/pkgconfig:/usr/share/pkgconfig:/app/lib/pkgconfig
+    build-commands:
+      - tar -xzf frontend-dist.tar.gz
+      - . /usr/lib/sdk/rust-stable/enable.sh && PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/share/pkgconfig:/app/lib/pkgconfig cargo build --release --manifest-path src-tauri/Cargo.toml
+      - install -Dm755 src-tauri/target/release/moku /app/bin/moku
+      - install -Dm644 packaging/io.github.moku_project.Moku.desktop /app/share/applications/io.github.moku_project.Moku.desktop
+      - install -Dm644 src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/io.github.moku_project.Moku.png
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.moku_project.Moku.png
+      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/io.github.moku_project.Moku.png
+      - install -Dm644 packaging/io.github.moku_project.Moku.metainfo.xml /app/share/metainfo/io.github.moku_project.Moku.metainfo.xml
+    sources:
+      - type: git
+        url: https://github.com/moku-project/Moku.git
+        tag: v0.9.4
+        commit: 239960683b6c7f1347e1798b0e179a8a46628728
+      - type: file
+        path: packaging/frontend-dist.tar.gz
+        sha256: 7db288b4b54277aa82b6ec5b21fc31a1e71f8246c50a74777500083b806c1fa5
+      - packaging/cargo-sources.json
+      - type: inline
+        dest: src-tauri/.cargo
+        dest-filename: config.toml
+        contents: |
+          [source.crates-io]
+          replace-with = "vendored-sources"
+          [source.vendored-sources]
+          directory = "/run/build/moku/cargo/vendor"

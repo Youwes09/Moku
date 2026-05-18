@@ -1,0 +1,171 @@
+name: Build Linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.9.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  frontend:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-linux
+          path: dist/
+          retention-days: 1
+
+  tauri:
+    name: Tauri (Linux x64)
+    needs: frontend
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist-linux
+          path: dist/
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download Suwayomi (Linux x64)
+        run: |
+          curl -fsSL \
+            "https://github.com/Suwayomi/Suwayomi-Server-preview/releases/download/v2.1.2087/Suwayomi-Server-v2.1.2087-linux-x64.tar.gz" \
+            -o suwayomi-linux.tar.gz
+
+          echo "888bee202649ce7e3e3468a729c4084fb465f024b4033cab3f8ab98b0c66fe76  suwayomi-linux.tar.gz" | sha256sum -c -
+
+          mkdir -p suwayomi-extracted
+          tar -xzf suwayomi-linux.tar.gz -C suwayomi-extracted --strip-components=1
+
+      - name: Stage Suwayomi bundle
+        run: |
+          mkdir -p src-tauri/binaries
+
+          JAR="suwayomi-extracted/bin/Suwayomi-Server.jar"
+          JAVA="suwayomi-extracted/jre/bin/java"
+          CATCH="suwayomi-extracted/bin/catch_abort.so"
+
+          for f in "$JAR" "$JAVA" "$CATCH"; do
+            if [ ! -e "$f" ]; then
+              echo "ERROR: expected file not found: $f"
+              find suwayomi-extracted -type f | head -40
+              exit 1
+            fi
+          done
+
+          echo "JAR=$JAR  JAVA=$JAVA  CATCH=$CATCH"
+
+          cp -r suwayomi-extracted src-tauri/binaries/suwayomi-bundle
+          chmod +x src-tauri/binaries/suwayomi-bundle/jre/bin/java
+
+      - name: Stage Linux launcher sidecar
+        run: |
+          cp src-tauri/binaries/suwayomi-launcher-linux.sh \
+             src-tauri/binaries/suwayomi-launcher-linux-x86_64-unknown-linux-gnu
+          chmod +x src-tauri/binaries/suwayomi-launcher-linux-x86_64-unknown-linux-gnu
+
+      - name: Patch tauri.conf.json for CI
+        run: |
+          sed -i 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
+
+      - name: Build Tauri app
+        run: pnpm tauri build --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.conf.json --verbose
+        env:
+          NO_STRIP: "true"
+
+      - name: Upload Linux artifacts to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          for i in $(seq 1 12); do
+            RELEASE_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/moku-project/Moku/releases" \
+              | jq -r '.[] | select(.tag_name == "v'"$VERSION"'") | .id' | head -1)
+            if [ -n "$RELEASE_ID" ]; then break; fi
+            echo "Waiting for release to exist... attempt $i"
+            sleep 15
+          done
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "ERROR: Could not find release for v$VERSION after waiting"
+            exit 1
+          fi
+
+          echo "Found release ID: $RELEASE_ID"
+
+          upload_asset() {
+            local file="$1"
+            local name="$2"
+            echo "Uploading $name..."
+            curl -s -X POST \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$file" \
+              "https://uploads.github.com/repos/moku-project/Moku/releases/$RELEASE_ID/assets?name=$name"
+          }
+
+          APPIMAGE=$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -name "*.AppImage" | head -1)
+          DEB=$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -name "*.deb" | head -1)
+
+          [ -n "$APPIMAGE" ] && upload_asset "$APPIMAGE" "moku-linux-x64-${VERSION}.AppImage"
+          [ -n "$DEB"      ] && upload_asset "$DEB"      "moku-linux-x64-${VERSION}.deb"

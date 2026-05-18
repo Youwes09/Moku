@@ -4,8 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (e.g. 0.3.0)"
+        description: "Version to build (e.g. 0.4.0)"
         required: true
+
+permissions:
+  contents: write
 
 jobs:
   frontend:
@@ -40,9 +43,6 @@ jobs:
     name: Tauri (macOS)
     needs: frontend
     runs-on: macos-latest
-    permissions:
-      contents: write
-
     steps:
       - uses: actions/checkout@v4
 
@@ -79,7 +79,7 @@ jobs:
           download_suwayomi() {
             local asset="$1" sha="$2" outdir="$3"
             curl -fsSL \
-              "https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.1.1867/${asset}" \
+              "https://github.com/Suwayomi/Suwayomi-Server-preview/releases/download/v2.1.2087/${asset}" \
               -o "${outdir}.tar.gz"
             echo "${sha}  ${outdir}.tar.gz" | shasum -a 256 -c -
             mkdir -p "${outdir}"
@@ -87,162 +87,108 @@ jobs:
           }
 
           download_suwayomi \
-            "Suwayomi-Server-v2.1.1867-macOS-arm64.tar.gz" \
-            "c80abdbba29f7895e9556c6c9481368557d5f930b5f69bcb30639ba498925f3c" \
+            "Suwayomi-Server-v2.1.2087-macOS-arm64.tar.gz" \
+            "59f73a53a139d5d843e16cab4f3ac425a410add6bee0a60920fa26eb0a4b8a5c" \
             "suwayomi-arm64"
 
           download_suwayomi \
-            "Suwayomi-Server-v2.1.1867-macOS-x64.tar.gz" \
-            "c7590aeb645dd7135a05b9f3ea1fee384a4abeb465c0b3638d5b738d20dfe174" \
+            "Suwayomi-Server-v2.1.2087-macOS-x64.tar.gz" \
+            "da7e664e4c2615a0b9eac09ee38fe979feee1d6c0b266e19dba1ceea8ae3795c" \
             "suwayomi-x64"
 
       - name: Stage Suwayomi sidecars
         run: |
           mkdir -p src-tauri/binaries
 
-          find_launcher() {
-            local dir="$1"
-            # v2.1.1867 macOS tarball ships "Suwayomi Launcher.command" (space, .command)
-            find "$dir" -maxdepth 1 -type f -name "*.command" | head -1
+          stage_arch() {
+            local srcdir="$1"
+            local arch="$2"
+            local sidecar="src-tauri/binaries/suwayomi-server-${arch}"
+            local bundle_dest="src-tauri/binaries/suwayomi-bundle-${arch}"
+
+            JAR=$(find "$srcdir" -name "Suwayomi-Server.jar" | head -1)
+            JAVA=$(find "$srcdir" -path "*/jre/bin/java" | head -1)
+
+            if [ -z "$JAR" ]; then
+              echo "ERROR: Suwayomi-Server.jar not found in $srcdir"
+              find "$srcdir" -type f | head -30
+              exit 1
+            fi
+            if [ -z "$JAVA" ]; then
+              echo "ERROR: jre/bin/java not found in $srcdir"
+              find "$srcdir" -type f | head -30
+              exit 1
+            fi
+
+            echo "${arch}: jar=${JAR}  java=${JAVA}"
+
+            cp -r "$srcdir" "$bundle_dest"
+
+            # The launcher script is committed at src-tauri/binaries/suwayomi-launcher.sh
+            # to avoid embedding a heredoc in YAML (which breaks GitHub Actions parsing).
+            cp src-tauri/binaries/suwayomi-launcher.sh "$sidecar"
+            chmod +x "$sidecar"
+            echo "Staged sidecar: $sidecar"
           }
 
-          ARM_LAUNCHER=$(find_launcher suwayomi-arm64)
-          X64_LAUNCHER=$(find_launcher suwayomi-x64)
-
-          if [ -z "$ARM_LAUNCHER" ] || [ -z "$X64_LAUNCHER" ]; then
-            echo "ERROR: could not find launchers — tarball contents:"
-            ls -lR suwayomi-arm64 suwayomi-x64
-            exit 1
-          fi
-
-          echo "arm64 launcher: $ARM_LAUNCHER"
-          echo "x64   launcher: $X64_LAUNCHER"
-
-          cp "$ARM_LAUNCHER" src-tauri/binaries/suwayomi-server-aarch64-apple-darwin
-          cp "$X64_LAUNCHER" src-tauri/binaries/suwayomi-server-x86_64-apple-darwin
-          chmod +x src-tauri/binaries/suwayomi-server-aarch64-apple-darwin
-          chmod +x src-tauri/binaries/suwayomi-server-x86_64-apple-darwin
-
-          # tauri.conf.json expects exactly "binaries/suwayomi-bundle".
-          # We stage both arch bundles and swap the symlink before each build.
-          cp -r suwayomi-arm64 src-tauri/binaries/suwayomi-bundle-arm64
-          cp -r suwayomi-x64   src-tauri/binaries/suwayomi-bundle-x64
+          stage_arch suwayomi-arm64 aarch64-apple-darwin
+          stage_arch suwayomi-x64   x86_64-apple-darwin
 
       - name: Patch tauri.conf.json for CI
         run: |
-          # dist/ is already built by the frontend job — suppress the rebuild.
-          # We patch in-place rather than using --config to avoid Tauri schema issues.
           sed -i '' 's/"beforeBuildCommand": "pnpm build"/"beforeBuildCommand": ""/' src-tauri/tauri.conf.json
 
       - name: Swap bundle for aarch64
         run: |
           rm -rf src-tauri/binaries/suwayomi-bundle
-          cp -r src-tauri/binaries/suwayomi-bundle-arm64 src-tauri/binaries/suwayomi-bundle
+          cp -r src-tauri/binaries/suwayomi-bundle-aarch64-apple-darwin \
+                src-tauri/binaries/suwayomi-bundle
 
       - name: Build Tauri app (aarch64)
-        uses: tauri-apps/tauri-action@v0
+        run: pnpm tauri build --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json
         env:
-          GITHUB_TOKEN:           ${{ secrets.GITHUB_TOKEN }}
-          # Ad-hoc signing by default ("-"); override by setting APPLE_SIGNING_IDENTITY secret.
-          # Only set APPLE_CERTIFICATE/APPLE_ID/etc when you have a real Developer ID cert.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
-        with:
-          args: --target aarch64-apple-darwin
 
       - name: Swap bundle for x86_64
         run: |
           rm -rf src-tauri/binaries/suwayomi-bundle
-          cp -r src-tauri/binaries/suwayomi-bundle-x64 src-tauri/binaries/suwayomi-bundle
+          cp -r src-tauri/binaries/suwayomi-bundle-x86_64-apple-darwin \
+                src-tauri/binaries/suwayomi-bundle
 
       - name: Build Tauri app (x86_64)
-        uses: tauri-apps/tauri-action@v0
+        run: pnpm tauri build --target x86_64-apple-darwin --config src-tauri/tauri.macos.conf.json
         env:
-          GITHUB_TOKEN:           ${{ secrets.GITHUB_TOKEN }}
-          # Ad-hoc signing by default ("-"); override by setting APPLE_SIGNING_IDENTITY secret.
-          # Only set APPLE_CERTIFICATE/APPLE_ID/etc when you have a real Developer ID cert.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
-        with:
-          args: --target x86_64-apple-darwin
 
-      - name: Upload arm64 .dmg
-        uses: actions/upload-artifact@v4
-        with:
-          name: moku-aarch64
-          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-          retention-days: 7
-
-      - name: Upload x64 .dmg
-        uses: actions/upload-artifact@v4
-        with:
-          name: moku-x86_64
-          path: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-          retention-days: 7
-
-      - name: Upload arm64 .app (for universal job)
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-aarch64-apple-darwin
-          path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/
-          retention-days: 1
-
-      - name: Upload x64 .app (for universal job)
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-x86_64-apple-darwin
-          path: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/
-          retention-days: 1
-
-  universal:
-    name: Universal .dmg
-    needs: tauri
-    runs-on: macos-latest
-
-    steps:
-      - name: Download arm64 .app
-        uses: actions/download-artifact@v4
-        with:
-          name: app-aarch64-apple-darwin
-          path: apps/arm64/
-
-      - name: Download x64 .app
-        uses: actions/download-artifact@v4
-        with:
-          name: app-x86_64-apple-darwin
-          path: apps/x64/
-
-      - name: lipo into universal binary
+      - name: Upload macOS artifacts to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.event.inputs.version }}
         run: |
-          ARM_APP=$(find apps/arm64 -name "*.app" -maxdepth 1 | head -1)
-          X64_APP=$(find apps/x64  -name "*.app" -maxdepth 1 | head -1)
-          APP_NAME=$(basename "$ARM_APP")
-
-          mkdir -p universal
-          cp -r "$ARM_APP" "universal/${APP_NAME}"
-
-          find "universal/${APP_NAME}" -type f | while read -r f; do
-            if file "$f" | grep -q "Mach-O"; then
-              X64_EQUIV="${X64_APP}${f#universal/${APP_NAME}}"
-              if [ -f "$X64_EQUIV" ]; then
-                lipo -create -output "$f" "$f" "$X64_EQUIV" 2>/dev/null || true
-              fi
-            fi
+          # Wait for the Windows workflow to have created the draft release
+          for i in $(seq 1 12); do
+            RELEASE_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN"               "https://api.github.com/repos/moku-project/Moku/releases"               | jq -r '.[] | select(.tag_name == "v'"$VERSION"'") | .id' | head -1)
+            if [ -n "$RELEASE_ID" ]; then break; fi
+            echo "Waiting for release to exist... attempt $i"
+            sleep 15
           done
 
-      - name: Package universal .dmg
-        run: |
-          APP_NAME=$(find universal -name "*.app" -maxdepth 1 | head -1 | xargs basename)
-          mkdir dmg-stage
-          cp -r "universal/${APP_NAME}" dmg-stage/
-          ln -s /Applications dmg-stage/Applications
-          hdiutil create \
-            -volname "Moku" \
-            -srcfolder dmg-stage \
-            -ov -format UDZO \
-            "moku-universal.dmg"
+          if [ -z "$RELEASE_ID" ]; then
+            echo "ERROR: Could not find release for v$VERSION after waiting"
+            exit 1
+          fi
 
-      - name: Upload universal .dmg
-        uses: actions/upload-artifact@v4
-        with:
-          name: moku-universal
-          path: moku-universal.dmg
-          retention-days: 7
+          echo "Found release ID: $RELEASE_ID"
+
+          upload_asset() {
+            local file="$1"
+            local name="$2"
+            echo "Uploading $name..."
+            curl -s -X POST               -H "Authorization: Bearer $GITHUB_TOKEN"               -H "Content-Type: application/octet-stream"               --data-binary @"$file"               "https://uploads.github.com/repos/moku-project/Moku/releases/$RELEASE_ID/assets?name=$name"
+          }
+
+          ARM64_DMG=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          X64_DMG=$(find src-tauri/target/x86_64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+
+          [ -n "$ARM64_DMG" ] && upload_asset "$ARM64_DMG" "moku-macos-arm64-${VERSION}.dmg"
+          [ -n "$X64_DMG"   ] && upload_asset "$X64_DMG"   "moku-macos-x64-${VERSION}.dmg"

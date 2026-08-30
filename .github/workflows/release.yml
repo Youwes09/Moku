@@ -1,0 +1,213 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Moku version to release (no leading v), e.g. 0.10.5"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Bump, tag, draft release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Bump version in all the places
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          sed -i "s/moku = \"[^\"]*\"/moku = \"$V\"/"             nix/versions.nix
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$V\"/"  src-tauri/tauri.conf.json
+          sed -i "0,/^version = \"[^\"]*\"/s//version = \"$V\"/"   src-tauri/Cargo.toml
+          (cd src-tauri && cargo generate-lockfile)
+
+      - name: Commit, tag, push
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "release: v$V"
+          git tag "v$V"
+          git push origin HEAD:main
+          git push origin "v$V"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="${{ inputs.version }}"
+          gh release create "v$V" \
+            --draft \
+            --title "Moku v$V" \
+            --generate-notes \
+            --notes-start-tag "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')" || \
+          gh release create "v$V" --draft --title "Moku v$V" --generate-notes
+
+  windows:
+    name: Windows x64
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ inputs.version }}
+
+      - name: Read versions
+        shell: bash
+        run: |
+          source .github/read_versions.sh
+          echo "TSUNAGU_VERSION=$TSUNAGU_VERSION" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: x86_64-pc-windows-msvc }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Stage Tsunagu backend
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.TSUNAGU_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "v${TSUNAGU_VERSION}" --repo moku-project/Tsunagu \
+            --pattern 'tsunagu-windows-amd64.exe' \
+            --pattern 'sandbox.jar' \
+            --pattern 'runtime-windows-amd64.zip' \
+            --pattern 'sha256sums.txt' \
+            --dir tsunagu-dl --clobber
+          cd tsunagu-dl
+          for f in tsunagu-windows-amd64.exe sandbox.jar runtime-windows-amd64.zip; do
+            grep " $f\$" sha256sums.txt | sha256sum -c -
+          done
+          cd ..
+          mkdir -p src-tauri/resources/sandbox
+          cp tsunagu-dl/tsunagu-windows-amd64.exe src-tauri/resources/tsunagu.exe
+          cp tsunagu-dl/sandbox.jar               src-tauri/resources/sandbox/sandbox.jar
+          unzip -q tsunagu-dl/runtime-windows-amd64.zip -d src-tauri/resources/sandbox/
+          test -f src-tauri/resources/tsunagu.exe
+          test -f src-tauri/resources/sandbox/sandbox.jar
+          test -f src-tauri/resources/sandbox/runtime/bin/java.exe
+
+      - name: Build
+        run: pnpm tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri.windows.conf.json
+
+      - name: Upload to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          EXE=$(find src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -name "*-setup.exe" | head -1)
+          [ -n "$EXE" ] || { echo "no installer found"; exit 1; }
+          cp "$EXE" "Moku_${V}_x64-setup.exe"
+          gh release upload "v$V" "Moku_${V}_x64-setup.exe" --clobber
+
+  macos:
+    name: macOS (arm64 + x64)
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ inputs.version }}
+
+      - name: Read versions
+        run: |
+          source .github/read_versions.sh
+          echo "TSUNAGU_VERSION=$TSUNAGU_VERSION" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "aarch64-apple-darwin,x86_64-apple-darwin" }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Download Tsunagu backend (arm64 + x64)
+        env:
+          GH_TOKEN: ${{ secrets.TSUNAGU_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "v${TSUNAGU_VERSION}" --repo moku-project/Tsunagu \
+            --pattern 'tsunagu-darwin-*' \
+            --pattern 'sandbox.jar' \
+            --pattern 'runtime-darwin-*.tar.gz' \
+            --pattern 'sha256sums.txt' \
+            --dir tsunagu-dl --clobber
+          cd tsunagu-dl
+          for f in tsunagu-darwin-arm64 tsunagu-darwin-amd64 sandbox.jar \
+                   runtime-darwin-arm64.tar.gz runtime-darwin-amd64.tar.gz; do
+            grep " $f\$" sha256sums.txt | shasum -a 256 -c -
+          done
+
+      - name: Stage Tsunagu resources per arch
+        run: |
+          set -euo pipefail
+          stage() {
+            local bin="$1" runtime="$2" dest="$3"
+            rm -rf "$dest"
+            mkdir -p "$dest/sandbox"
+            cp "tsunagu-dl/$bin" "$dest/tsunagu"
+            chmod +x "$dest/tsunagu"
+            cp tsunagu-dl/sandbox.jar "$dest/sandbox/sandbox.jar"
+            tar -xzf "tsunagu-dl/$runtime" -C "$dest/sandbox/"
+            chmod +x "$dest/sandbox/runtime/bin/java"
+            test -x "$dest/tsunagu"
+            test -f "$dest/sandbox/sandbox.jar"
+            test -x "$dest/sandbox/runtime/bin/java"
+          }
+          stage tsunagu-darwin-arm64  runtime-darwin-arm64.tar.gz  resources-aarch64-apple-darwin
+          stage tsunagu-darwin-amd64  runtime-darwin-amd64.tar.gz  resources-x86_64-apple-darwin
+
+      - name: Build (aarch64)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+        run: |
+          set -euo pipefail
+          rm -rf src-tauri/resources
+          cp -r resources-aarch64-apple-darwin src-tauri/resources
+          pnpm tauri build --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json
+
+      - name: Build (x86_64)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+        run: |
+          set -euo pipefail
+          rm -rf src-tauri/resources
+          cp -r resources-x86_64-apple-darwin src-tauri/resources
+          pnpm tauri build --target x86_64-apple-darwin --config src-tauri/tauri.macos.conf.json
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          ARM64=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          X64=$(find src-tauri/target/x86_64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          [ -n "$ARM64" ] && cp "$ARM64" "moku-macos-arm64-$V.dmg" && gh release upload "v$V" "moku-macos-arm64-$V.dmg" --clobber
+          [ -n "$X64" ]   && cp "$X64"   "moku-macos-x64-$V.dmg"   && gh release upload "v$V" "moku-macos-x64-$V.dmg" --clobber

@@ -1,32 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-fn parse_version(s: &str) -> (u32, u32, u32) {
-    let s = s.trim_start_matches('v');
-    let mut parts = s.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
-    (
-        parts.next().unwrap_or(0),
-        parts.next().unwrap_or(0),
-        parts.next().unwrap_or(0),
-    )
-}
-
-const SUWAYOMI_MAX_VERSION: (u32, u32, u32) = (0, 10, 4);
-const TSUNAGU_MIN_VERSION: (u32, u32, u32) = (0, 10, 5);
-
-fn is_backend_migration_blocked(current: &str, target: &str) -> bool {
-    let current_is_suwayomi = parse_version(current) <= SUWAYOMI_MAX_VERSION;
-    let target_is_suwayomi = parse_version(target) <= SUWAYOMI_MAX_VERSION;
-    current_is_suwayomi != target_is_suwayomi
-}
-
-fn backend_migration_message(target: &str) -> String {
-    let target_is_suwayomi = parse_version(target) <= SUWAYOMI_MAX_VERSION;
-    if target_is_suwayomi {
-        "Downgrading past v0.10.5 isn't supported. Moku's Tsunagu backend isn't compatible with the older Suwayomi-based builds.".to_string()
-    } else {
-        "Suwayomi support ended after v0.10.4. Moku now uses its own Tsunagu backend starting in v0.10.5 - updating in place isn't supported. See the migration guide before moving to the new backend.".to_string()
-    }
-}
+const REPO: &str = "moku-project/Moku";
 
 #[derive(Serialize, Clone)]
 pub struct ReleaseInfo {
@@ -37,8 +11,8 @@ pub struct ReleaseInfo {
     pub html_url: String,
 }
 
+#[cfg(target_os = "windows")]
 #[derive(Clone, Serialize)]
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 struct UpdateProgress {
     downloaded: u64,
     total: Option<u64>,
@@ -63,7 +37,9 @@ pub async fn list_releases() -> Result<Vec<ReleaseInfo>, String> {
         .map_err(|e| e.to_string())?;
 
     let resp = client
-        .get("https://api.github.com/repos/moku-project/Moku/releases?per_page=30")
+        .get(format!(
+            "https://api.github.com/repos/{REPO}/releases?per_page=30"
+        ))
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -79,8 +55,8 @@ pub async fn list_releases() -> Result<Vec<ReleaseInfo>, String> {
     Ok(releases
         .into_iter()
         .map(|r| ReleaseInfo {
-            tag_name: r.tag_name.clone(),
             name: r.name.unwrap_or_else(|| r.tag_name.clone()),
+            tag_name: r.tag_name,
             body: r.body.unwrap_or_default(),
             published_at: r.published_at.unwrap_or_default(),
             html_url: r.html_url,
@@ -89,21 +65,19 @@ pub async fn list_releases() -> Result<Vec<ReleaseInfo>, String> {
 }
 
 #[tauri::command]
-#[allow(unused_variables)]
+#[cfg_attr(not(target_os = "windows"), allow(unused_variables))]
 pub async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
     return Err("Native install is Windows-only; open the GitHub release page instead.".into());
 
     #[cfg(target_os = "windows")]
     {
-        let current_version = app.package_info().version.to_string();
-        if is_backend_migration_blocked(&current_version, &tag) {
-            return Err(backend_migration_message(&tag));
-        }
-
         use std::io::Write;
+        use std::os::windows::process::CommandExt;
         use tauri::Emitter;
         use tauri_plugin_http::reqwest;
+
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
         #[derive(Deserialize)]
         struct Asset {
@@ -123,8 +97,7 @@ pub async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> 
 
         let resp = client
             .get(format!(
-                "https://api.github.com/repos/moku-project/Moku/releases/tags/{}",
-                tag
+                "https://api.github.com/repos/{REPO}/releases/tags/{tag}"
             ))
             .send()
             .await
@@ -132,9 +105,8 @@ pub async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> 
 
         if !resp.status().is_success() {
             return Err(format!(
-                "GitHub API returned {} for tag {}",
-                resp.status(),
-                tag
+                "GitHub API returned {} for tag {tag}",
+                resp.status()
             ));
         }
 
@@ -145,13 +117,10 @@ pub async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> 
             .assets
             .into_iter()
             .find(|a| a.name.ends_with("_x64-setup.exe"))
-            .ok_or_else(|| format!("No x64-setup.exe asset found in release {}", tag))?;
+            .ok_or_else(|| format!("No x64-setup.exe asset found in release {tag}"))?;
 
-        let total = if asset.size > 0 {
-            Some(asset.size)
-        } else {
-            None
-        };
+        let total = (asset.size > 0).then_some(asset.size);
+
         let mut resp = client
             .get(&asset.browser_download_url)
             .send()
@@ -169,15 +138,12 @@ pub async fn download_and_install_update(app: tauri::AppHandle, tag: String) -> 
         }
         drop(file);
 
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
         std::process::Command::new(&tmp_path)
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| e.to_string())?;
 
         let _ = app.emit("update-launching", ());
-
         Ok(())
     }
 }

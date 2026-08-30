@@ -1,12 +1,14 @@
 <script lang="ts">
   import { X, MagnifyingGlass, CircleNotch, ArrowRight, Check, Warning, Sparkle, Swap } from "phosphor-svelte";
-  import { getAdapter } from "$lib/request-manager";
+  import { tsunagu } from "$lib/server-adapters/tsunagu";
   import Thumbnail     from "$lib/components/shared/manga/Thumbnail.svelte";
   import { resolvedCover } from "$lib/core/cover/coverResolver";
 
   import { addToast }        from "$lib/state/notifications.svelte";
   import { settingsState }  from "$lib/state/settings.svelte";
-  import type { Manga, Chapter, Source } from "$lib/types";
+  import type { Manga, Source } from "$lib/types";
+  import type { PreviewChapter } from "$lib/server-adapters/types";
+  import { toBrowseManga, toSource } from "$lib/components/browse/lib/searchFilter";
   import type { LibraryManga }          from "$lib/components/extensions/lib/extensionLibrary";
 
   interface Props {
@@ -24,7 +26,7 @@
   interface EntryResult {
     manga:      LibraryManga;
     match:      Manga | null;
-    chapters:   Chapter[];
+    chapters:   PreviewChapter[];
     similarity: number;
     status:     "pending" | "searching" | "found" | "no-match" | "migrated" | "failed";
     error?:     string;
@@ -76,9 +78,9 @@
   const failedCount  = $derived(entries.filter(e => e.status === "failed").length);
 
   $effect(() => {
-    getAdapter().getSources().then(nodes => ({ sources: { nodes } }))
-      .then(d => {
-        allSources = d.sources.nodes.filter(s => s.id !== "0" && s.id !== sourceId);
+    tsunagu.installedExtensions()
+      .then(exts => {
+        allSources = exts.filter(e => e.installed && e.id !== sourceId).map(toSource);
         const prefLang = settingsState.settings.preferredExtensionLang ?? "";
         const langs    = new Set(allSources.map(s => s.lang));
         if (prefLang && langs.has(prefLang) && langs.size > 1) selectedLang = prefLang;
@@ -112,10 +114,10 @@
     for (let i = 0; i < entries.length; i++) {
       entries[i] = { ...entries[i], status: "searching" };
       try {
-        const mangas = await getAdapter().searchManga(entries[i].manga.title, target.id);
-        const results = mangas
-          .map((m: Manga) => ({ manga: m, similarity: titleSimilarity(entries[i].manga.title, m.title) }))
-          .sort((a: { manga: Manga; similarity: number }, b: { manga: Manga; similarity: number }) => b.similarity - a.similarity);
+        const resp = await tsunagu.search(target.id, entries[i].manga.title, 1);
+        const results = resp.results
+          .map((r) => ({ manga: toBrowseManga(r, target.id), similarity: titleSimilarity(entries[i].manga.title, r.title) }))
+          .sort((a, b) => b.similarity - a.similarity);
 
         if (results.length > 0 && results[0].similarity > 0.3) {
           entries[i] = { ...entries[i], match: results[0].manga, similarity: results[0].similarity, status: "found" };
@@ -145,22 +147,18 @@
     for (const entry of toMigrate) {
       const idx = entries.indexOf(entry);
       try {
-        const newChaps = await getAdapter().fetchChapters(String(entry.match!.id));
+        const previewChaps = await tsunagu.previewChapters(targetSource!.id, entry.match!.sourceEntryId!);
+        const newEntry     = await tsunagu.addToLibrary(entry.match!.id);
+        const syncedChaps  = await tsunagu.syncChapters(newEntry.id);
 
-        const toMarkRead: number[] = [];
-
-        const hadReads = entries[idx].manga.unreadCount < newChaps.length;
-        if (hadReads) {
-          for (const nc of newChaps) toMarkRead.push(nc.id);
+        const hadReads = entries[idx].manga.unreadCount < previewChaps.length;
+        if (hadReads && syncedChaps.length) {
+          await tsunagu.markChaptersRead(newEntry.id, syncedChaps.map(c => c.id), true);
         }
 
-        if (toMarkRead.length)
-          await getAdapter().markChaptersRead(toMarkRead.map(String), true);
+        await tsunagu.removeFromLibrary(entry.manga.id);
 
-        await getAdapter().addToLibrary(String(entry.match!.id));
-        await getAdapter().removeFromLibrary(String(entry.manga.id));
-
-        entries[idx] = { ...entries[idx], status: "migrated" };
+        entries[idx] = { ...entries[idx], chapters: previewChaps, status: "migrated" };
         migrateProgress = { ...migrateProgress, done: migrateProgress.done + 1 };
       } catch (e: any) {
         entries[idx] = { ...entries[idx], status: "failed", error: e.message };

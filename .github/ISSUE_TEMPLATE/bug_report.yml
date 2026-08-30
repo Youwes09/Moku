@@ -52,11 +52,11 @@ body:
       label: Environment
       description: Copy this from Settings → About → Report a Bug, or fill in manually.
       placeholder: |
-        - Moku Version: v0.9.4
+        - Moku Version: v0.10.4
         - Platform: Windows / macOS / Linux / Web
         - OS Version: Windows 11 24H2
-        - Server: Suwayomi v2.2.2196
-        - Server URL: localhost:4567
+        - Server: Tsunagu v0.1.0
+        - Server URL: localhost:6007
     validations:
       required: true
 

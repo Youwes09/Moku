@@ -12,10 +12,20 @@ export interface ChapterDisplayPrefs {
   scanlatorForce?:     boolean
 }
 
+function uploadMs(v: string | null | undefined): number {
+  if (!v) return 0
+  if (/^\d+$/.test(v)) { const n = Number(v); return n > 1e10 ? n : n * 1000 }
+  const t = Date.parse(v)
+  return Number.isNaN(t) ? 0 : t
+}
+
 function sortByMode(a: Chapter, b: Chapter, mode: ChapterSortMode): number {
-  if (mode === 'chapterNumber') return a.chapterNumber - b.chapterNumber
-  if (mode === 'uploadDate')    return Number(a.uploadDate ?? 0) - Number(b.uploadDate ?? 0)
-  return a.sourceOrder - b.sourceOrder
+  const bySource = a.sourceOrder - b.sourceOrder
+  const byNumber = a.chapterNumber - b.chapterNumber
+  const byDate   = uploadMs(a.uploadDate) - uploadMs(b.uploadDate)
+  if (mode === 'chapterNumber') return byNumber || bySource || byDate
+  if (mode === 'uploadDate')    return byDate   || byNumber || bySource
+  return bySource || byNumber || byDate
 }
 
 export function buildChapterList(chapters: Chapter[], prefs: ChapterDisplayPrefs = {}): Chapter[] {
@@ -44,7 +54,12 @@ export function buildChapterList(chapters: Chapter[], prefs: ChapterDisplayPrefs
 
   if (scanlatorFilter.length > 0) {
     const seen = new Map<number, Chapter>()
+    const unnumbered: Chapter[] = []
     for (const ch of base) {
+      if (ch.chapterNumber < 0) {
+        if (!scanlatorForce || scanlatorFilter.includes(ch.scanlator ?? '')) unnumbered.push(ch)
+        continue
+      }
       const existing = seen.get(ch.chapterNumber)
       if (!existing) {
         if (!scanlatorForce || scanlatorFilter.includes(ch.scanlator ?? '')) {
@@ -56,7 +71,7 @@ export function buildChapterList(chapters: Chapter[], prefs: ChapterDisplayPrefs
         if (np !== -1 && (op === -1 || np < op)) seen.set(ch.chapterNumber, ch)
       }
     }
-    base = [...seen.values()].sort((a, b) => sortByMode(a, b, sortMode))
+    base = [...seen.values(), ...unnumbered].sort((a, b) => sortByMode(a, b, sortMode))
   }
 
   return sortDir === 'desc' ? base.reverse() : base

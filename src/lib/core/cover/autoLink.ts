@@ -1,7 +1,7 @@
 import { settingsState, updateSettings } from '$lib/state/settings.svelte'
 import type { Manga } from '$lib/types'
 
-function linkManga(focalId: number, targetId: number) {
+function linkManga(focalId: string, targetId: string) {
   const existing = settingsState.settings.mangaLinks?.[focalId] ?? []
   if (existing.includes(targetId)) return
   updateSettings({
@@ -17,7 +17,7 @@ export function autoLinkLibrary(focal: Manga | null | undefined, allManga: Manga
   return new Promise(resolve => {
     const worker = new Worker(new URL('./autoLinkWorker.ts', import.meta.url), { type: 'module' })
 
-    worker.onmessage = (e: MessageEvent<number[]>) => {
+    worker.onmessage = (e: MessageEvent<string[]>) => {
       const matches = e.data
       for (const id of matches) linkManga(focal.id, id)
       worker.terminate()

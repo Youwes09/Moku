@@ -1,17 +1,15 @@
 <script lang="ts">
   import { platformService } from '$lib/platform-service'
   import { autoBackupAppData } from '$lib/core/backup'
-  import { requestManager } from '$lib/request-manager'
+  import { tsunagu } from '$lib/server-adapters/tsunagu'
   import type { ReleaseInfo } from '$lib/platform-adapters/types'
-  import { isBackendMigrationBlocked, getBackendMigrationMessage } from '$lib/core/versionGate'
 
   type UpdatePhase = 'idle' | 'downloading' | 'launching' | 'ready' | 'error'
 
   const supportsUpdates = platformService.isSupported('app-updates')
   const IS_WINDOWS      = navigator.userAgent.includes('Windows')
 
-  interface AboutServer { name: string; version: string; buildType: string; buildTime: number; github: string; discord: string }
-  interface AboutWebUI  { channel: string; tag: string; updateTimestamp: number }
+  interface AboutServer { name: string; version: string; buildTime: string }
 
   let appVersion      = $state('…')
   let releases        = $state<ReleaseInfo[]>([])
@@ -26,7 +24,6 @@
   let releasesLoaded  = false
 
   let serverInfo = $state<AboutServer | null>(null)
-  let webuiInfo  = $state<AboutWebUI | null>(null)
 
   $effect(() => {
     platformService.getVersion().then(v => appVersion = v).catch(() => appVersion = 'unknown')
@@ -63,12 +60,7 @@
 
   async function loadServerInfo() {
     try {
-      const [s, w] = await Promise.all([
-        requestManager.meta.getAboutServer(),
-        requestManager.meta.getAboutWebUI(),
-      ])
-      serverInfo = s
-      webuiInfo  = w
+      serverInfo = await tsunagu.about()
     } catch {}
   }
 
@@ -92,9 +84,9 @@
     return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
-  function fmtBuildTime(unix: number | string) {
-    if (!unix) return ''
-    return new Date(Number(unix) * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  function fmtBuildTime(iso: string) {
+    if (!iso) return ''
+    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
   function fmtBytes(bytes: number) {
@@ -112,17 +104,10 @@
 
   async function installUpdate(release: ReleaseInfo) {
     if (updatePhase === 'downloading') return
-    if (isBackendMigrationBlocked(appVersion, release.tag_name)) {
-      targetTag = release.tag_name
-      updatePhase = 'error'
-      updateError = getBackendMigrationMessage(appVersion, release.tag_name)
-      return
-    }
     targetTag = release.tag_name; updatePhase = 'downloading'; updateError = null; dlBytes = 0; dlTotal = null
     try {
       if (IS_WINDOWS) {
         await autoBackupAppData()
-        try { await platformService.stopServer() } catch {}
         await platformService.installAppUpdate(release.tag_name)
         updatePhase = 'ready'
       } else {
@@ -145,7 +130,7 @@
     <p class="s-section-title">Moku</p>
     <div class="s-section-body">
       <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:var(--sp-1)">
-        <span class="s-label">A manga reader frontend for Suwayomi / Tachidesk.</span>
+        <span class="s-label">A manga reader frontend for Tsunagu.</span>
         <span class="s-desc">Built with Tauri + Svelte.</span>
       </div>
     </div>
@@ -188,7 +173,7 @@
       {/if}
       {#if updatePhase === 'ready'}
         <div class="s-update-ready">
-          <span class="s-update-ready-label">{targetTag} downloaded — restart to finish installing.</span>
+          <span class="s-update-ready-label">{targetTag} downloaded. Restart to install.</span>
           <button class="s-btn s-btn-accent" onclick={restartNow}>Restart now</button>
           <button class="s-btn-icon" onclick={cancelUpdate} title="Dismiss">✕</button>
         </div>
@@ -209,12 +194,7 @@
         <div class="s-row">
           <div class="s-row-info">
             <span class="s-label">Version</span>
-            <span class="s-desc">
-              {serverInfo.version}
-              {#if serverInfo.buildType}
-                <span class="s-release-badge">{serverInfo.buildType}</span>
-              {/if}
-            </span>
+            <span class="s-desc">{serverInfo.version}</span>
           </div>
         </div>
         {#if serverInfo.buildTime}
@@ -222,14 +202,6 @@
             <div class="s-row-info">
               <span class="s-label">Built</span>
               <span class="s-desc">{fmtBuildTime(serverInfo.buildTime)}</span>
-            </div>
-          </div>
-        {/if}
-        {#if webuiInfo?.channel}
-          <div class="s-row">
-            <div class="s-row-info">
-              <span class="s-label">Channel</span>
-              <span class="s-desc">{webuiInfo.channel}</span>
             </div>
           </div>
         {/if}
@@ -254,13 +226,11 @@
               {@const isExpanded   = expandedTag === release.tag_name}
               {@const isTarget     = targetTag === release.tag_name}
               {@const isInstalling = isTarget && updatePhase === 'downloading'}
-              {@const isBlocked    = isBackendMigrationBlocked(appVersion, release.tag_name)}
               <div class="s-release-row" class:current={isCurrent}>
                 <div class="s-release-header">
                   <div class="s-release-meta">
                     <span class="s-release-tag">{release.tag_name}</span>
                     {#if isCurrent}<span class="s-release-badge">installed</span>{/if}
-                    {#if isBlocked}<span class="s-release-badge" style="color:var(--color-error)">backend change</span>{/if}
                     {#if release.published_at}<span class="s-release-date">{fmtDate(release.published_at)}</span>{/if}
                   </div>
                   <div class="s-btn-row">
@@ -270,9 +240,7 @@
                       </button>
                     {/if}
                     {#if !isCurrent}
-                      {#if isBlocked}
-                        <button class="s-btn" disabled title={getBackendMigrationMessage(appVersion, release.tag_name)}>Migration required</button>
-                      {:else if IS_WINDOWS}
+                      {#if IS_WINDOWS}
                         <button class="s-btn" class:s-btn-accent={!isInstalling}
                           disabled={updatePhase === 'downloading'} onclick={() => installUpdate(release)}>
                           {isInstalling ? 'Downloading…' : 'Install'}
@@ -302,12 +270,6 @@
       <div class="s-row" style="flex-direction:column;align-items:flex-start;gap:var(--sp-2)">
         <a href="https://github.com/moku-project/Moku" target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">GitHub →</a>
         <a href="https://discord.gg/Jq3pwuNqPp" target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">Discord →</a>
-        {#if serverInfo?.github && serverInfo.github !== 'https://github.com/moku-project/Moku'}
-          <a href={serverInfo.github} target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">Suwayomi GitHub →</a>
-        {/if}
-        {#if serverInfo?.discord && serverInfo.discord !== 'https://discord.gg/Jq3pwuNqPp'}
-          <a href={serverInfo.discord} target="_blank" class="s-label" style="color:var(--accent-fg);text-decoration:none">Suwayomi Discord →</a>
-        {/if}
       </div>
     </div>
   </div>

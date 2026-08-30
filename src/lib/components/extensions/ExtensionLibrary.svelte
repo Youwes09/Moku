@@ -2,7 +2,7 @@
   import { ArrowLeft, MagnifyingGlass, GearSix, Swap, Funnel, Check, CircleNotch } from "phosphor-svelte";
   import Thumbnail           from "$lib/components/shared/manga/Thumbnail.svelte";
   import { resolvedCover }   from "$lib/core/cover/coverResolver";
-  import { getAdapter }      from "$lib/request-manager";
+  import { tsunagu }         from "$lib/server-adapters/tsunagu";
   import { setPreviewManga } from "$lib/state/series.svelte";
 
   import { libraryByExtension, type LibraryManga, type SourceNode, type SourceLibrary } from "$lib/components/extensions/lib/extensionLibrary";
@@ -66,17 +66,23 @@
       if (isLocal) {
         localPage    = 1;
         localItems   = [];
-        const result = await getAdapter().browseSource('0', 1);
-        localItems   = result.items;
-        localHasNext = result.hasNextPage;
-        localPage    = 1;
+        localHasNext = false;
       } else {
-        const [libData, srcData] = await Promise.all([
-          getAdapter().getMangaList({}).then(r => ({ mangas: { nodes: r.items as any } })),
-          getAdapter().getSources().then(nodes => ({ sources: { nodes } })),
+        const [entries, exts] = await Promise.all([
+          tsunagu.library(),
+          tsunagu.installedExtensions(),
         ]);
-        sourceNodes = srcData.sources.nodes;
-        groups = libraryByExtension(libData.mangas.nodes, srcData.sources.nodes, pkgName);
+        const libraryManga: LibraryManga[] = entries.map((e) => ({
+          id:            e.id,
+          title:         e.title,
+          thumbnailUrl:  e.thumbnailUrl ?? "",
+          unreadCount:   e.unreadCount,
+          downloadCount: e.downloadCount,
+          source:        e.source ? { id: e.source.id, displayName: e.source.displayName } : null,
+        }));
+        sourceNodes = exts.filter((e) => e.installed).map((e) => ({ id: e.id, displayName: e.displayName, iconUrl: e.iconUrl }));
+        const pkgNameOf = (sourceId: string) => exts.find((e) => e.id === sourceId)?.packageName;
+        groups = libraryByExtension(libraryManga, pkgNameOf, pkgName);
       }
     } finally {
       loading = false;
@@ -84,32 +90,9 @@
   }
 
   async function loadMoreLocal() {
-    if (localLoadingMore || !localHasNext) return;
-    localLoadingMore = true;
-    try {
-      const next   = localPage + 1;
-      const result = await getAdapter().browseSource('0', next);
-      localItems   = [...localItems, ...result.items];
-      localHasNext = result.hasNextPage;
-      localPage    = next;
-    } finally {
-      localLoadingMore = false;
-    }
   }
 
   async function searchLocal() {
-    const q = searchInput.trim();
-    if (!q) { load(); return; }
-    loading = true;
-    try {
-      const result = await getAdapter().searchSource('0', q, 1);
-      localItems   = result.items;
-      localHasNext = result.hasNextPage;
-      localPage    = 1;
-    } finally {
-      loading = false;
-    }
-    search = q;
   }
 
   function onSearchKeydown(e: KeyboardEvent) {
@@ -174,10 +157,10 @@
         {#if isLocal}
           <input
             class="search"
-            placeholder="Search…"
+            placeholder="Coming soon…"
             bind:value={searchInput}
             autocomplete="off"
-            onkeydown={onSearchKeydown}
+            disabled
           />
         {:else}
           <input class="search" placeholder="Search" bind:value={search} autocomplete="off" />
@@ -243,7 +226,7 @@
     {:else if filtered.length === 0}
       <div class="empty">
         {isLocal
-          ? 'No manga found in local source. Add manga folders to your local source directory.'
+          ? 'Local sources aren\'t supported yet — coming in a future update.'
           : allManga.length === 0
             ? 'Nothing from this extension is in your library.'
             : 'No matches.'}

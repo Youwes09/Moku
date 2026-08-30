@@ -11,7 +11,6 @@ export interface Keybinds {
   toggleFullscreen:       string;
   openSettings:           string;
   toggleBookmark:         string;
-  toggleMarker:           string;
   toggleAutoScroll:       string;
 }
 
@@ -28,7 +27,6 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   toggleFullscreen:       "f",
   openSettings:           "o",
   toggleBookmark:         "m",
-  toggleMarker:           "n",
   toggleAutoScroll:       "s",
 };
 
@@ -45,6 +43,5 @@ export const KEYBIND_LABELS: Record<keyof Keybinds, string> = {
   toggleFullscreen:       "Toggle fullscreen",
   openSettings:           "Open settings",
   toggleBookmark:         "Toggle bookmark",
-  toggleMarker:           "Toggle marker",
   toggleAutoScroll:       "Toggle auto scroll",
 };

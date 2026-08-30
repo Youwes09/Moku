@@ -1,38 +1,24 @@
 export interface BookmarkEntry {
-  mangaId:      number
+  mangaId:      string
   mangaTitle:   string
   thumbnailUrl: string
-  chapterId:    number
+  chapterId:    string
   chapterName:  string
   pageNumber:   number
   savedAt:      number
   label?:       string
 }
 
-export type MarkerColor = 'yellow' | 'red' | 'blue' | 'green' | 'purple'
-
-export interface MarkerEntry {
-  id:           string
-  mangaId:      number
-  mangaTitle:   string
-  thumbnailUrl: string
-  chapterId:    number
-  chapterName:  string
-  pageNumber:   number
-  note:         string
-  color:        MarkerColor
-  createdAt:    number
-  updatedAt?:   number
-}
+export type MediaKind = 'MANGA' | 'NOVEL' | 'ANIME'
 
 export interface ReadSession {
   id:               string
-  mangaId:          number
+  mangaId:          string
   mangaTitle:       string
   thumbnailUrl:     string
-  startChapterId:   number
+  startChapterId:   string
   startChapterName: string
-  endChapterId:     number
+  endChapterId:     string
   endChapterName:   string
   startPage:        number
   endPage:          number
@@ -40,6 +26,7 @@ export interface ReadSession {
   endedAt:          number
   durationMs:       number
   chaptersSpanned:  number
+  contentType?:     MediaKind
 }
 
 export interface ReadingStats {
@@ -65,7 +52,7 @@ export const DEFAULT_READING_STATS: ReadingStats = {
 }
 
 export interface LibraryUpdateEntry {
-  mangaId:      number
+  mangaId:      string
   mangaTitle:   string
   thumbnailUrl: string
   newChapters:  number

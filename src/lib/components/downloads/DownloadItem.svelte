@@ -2,17 +2,18 @@
   import { CircleNotchIcon, ArrowClockwiseIcon, XIcon } from "phosphor-svelte";
   import Thumbnail    from "$lib/components/shared/manga/Thumbnail.svelte";
   import { longPress } from "$lib/core/ui/touchscreen";
-  import type { DownloadQueueItem } from "$lib/types/api";
+  import type { Download } from "$lib/server-adapters/types";
+  import { libraryState } from "$lib/state/library.svelte";
   import { pageProgress } from "$lib/components/downloads/lib/downloadQueue";
 
   interface Props {
-    item:       DownloadQueueItem;
+    item:       Download;
     isActive:   boolean;
     isRemoving: boolean;
     isSelected: boolean;
-    onRemove:   (chapterId: number) => void;
-    onRetry:    (chapterId: number) => void;
-    onSelect:   (chapterId: number, e: MouseEvent) => void;
+    onRemove:   (chapterId: string) => void;
+    onRetry:    (chapterId: string) => void;
+    onSelect:   (chapterId: string, e: MouseEvent) => void;
   }
 
   const {
@@ -20,15 +21,15 @@
     onRemove, onRetry, onSelect,
   }: Props = $props();
 
-  const manga   = $derived(item.chapter.manga);
+  const manga   = $derived(libraryState.items.find(m => m.id === item.mediaId) ?? null);
   const pages   = $derived(item.chapter.pageCount ?? 0);
   const prog    = $derived(pageProgress(item.progress, pages));
-  const isError = $derived(item.state === "ERROR");
+  const isError = $derived(item.status === "FAILED");
   const pct     = $derived(Math.round(item.progress * 100));
 
   function rowLongPress(node: HTMLElement) {
     return longPress(node, {
-      onLongPress() { onSelect(item.chapter.id, { shiftKey: false, ctrlKey: true, metaKey: false } as MouseEvent); },
+      onLongPress() { onSelect(item.chapterId, { shiftKey: false, ctrlKey: true, metaKey: false } as MouseEvent); },
     });
   }
 </script>
@@ -43,8 +44,8 @@
   aria-selected={isSelected}
   tabindex="0"
   use:rowLongPress
-  onclick={(e) => { e.stopPropagation(); onSelect(item.chapter.id, e); }}
-  onkeydown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onSelect(item.chapter.id, e as unknown as MouseEvent); } }}
+  onclick={(e) => { e.stopPropagation(); onSelect(item.chapterId, e); }}
+  onkeydown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onSelect(item.chapterId, e as unknown as MouseEvent); } }}
 >
   {#if manga?.thumbnailUrl}
     <div class="thumb">
@@ -54,7 +55,7 @@
 
   <div class="info">
     {#if manga?.title}<span class="manga-title">{manga.title}</span>{/if}
-    <span class="chapter-name">{item.chapter.name}</span>
+    <span class="chapter-name">{item.chapter.title ?? "Chapter"}</span>
     {#if pages > 0}
       <div class="progress-row">
         <div class="progress-wrap">
@@ -64,7 +65,7 @@
           {#if isActive}
             {prog.done}/{prog.total}
           {:else if isError}
-            failed · {item.tries} {item.tries === 1 ? "try" : "tries"}
+            failed
           {:else}
             {prog.total}p
           {/if}
@@ -74,15 +75,15 @@
   </div>
 
   <div class="row-right">
-    <span class="state-label" class:state-error={isError}>{item.state}</span>
+    <span class="state-label" class:state-error={isError}>{item.status}</span>
     <div class="actions">
       {#if isError}
-        <button class="action-btn retry" onclick={(e) => { e.stopPropagation(); onRetry(item.chapter.id); }} disabled={isRemoving} title="Retry">
+        <button class="action-btn retry" onclick={(e) => { e.stopPropagation(); onRetry(item.chapterId); }} disabled={isRemoving} title="Retry">
           {#if isRemoving}<CircleNotchIcon size={11} weight="light" class="anim-spin" />{:else}<ArrowClockwiseIcon size={11} weight="bold" />{/if}
         </button>
       {/if}
       {#if !isActive}
-        <button class="action-btn remove" onclick={(e) => { e.stopPropagation(); onRemove(item.chapter.id); }} disabled={isRemoving} title="Remove">
+        <button class="action-btn remove" onclick={(e) => { e.stopPropagation(); onRemove(item.chapterId); }} disabled={isRemoving} title="Remove">
           {#if isRemoving}<CircleNotchIcon size={11} weight="light" class="anim-spin" />{:else}<XIcon size={12} weight="light" />{/if}
         </button>
       {/if}

@@ -1,8 +1,6 @@
 import type { Manga, Source } from "$lib/types";
 import type { Settings }      from "$lib/types";
 
-export { clsx as cn } from "clsx";
-
 export function timeAgo(ts: number): string {
   const diff = Date.now() - ts, m = Math.floor(diff / 60000);
   if (m < 1)  return "Just now";
@@ -22,11 +20,13 @@ export function dayLabel(ts: number): string {
   return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 }
 
-export function formatReadTime(m: number): string {
-  if (m < 1)  return "< 1 min";
-  if (m < 60) return `${m} min`;
-  const h = Math.floor(m / 60), r = m % 60;
-  return r === 0 ? `${h}h` : `${h}h ${r}m`;
+export function formatReadTime(mins: number): string {
+  if (mins < 1)  return `${Math.round(mins * 60)}s`;
+  if (mins < 60) return `${Math.round(mins)}m`;
+  const h = Math.floor(mins / 60), r = Math.round(mins % 60);
+  if (h < 24) return r === 0 ? `${h}h` : `${h}h ${r}m`;
+  const d = Math.floor(h / 24), rh = h % 24;
+  return rh === 0 ? `${d}d` : `${d}d ${rh}h`;
 }
 
 const STRICT_TAGS: string[] = [
@@ -84,38 +84,6 @@ export function shouldHideNsfw(
   return genreMatchesBlocklist(manga.genre ?? [], blockedTagsForSettings(settings));
 }
 
-export function dedupeSourcesByLang(
-  sources:       Source[],
-  preferredLang: string,
-): Source[] {
-  const map = new Map<string, Source>();
-  for (const s of sources) {
-    if (s.id === "0") continue;
-    const existing = map.get(s.name);
-    if (!existing) { map.set(s.name, s); continue; }
-    const existingPref = existing.lang === preferredLang;
-    const newPref      = s.lang === preferredLang;
-    if (newPref && !existingPref) map.set(s.name, s);
-    else if (!existingPref && !newPref && s.lang < existing.lang) map.set(s.name, s);
-  }
-  return Array.from(map.values());
-}
-
-export function dedupeSources(sources: Source[], preferredLang: string): Source[] {
-  const byName = new Map<string, Source[]>();
-  for (const src of sources) {
-    if (src.id === "0") continue;
-    if (!byName.has(src.name)) byName.set(src.name, []);
-    byName.get(src.name)!.push(src);
-  }
-  const picked: Source[] = [];
-  for (const group of byName.values()) {
-    const preferred = group.find(s => s.lang === preferredLang);
-    picked.push(preferred ?? group.sort((a, b) => a.lang.localeCompare(b.lang))[0]);
-  }
-  return picked;
-}
-
 export function normalizeTitle(title: string): string {
   return title
     .toLowerCase()
@@ -142,18 +110,18 @@ function authorFingerprint(author?: string | null, artist?: string | null): stri
 }
 
 export function dedupeMangaByTitle<T extends {
-  id:             number;
+  id:             string;
   title:          string;
   description?:   string | null;
   author?:        string | null;
   artist?:        string | null;
   inLibrary?:     boolean;
   downloadCount?: number;
-}>(items: T[], links: Record<number, number[]> = {}): T[] {
+}>(items: T[], links: Record<string, string[]> = {}): T[] {
   const byTitle      = new Map<string, number>();
   const byDesc       = new Map<string, number>();
   const byAuthorDesc = new Map<string, number>();
-  const byId         = new Map<number, number>();
+  const byId         = new Map<string, number>();
   const out: T[]     = [];
 
   for (const m of items) {
@@ -196,8 +164,8 @@ export function dedupeMangaByTitle<T extends {
   return out;
 }
 
-export function dedupeMangaById<T extends { id: number }>(items: T[]): T[] {
-  const seen = new Set<number>();
+export function dedupeMangaById<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
   const out: T[] = [];
   for (const m of items) {
     if (!seen.has(m.id)) { seen.add(m.id); out.push(m); }

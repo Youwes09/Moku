@@ -16,17 +16,17 @@
     hasHistory:           boolean
     historySearch:        string
     stats:                Stats
-    thumbFor:             (mangaId: number, fallback: string) => string
-    onOpenChapter:        (mangaId: number, chapterId: number) => void
-    onDeleteMangaHistory: (mangaId: number) => void
+    thumbFor:             (mangaId: string, fallback: string) => string
+    onOpenChapter:        (mangaId: string, chapterId: string) => void
+    onDeleteMangaHistory: (mangaId: string) => void
   }
 
   let { groups, hasHistory, historySearch, stats, thumbFor, onOpenChapter, onDeleteMangaHistory }: Props = $props()
 
-  let confirmDelete: { id: number; title: string } | null = $state(null)
-  let expandedMangaIds: Set<number> = $state(new Set())
+  let confirmDelete: { id: string; title: string } | null = $state(null)
+  let expandedMangaIds: Set<string> = $state(new Set())
 
-  function toggleExpand(mangaId: number, e: MouseEvent) {
+  function toggleExpand(mangaId: string, e: MouseEvent) {
     e.stopPropagation()
     const next = new Set(expandedMangaIds)
     if (next.has(mangaId)) next.delete(mangaId)
@@ -41,6 +41,19 @@
     const h = Math.floor(totalMin / 60)
     const m = totalMin % 60
     return m > 0 ? `${h}h ${m}m` : `${h}h`
+  }
+
+  const unitPlural = (k: MangaHistoryEntry['contentType']) =>
+    k === 'ANIME' ? 'episodes' : 'chapters'
+
+  function posLabel(k: MangaHistoryEntry['contentType'], v: number): string {
+    if (k === 'NOVEL') return v >= 1 ? `${Math.round(v)}%` : ''
+    if (k === 'ANIME') {
+      if (v < 5) return ''
+      const s = Math.round(v)
+      return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+    }
+    return v > 1 ? `p.${v}` : ''
   }
 </script>
 
@@ -137,7 +150,7 @@
                     <span class="session-chapter">
                       {item.latestChapterName}
                       {#if item.chaptersSpanned > 1}
-                        <span class="ch-page">· {item.chaptersSpanned} chapters read</span>
+                        <span class="ch-page">· {item.chaptersSpanned} {unitPlural(item.contentType)} read</span>
                       {/if}
                       {#if item.durationMs >= 60_000}
                         <span class="ch-duration">· {formatDuration(item.durationMs)}</span>
@@ -167,8 +180,8 @@
                         <div class="sub-chapter-info">
                           <span class="sub-chapter-name">
                             {ch.chapterName}
-                            {#if ch.endPage > 1}
-                              <span class="ch-page">· p.{ch.endPage}</span>
+                            {#if posLabel(item.contentType, ch.endPage)}
+                              <span class="ch-page">· {posLabel(item.contentType, ch.endPage)}</span>
                             {/if}
                           </span>
                           {#if ch.durationMs >= 60_000}

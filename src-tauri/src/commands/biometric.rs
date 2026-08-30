@@ -52,11 +52,12 @@ mod windows_hello {
 
         std::thread::spawn(move || {
             nudge_focus(5, 250);
-            let outcome = UserConsentVerifier::RequestVerificationAsync(&HSTRING::from(reason.as_str()))
-                .and_then(|op| {
-                    nudge_focus(5, 250);
-                    op.get()
-                });
+            let outcome =
+                UserConsentVerifier::RequestVerificationAsync(&HSTRING::from(reason.as_str()))
+                    .and_then(|op| {
+                        nudge_focus(5, 250);
+                        op.get()
+                    });
             let _ = tx.send(outcome);
         });
 
@@ -72,7 +73,9 @@ mod windows_hello {
             UserConsentVerificationResult::DeviceBusy => Err("systemCancel".into()),
             UserConsentVerificationResult::DeviceNotPresent => Err("biometryNotAvailable".into()),
             UserConsentVerificationResult::DisabledByPolicy => Err("biometryNotAvailable".into()),
-            UserConsentVerificationResult::NotConfiguredForUser => Err("biometryNotEnrolled".into()),
+            UserConsentVerificationResult::NotConfiguredForUser => {
+                Err("biometryNotEnrolled".into())
+            }
             _ => Err("authenticationFailed".into()),
         }
     }

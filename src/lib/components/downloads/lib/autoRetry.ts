@@ -1,4 +1,5 @@
-import type { DownloadQueueItem } from "$lib/types/api";
+import type { Download } from "$lib/server-adapters/types";
+import { getErrored } from "./downloadQueue";
 
 const RETRY_DELAY_MS = 20_000;
 
@@ -7,7 +8,7 @@ export interface AutoRetryHandle {
 }
 
 export function startAutoRetry(
-  getQueue:     () => DownloadQueueItem[],
+  getQueue:     () => Download[],
   isRunning:    () => boolean,
   retryErrored: () => Promise<void>,
 ): AutoRetryHandle {
@@ -17,8 +18,8 @@ export function startAutoRetry(
   async function tick() {
     if (stopped) return;
     const queue   = getQueue();
-    const errored = queue.filter(i => i.state === "ERROR");
-    const active  = queue.filter(i => i.state !== "ERROR");
+    const errored = getErrored(queue);
+    const active  = queue.filter(i => i.status !== "FAILED");
     if (errored.length > 0 && active.length === 0 && !isRunning()) {
       await retryErrored().catch(() => {});
     }

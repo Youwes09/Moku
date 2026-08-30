@@ -1,30 +1,31 @@
 <script lang="ts">
   import { ArrowsClockwise, MagnifyingGlass } from 'phosphor-svelte'
-  import Thumbnail from '$lib/components/shared/manga/Thumbnail.svelte'
+  import TrackerLogo from '$lib/components/tracking/TrackerLogo.svelte'
   import type { SortKey } from '$lib/components/tracking/lib/trackingSync'
+  import type { Tracker } from '$lib/server-adapters/types'
 
-  interface Tracker { id: number; name: string; icon: string; trackRecords: { nodes: unknown[] }; isLoggedIn: boolean }
   interface StatusOption { value: number; name: string }
 
   interface Props {
-    loggedIn:        Tracker[]
-    totalCount:      number
-    activeTrackerId: number | 'all'
-    statusFilter:    number | 'all'
-    statusOptions:   StatusOption[]
-    searchQuery:     string
-    sortBy:          SortKey
-    loading:         boolean
-    onRefresh:       () => void
-    onTrackerChange: (id: number | 'all') => void
-    onStatusChange:  (v: number | 'all') => void
-    onSearchChange:  (v: string) => void
-    onSortChange:    (v: SortKey) => void
+    loggedIn:         Tracker[]
+    totalCount:       number
+    activeTrackerKey: string | 'all'
+    statusFilter:     number | 'all'
+    statusOptions:    StatusOption[]
+    searchQuery:      string
+    sortBy:           SortKey
+    loading:          boolean
+    countFor:         (key: string | 'all') => number
+    onRefresh:        () => void
+    onTrackerChange:  (key: string | 'all') => void
+    onStatusChange:   (v: number | 'all') => void
+    onSearchChange:   (v: string) => void
+    onSortChange:     (v: SortKey) => void
   }
 
   let {
-    loggedIn, totalCount, activeTrackerId, statusFilter, statusOptions,
-    searchQuery, sortBy, loading,
+    loggedIn, totalCount, activeTrackerKey, statusFilter, statusOptions,
+    searchQuery, sortBy, loading, countFor,
     onRefresh, onTrackerChange, onStatusChange, onSearchChange, onSortChange,
   }: Props = $props()
 </script>
@@ -36,20 +37,20 @@
     {#if !loading && loggedIn.length > 0}
       <div class="tabs">
         <button
-          class="tab" class:active={activeTrackerId === 'all'}
+          class="tab" class:active={activeTrackerKey === 'all'}
           onclick={() => onTrackerChange('all')}
         >
           All
           <span class="tab-count">{totalCount}</span>
         </button>
-        {#each loggedIn as t}
+        {#each loggedIn as t (t.key)}
           <button
-            class="tab" class:active={activeTrackerId === t.id}
-            onclick={() => onTrackerChange(t.id)}
+            class="tab" class:active={activeTrackerKey === t.key}
+            onclick={() => onTrackerChange(t.key)}
           >
-            <Thumbnail src={t.icon} alt={t.name} class="tab-icon" />
+            <TrackerLogo trackerKey={t.key} iconUrl={t.iconUrl} size={13} />
             {t.name}
-            <span class="tab-count">{t.trackRecords.nodes.length}</span>
+            <span class="tab-count">{countFor(t.key)}</span>
           </button>
         {/each}
       </div>
@@ -116,8 +117,6 @@
   .tab:hover { color: var(--text-muted); }
   .tab.active { background: var(--accent-muted); color: var(--accent-fg); border-color: var(--accent-dim); }
 
-  :global(.tab-icon) { width: 13px; height: 13px; border-radius: 2px; object-fit: contain; opacity: 0.8; }
-
   .tab-count { font-size: var(--text-2xs); opacity: 0.6; }
   .tab.active .tab-count { opacity: 1; }
 
@@ -132,7 +131,7 @@
   .search-input { flex: 1; background: none; border: none; outline: none; min-width: 0; font-size: var(--text-sm); color: var(--text-primary); }
   .search-input::placeholder { color: var(--text-faint); }
 
-  .pill-select { flex-shrink: 0; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 5px 22px 5px 9px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); outline: none; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23555' stroke-width='1.3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 7px center; transition: border-color var(--t-base), color var(--t-base); }
+  .pill-select { flex-shrink: 0; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 5px 22px 5px 9px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background-color: var(--bg-raised); color: var(--text-faint); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23888' stroke-width='1.3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 7px center; transition: border-color var(--t-base), color var(--t-base); }
   .pill-select:hover { border-color: var(--border-strong); color: var(--text-muted); }
   .pill-select option { background: var(--bg-surface); color: var(--text-secondary); }
 </style>

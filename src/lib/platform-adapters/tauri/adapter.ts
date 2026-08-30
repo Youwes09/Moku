@@ -9,7 +9,7 @@ import { getVersion }                                      from '@tauri-apps/api
 import { connect, disconnect, setActivity, clearActivity } from 'tauri-plugin-discord-rpc-api'
 import type {
   PlatformAdapter, PlatformFeature, Platform,
-  ServerLaunchConfig, FlaresolverrLaunchConfig, DiscordPresence,
+  DiscordPresence,
   AppUpdateInfo, StorageInfo, ReleaseInfo,
   UpdateProgress, MigrateProgress,
 } from '$lib/platform-adapters/types'
@@ -29,7 +29,7 @@ export class TauriAdapter implements PlatformAdapter {
 
   isSupported(feature: PlatformFeature): boolean {
     const supported: PlatformFeature[] = [
-      'server-management', 'biometric-auth',
+      'biometric-auth',
       'native-window', 'filesystem', 'app-updates', 'discord-rpc',
     ]
     return supported.includes(feature)
@@ -123,33 +123,6 @@ export class TauriAdapter implements PlatformAdapter {
     return res.blob()
   }
 
-  async launchServer(config: ServerLaunchConfig): Promise<void> {
-    await invoke('spawn_server', {
-      binary:       config.binary      ?? '',
-      binaryArgs:   config.binaryArgs  ?? null,
-      webUiEnabled: config.webUiEnabled ?? false,
-    })
-  }
-
-  async stopServer(): Promise<void> {
-    await invoke('kill_server')
-  }
-
-  async getServerStatus(): Promise<'running' | 'stopped' | 'error'> {
-    return 'stopped'
-  }
-
-  async launchFlaresolverr(config: FlaresolverrLaunchConfig): Promise<void> {
-    await invoke('spawn_flaresolverr', {
-      binary:     config.binary,
-      binaryArgs: config.binaryArgs || null,
-    })
-  }
-
-  async stopFlaresolverr(): Promise<void> {
-    await invoke('kill_flaresolverr')
-  }
-
   async setTitle(title: string): Promise<void> {
     await getCurrentWindow().setTitle(title)
   }
@@ -227,14 +200,6 @@ export class TauriAdapter implements PlatformAdapter {
 
   async clearMokuCache(): Promise<void> {
     await invoke('clear_moku_cache')
-  }
-
-  async clearSuwayomiCache(): Promise<void> {
-    await invoke('clear_suwayomi_cache')
-  }
-
-  async resetSuwayomiData(): Promise<void> {
-    await invoke('reset_suwayomi_data')
   }
 
   async onUpdateProgress(cb: (p: UpdateProgress) => void): Promise<() => void> {

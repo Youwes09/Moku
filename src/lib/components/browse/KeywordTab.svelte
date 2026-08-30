@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onDestroy }          from "svelte";
-  import { getAdapter }         from "$lib/request-manager";
+  import { onDestroy, untrack } from "svelte";
+  import { tsunagu }            from "$lib/server-adapters/tsunagu";
   import { settingsState }      from "$lib/state/settings.svelte";
   import { shouldHideNsfw, dedupeMangaById, dedupeMangaByTitle } from "$lib/core/util";
   import Thumbnail              from "$lib/components/shared/manga/Thumbnail.svelte";
   import type { Manga, Source } from "$lib/types";
-  import type { CachedManga }   from "$lib/components/browse/lib/searchFilter";
+  import { toBrowseManga }      from "$lib/components/browse/lib/searchFilter";
 
   interface Props {
     allSources:        Source[];
@@ -15,7 +15,7 @@
     pendingPrefill:    string;
     popularResults:    (Manga & { _priority: number })[];
     popularLoading:    boolean;
-    sourceCache:       Map<number, CachedManga>;
+    sourceCache:       Map<string, unknown>;
     query:             string;
     onQueryChange:     (q: string) => void;
     onPrefillConsumed: () => void;
@@ -65,6 +65,12 @@
     }
   });
 
+  $effect(() => {
+    allSources;
+    const q = untrack(() => kw_localQuery);
+    if (q.trim()) untrack(() => kwDoSearch(q));
+  });
+
   function kwHandleInput(value: string) {
     kw_localQuery = value;
     if (kw_debounceTimer) clearTimeout(kw_debounceTimer);
@@ -100,9 +106,12 @@
     await Promise.allSettled(visible.map(async (src) => {
       const idx = idxOf.get(src.id)!;
       try {
-        const result: { items: Manga[]; hasNextPage: boolean } = await getAdapter().searchSource(src.id, trimmed, 1, ctrl.signal);
+        const pkgName = src.id;
+        const result = await tsunagu.search(pkgName, trimmed, 1, undefined, ctrl.signal);
         if (ctrl.signal.aborted) return;
-        const mangas = result.items.filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
+        const mangas = result.results
+          .map((r) => toBrowseManga(r, pkgName, src.id))
+          .filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
         kw_results[idx] = { ...kw_results[idx], mangas, loading: false };
       } catch (e: any) {
         if (ctrl.signal.aborted || e?.name === "AbortError") return;
@@ -207,7 +216,7 @@
       <span class="searchLabel">Popular right now</span>
     </div>
     <div class="searchGrid">
-      {#each popularResults as m (m.id)}
+      {#each popularResults as m (`${m.extensionId}-${m.sourceEntryId}`)}
         <button class="srchCard" onclick={() => onPreview(m)}>
           <div class="srchCoverWrap">
             <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={m._priority} id={m.id} />
@@ -215,7 +224,7 @@
             {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
             <div class="srchFooter">
               <p class="srchTitle">{m.title}</p>
-              {#if m.source?.displayName}<p class="srchSource">{m.source.displayName}</p>{/if}
+              {#if m.sourceName || m.source?.displayName}<p class="srchSource">{m.sourceName ?? m.source?.displayName}</p>{/if}
             </div>
           </div>
         </button>
@@ -249,7 +258,7 @@
       <span class="searchLabel">{kw_flatResults.length} result{kw_flatResults.length !== 1 ? "s" : ""} for "{kw_localQuery.trim()}"</span>
     </div>
     <div class="searchGrid">
-      {#each kw_flatResults as m (m.id)}
+      {#each kw_flatResults as m (`${m.extensionId}-${m.sourceEntryId}`)}
         <button class="srchCard" onclick={() => onPreview(m)}>
           <div class="srchCoverWrap">
             <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={m._priority} id={m.id} />

@@ -1,6 +1,6 @@
 import { platformService } from '$lib/platform-service'
 import type { ReadSession }                   from '$lib/types/history'
-import type { BookmarkEntry, MarkerEntry }    from '$lib/types/history'
+import type { BookmarkEntry }                 from '$lib/types/history'
 
 const STORE_VERSION = 2
 
@@ -12,7 +12,6 @@ export interface PersistedSettings {
 export interface PersistedLibrary {
   sessions:        ReadSession[]
   bookmarks:       BookmarkEntry[]
-  markers:         MarkerEntry[]
   dailyReadCounts: Record<string, number>
 }
 
@@ -35,12 +34,12 @@ function migrateLibrary(raw: unknown, fromVersion: number): PersistedLibrary {
     return {
       sessions: oldHistory.map(e => ({
         id:               crypto.randomUUID(),
-        mangaId:          e.mangaId,
+        mangaId:          String(e.mangaId),
         mangaTitle:       e.mangaTitle,
         thumbnailUrl:     e.thumbnailUrl,
-        startChapterId:   e.chapterId,
+        startChapterId:   String(e.chapterId),
         startChapterName: e.chapterName,
-        endChapterId:     e.chapterId,
+        endChapterId:     String(e.chapterId),
         endChapterName:   e.chapterName,
         startPage:        1,
         endPage:          e.pageNumber ?? 1,
@@ -50,7 +49,6 @@ function migrateLibrary(raw: unknown, fromVersion: number): PersistedLibrary {
         chaptersSpanned:  1,
       })),
       bookmarks:       (data.bookmarks       ?? []) as BookmarkEntry[],
-      markers:         (data.markers         ?? []) as MarkerEntry[],
       dailyReadCounts: (data.dailyReadCounts ?? {}) as Record<string, number>,
     }
   }
@@ -58,7 +56,6 @@ function migrateLibrary(raw: unknown, fromVersion: number): PersistedLibrary {
   return {
     sessions:        (data.sessions        ?? []) as ReadSession[],
     bookmarks:       (data.bookmarks       ?? []) as BookmarkEntry[],
-    markers:         (data.markers         ?? []) as MarkerEntry[],
     dailyReadCounts: (data.dailyReadCounts ?? {}) as Record<string, number>,
   }
 }

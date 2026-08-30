@@ -1,5 +1,4 @@
 export type PlatformFeature =
-  | 'server-management'
   | 'biometric-auth'
   | 'native-window'
   | 'filesystem'
@@ -7,17 +6,6 @@ export type PlatformFeature =
   | 'discord-rpc'
 
 export type Platform = 'tauri' | 'capacitor' | 'web'
-
-export interface ServerLaunchConfig {
-  binary?:       string
-  binaryArgs?:   string
-  webUiEnabled?: boolean
-}
-
-export interface FlaresolverrLaunchConfig {
-  binary:      string
-  binaryArgs?: string
-}
 
 export interface DiscordAssets {
   largeImage?: string
@@ -39,8 +27,8 @@ export interface DiscordPresence {
   assets?:     DiscordAssets
   buttons?:    DiscordButton[]
   timestamps?: { start?: number; end?: number }
-  activityType?:      number   // 0 Playing, 2 Listening, 3 Watching, 5 Competing
-  statusDisplayType?: number   // 0 Name, 1 State, 2 Details (member-list headline)
+  activityType?:      number
+  statusDisplayType?: number
 }
 
 export interface AppUpdateInfo {
@@ -104,13 +92,6 @@ export interface PlatformAdapter {
 
   fetchImage(url: string, headers: Record<string, string>): Promise<Blob>
 
-  launchServer(config: ServerLaunchConfig): Promise<void>
-  stopServer():                             Promise<void>
-  getServerStatus():                        Promise<'running' | 'stopped' | 'error'>
-
-  launchFlaresolverr(config: FlaresolverrLaunchConfig): Promise<void>
-  stopFlaresolverr():                                   Promise<void>
-
   setTitle(title: string): Promise<void>
   minimize():              Promise<void>
   maximize():              Promise<void>
@@ -128,9 +109,7 @@ export interface PlatformAdapter {
   exitApp():                     Promise<void>
   listReleases():                Promise<ReleaseInfo[]>
 
-  clearMokuCache():     Promise<void>
-  clearSuwayomiCache(): Promise<void>
-  resetSuwayomiData():  Promise<void>
+  clearMokuCache(): Promise<void>
 
   onUpdateProgress(cb: (p: UpdateProgress) => void):   Promise<() => void>
   onUpdateLaunching(cb: () => void):                   Promise<() => void>

@@ -5,20 +5,23 @@
     Books, CaretDown, FolderSimplePlus, Folder, LinkSimpleHorizontalBreak, Image,
   } from "phosphor-svelte";
   import Thumbnail        from "$lib/components/shared/manga/Thumbnail.svelte";
+  import ExtensionIcon    from "$lib/components/extensions/ExtensionIcon.svelte";
   import CoverPickerPanel from "$lib/components/series/panels/CoverPickerPanel.svelte";
   import SeriesLinkPanel  from "$lib/components/shared/manga/SeriesLinkPanel.svelte";
-  import { getAdapter }   from "$lib/request-manager";
+  import { tsunagu }      from "$lib/server-adapters/tsunagu";
   import { goto }         from "$app/navigation";
   import { cache, CACHE_KEYS } from "$lib/core/cache/queryCache";
   import { resolvedCover }     from "$lib/core/cover/coverResolver";
   import { autoLinkLibrary }   from "$lib/core/cover/autoLink";
   import { settingsState }     from "$lib/state/settings.svelte";
   import { addToast }          from "$lib/state/notifications.svelte";
+  import { resolveMangaDetail } from "$lib/components/browse/lib/searchFilter";
   import {
-    seriesState,
+    seriesState, seriesHref,
     setPreviewManga, addBookmark, openReaderForChapter,
   } from "$lib/state/series.svelte";
-  import type { Manga, Chapter, Category } from "$lib/types";
+  import type { Manga, Chapter } from "$lib/types";
+  import type { Folder as TsunaguFolder } from "$lib/server-adapters/types";
   import ModalBlur from '$lib/components/shared/ui/ModalBlur.svelte';
 
   let manga: Manga | null         = $state(null);
@@ -28,8 +31,8 @@
   let folderOpen                  = $state(false);
   let newFolderName               = $state("");
   let creatingFolder              = $state(false);
-  let allCategories: Category[]   = $state([]);
-  let mangaCategories: Category[] = $state([]);
+  let allFolders: TsunaguFolder[]   = $state([]);
+  let mangaFolders: TsunaguFolder[] = $state([]);
   let catsLoading                 = $state(false);
   let queueingAll                 = $state(false);
   let fetchError: string | null   = $state(null);
@@ -47,7 +50,7 @@
   );
 
   const hasCoverOverride = $derived(
-    !!settingsState.settings.mangaPrefs?.[seriesState.previewManga?.id ?? -1]?.coverUrl,
+    !!settingsState.settings.mangaPrefs?.[seriesState.previewManga?.id ?? ""]?.coverUrl,
   );
 
   const displayManga    = $derived(manga ?? seriesState.previewManga);
@@ -75,11 +78,13 @@
       ? displayManga.status.charAt(0) + displayManga.status.slice(1).toLowerCase()
       : null,
   );
-  const assignedFolders = $derived(mangaCategories.filter((c) => c.id !== 0));
+  const assignedFolders = $derived(mangaFolders);
 
   const continueChapter = $derived.by(() => {
     if (!chapters.length) return null;
-    const asc      = [...chapters];
+    const asc = [...chapters].sort(
+      (a, b) => (a.sourceOrder - b.sourceOrder) || (a.chapterNumber - b.chapterNumber),
+    );
     const anyRead  = asc.some((c) => c.read);
     const bookmark = displayManga
       ? seriesState.bookmarks.find((b) => b.mangaId === displayManga!.id)
@@ -105,9 +110,12 @@
   const continueLabel = $derived.by(() => {
     if (!continueChapter) return "";
     const { ch, type, resumePage } = continueChapter;
-    if (type === "reread") return "Read again";
-    if (type === "start")  return `Start · Ch.${ch.chapterNumber}`;
-    return `Continue · Ch.${ch.chapterNumber}${resumePage ? ` p.${resumePage}` : ""}`;
+    const isAnime = displayManga?.contentType === "ANIME";
+    const unit    = isAnime ? "Ep." : "Ch.";
+    const ref     = ch.chapterNumber >= 0 ? `${unit}${ch.chapterNumber}` : (ch.name || "chapter");
+    if (type === "reread") return isAnime ? "Watch again" : "Read again";
+    if (type === "start")  return `Start · ${ref}`;
+    return `Continue · ${ref}${resumePage ? ` p.${resumePage}` : ""}`;
   });
 
   let detailAbort: AbortController | null = null;
@@ -123,13 +131,35 @@
     return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   }
 
+  async function loadAllMangaForLink(): Promise<Manga[]> {
+    const types: Array<"NOVEL" | "MANGA" | "ANIME"> = ["NOVEL", "MANGA", "ANIME"];
+    const perType = await Promise.all(
+      types.map(async (contentType) => {
+        try {
+          const entries = await tsunagu.library(contentType);
+          return entries.map((e) => ({
+            id: e.id,
+            title: e.title,
+            thumbnailUrl: e.thumbnailUrl ?? "",
+            inLibrary: true,
+            description: e.description,
+            status: e.status,
+          } satisfies Manga));
+        } catch (e) {
+          console.error(`Failed to load library(${contentType})`, e);
+          return [] as Manga[];
+        }
+      })
+    );
+    return perType.flat();
+  }
+
   async function openLinkPicker() {
     linkPickerOpen = true;
     if (allMangaForLink.length) return;
     loadingLinkList = true;
     try {
-      const result = await getAdapter().getMangaList({});
-      allMangaForLink = result.items;
+      allMangaForLink = await loadAllMangaForLink();
     } catch (e) {
       console.error(e);
     } finally {
@@ -144,8 +174,7 @@
     if (allMangaForLink.length) return;
     loadingLinkList = true;
     try {
-      const result = await getAdapter().getMangaList({});
-      allMangaForLink = result.items;
+      allMangaForLink = await loadAllMangaForLink();
     } catch (e) {
       console.error(e);
     } finally {
@@ -158,9 +187,10 @@
     if (!focal) return;
 
     untrack(() => {
-      loadDetail(focal.id);
-      seriesState.loadChapters(focal.id);
-      loadCategories(focal.id);
+      loadDetail(focal.id).then(() => {
+        seriesState.loadChapters(focal.id, { mediaId: focal.id });
+      });
+      loadFolders(focal.id);
 
       const shouldAutoLink = settingsState.settings.autoLinkOnOpen;
       if (shouldAutoLink) {
@@ -171,9 +201,9 @@
           loadingLinkList = true;
           (async () => {
             try {
-              const result = await getAdapter().getMangaList({});
-              allMangaForLink = result.items;
-              const n = await autoLinkLibrary(focal, result.items);
+              const items = await loadAllMangaForLink();
+              allMangaForLink = items;
+              const n = await autoLinkLibrary(focal, items);
               if (n > 0) addToast({ kind: "success", title: "Series linked", body: `${n} new link${n === 1 ? "" : "s"} found` });
             } catch (e) {
               console.error(e);
@@ -186,7 +216,7 @@
     });
   });
 
-  async function loadDetail(id: number) {
+  async function loadDetail(id: string) {
     detailAbort?.abort();
     const ctrl = new AbortController();
     detailAbort = ctrl;
@@ -200,13 +230,14 @@
       if (cache.has(key)) {
         fullManga = await (cache.get(key, () => Promise.resolve(seriesState.previewManga as Manga)) as Promise<Manga>);
       } else {
-        try {
-          fullManga = await getAdapter().fetchManga(String(id), ctrl.signal);
-        } catch (e: any) {
-          if (e?.name === "AbortError") return;
-          const local = await getAdapter().getManga(String(id), ctrl.signal);
-          if (local) fullManga = local;
-          else throw new Error("Could not load manga details");
+        const resolved = await resolveMangaDetail(seriesState.previewManga as Manga, tsunagu);
+        if (!resolved) throw new Error("Could not load manga details");
+        fullManga = resolved.manga;
+        if (resolved.entry && resolved.entry.chapters?.length > 0) {
+          seriesState.ingestEntry(id, resolved.entry);
+        }
+        if (resolved.info) {
+          seriesState.ingestMangaInfo(id, resolved.info);
         }
         if (!cache.has(key)) cache.get(key, () => Promise.resolve(fullManga));
       }
@@ -214,6 +245,7 @@
       manga = fullManga;
     } catch (e: any) {
       if (e?.name === "AbortError") return;
+      console.error("loadDetail failed:", e);
       manga = seriesState.previewManga as Manga;
       fetchError = "Could not load full details — showing cached data";
     } finally {
@@ -224,29 +256,45 @@
   async function toggleLibrary() {
     if (!manga) return;
     togglingLib = true;
-    const next = !manga.inLibrary;
-    if (next) await getAdapter().addToLibrary(String(manga.id)).catch(console.error);
-    else      await getAdapter().removeFromLibrary(String(manga.id)).catch(console.error);
-    manga = { ...manga, inLibrary: next };
-    cache.clear(CACHE_KEYS.MANGA(manga.id));
-    cache.get(CACHE_KEYS.MANGA(manga.id), () => Promise.resolve(manga!));
-    cache.clear(CACHE_KEYS.LIBRARY);
-    togglingLib = false;
-    addToast({ kind: "success", title: next ? "Added to library" : "Removed from library" });
+    try {
+      if (inLibrary) {
+        await tsunagu.removeFromLibrary(manga.id);
+        cache.clear(CACHE_KEYS.MANGA(manga.id));
+        cache.clear(CACHE_KEYS.LIBRARY);
+        addToast({ kind: "success", title: "Removed from library" });
+        close();
+      } else {
+        const entry = await tsunagu.addToLibrary(manga.id);
+        cache.clear(CACHE_KEYS.MANGA(manga.id));
+        cache.clear(CACHE_KEYS.LIBRARY);
+        manga = { ...manga, id: entry.id, inLibrary: true, libraryEntryId: entry.id };
+        addToast({ kind: "success", title: "Added to library" });
+      }
+    } catch (e) {
+      console.error(e);
+      addToast({ kind: "error", title: "Failed", body: (e as Error)?.message });
+    } finally {
+      togglingLib = false;
+    }
   }
 
   async function downloadAll() {
-    const ids = chapters.filter((c) => !c.downloaded && !c.read).map((c) => String(c.id));
-    if (!ids.length) return;
+    const ids = chapters.filter((c) => !c.downloaded && !c.read).map((c) => c.id);
+    if (!ids.length || mangaId == null) return;
     queueingAll = true;
-    await getAdapter().enqueueDownloads(ids).catch(console.error);
-    addToast({ kind: "download", title: "Downloading", body: `${ids.length} chapters queued` });
-    queueingAll = false;
+    try {
+      await tsunagu.enqueueDownloads(mangaId, ids);
+      addToast({ kind: "download", title: "Downloading", body: `${ids.length} chapters queued` });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      queueingAll = false;
+    }
   }
 
   function openSeriesDetail() {
     if (!displayManga) return;
-    goto(`/series/${displayManga.id}`);
+    goto(seriesHref(displayManga));
     close();
   }
 
@@ -270,59 +318,61 @@
     close();
   }
 
-  function loadCategories(id: number) {
+  async function loadFolders(id: string) {
     catsLoading = true;
-    getAdapter().getCategories()
-      .then((cats: Category[]) => {
-        allCategories   = cats.filter((c: Category) => c.id !== 0);
-        mangaCategories = allCategories.filter((c: Category) => c.mangas?.some((m: Manga) => m.id === id));
-      })
-      .catch(console.error)
-      .finally(() => { catsLoading = false; });
+    try {
+      allFolders = await tsunagu.folders();
+      const checks = await Promise.all(
+        allFolders.map(async (f) => {
+          try {
+            const entries = await tsunagu.entriesInFolder(f.id);
+            return entries.some((e) => e.id === id) ? f : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      mangaFolders = checks.filter((f): f is TsunaguFolder => f !== null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      catsLoading = false;
+    }
   }
 
-  async function checkAndMarkCompleted(id: number, chaps: Chapter[]) {
+  async function checkAndMarkCompleted(id: string, chaps: Chapter[]) {
     const isOngoing = (manga ?? displayManga)?.status === "ONGOING";
     if (!chaps.length || isOngoing) return;
     const allRead   = chaps.every((c) => c.read);
-    const completed = allCategories.find((c) => c.name === "Completed");
+    const completed = allFolders.find((f) => f.systemKey === 'completed');
     if (!completed) return;
-    const inCompleted = mangaCategories.some((c) => c.id === completed.id);
+    const inCompleted = mangaFolders.some((f) => f.id === completed.id);
     if (allRead && !inCompleted) {
-      await getAdapter().updateMangaCategories(String(id), [completed.id], []).catch(console.error);
-      mangaCategories = [...mangaCategories, completed];
+      await tsunagu.addEntryToFolder(id, completed.id).catch(console.error);
+      mangaFolders = [...mangaFolders, completed];
     } else if (!allRead && inCompleted) {
-      await getAdapter().updateMangaCategories(String(id), [], [completed.id]).catch(console.error);
-      mangaCategories = mangaCategories.filter((c) => c.id !== completed.id);
+      await tsunagu.removeEntryFromFolder(id, completed.id).catch(console.error);
+      mangaFolders = mangaFolders.filter((f) => f.id !== completed.id);
     }
   }
 
-  async function toggleCategory(cat: Category) {
+  async function toggleFolder(folder: TsunaguFolder) {
     if (!seriesState.previewManga) return;
     const id    = seriesState.previewManga.id;
-    const inCat = mangaCategories.some((c) => c.id === cat.id);
-    await getAdapter().updateMangaCategories(String(id), inCat ? [] : [cat.id], inCat ? [cat.id] : []).catch(console.error);
-    if (!inCat && !inLibrary) {
-      await getAdapter().addToLibrary(String(id)).catch(console.error);
-      if (manga) manga = { ...manga, inLibrary: true };
-      cache.clear(CACHE_KEYS.LIBRARY);
-    }
-    mangaCategories = inCat ? mangaCategories.filter((c) => c.id !== cat.id) : [...mangaCategories, cat];
+    const inCat = mangaFolders.some((f) => f.id === folder.id);
+    if (inCat) await tsunagu.removeEntryFromFolder(id, folder.id).catch(console.error);
+    else       await tsunagu.addEntryToFolder(id, folder.id).catch(console.error);
+    mangaFolders = inCat ? mangaFolders.filter((f) => f.id !== folder.id) : [...mangaFolders, folder];
   }
 
   async function handleFolderCreate() {
     const name = newFolderName.trim();
     if (!name || !seriesState.previewManga) return;
     try {
-      const cat = await getAdapter().createCategory(name);
-      allCategories = [...allCategories, cat];
-      await getAdapter().updateMangaCategories(String(seriesState.previewManga.id), [cat.id], []);
-      if (!inLibrary) {
-        await getAdapter().addToLibrary(String(seriesState.previewManga.id)).catch(console.error);
-        if (manga) manga = { ...manga, inLibrary: true };
-        cache.clear(CACHE_KEYS.LIBRARY);
-      }
-      mangaCategories = [...mangaCategories, cat];
+      const folder = await tsunagu.createFolder(name);
+      allFolders = [...allFolders, folder];
+      await tsunagu.addEntryToFolder(seriesState.previewManga.id, folder.id);
+      mangaFolders = [...mangaFolders, folder];
     } catch (e) { console.error(e); }
     newFolderName = ""; creatingFolder = false;
   }
@@ -410,16 +460,16 @@
             <div class="folder-menu">
               {#if catsLoading}
                 <p class="folder-empty">Loading…</p>
-              {:else if allCategories.length === 0 && !creatingFolder}
+              {:else if allFolders.length === 0 && !creatingFolder}
                 <p class="folder-empty">No folders yet</p>
               {/if}
-              {#if allCategories.length > 0}
+              {#if allFolders.length > 0}
                 <div class="folder-list">
-                  {#each allCategories as cat}
-                    {@const isIn = mangaCategories.some((c) => c.id === cat.id)}
-                    <button class="folder-item" class:folder-item-on={isIn} onclick={() => toggleCategory(cat)}>
+                  {#each allFolders as folder}
+                    {@const isIn = mangaFolders.some((f) => f.id === folder.id)}
+                    <button class="folder-item" class:folder-item-on={isIn} onclick={() => toggleFolder(folder)}>
                       <Folder size={12} weight={isIn ? "fill" : "light"} />
-                      {isIn ? "✓ " : ""}{cat.name}
+                      {isIn ? "✓ " : ""}{folder.name}
                     </button>
                   {/each}
                 </div>
@@ -507,8 +557,13 @@
             {#if statusLabel}
               <span class="badge" class:badge-green={displayManga?.status === "ONGOING"}>{statusLabel}</span>
             {/if}
-            {#if displayManga?.source}
-              <span class="badge">{displayManga.source.displayName}</span>
+            {#if displayManga?.sourceName || displayManga?.source}
+              <span class="badge badge-src">
+                {#if displayManga?.source?.iconUrl}
+                  <ExtensionIcon src={displayManga.source.iconUrl} alt="" size={11} class="badge-src-icon" />
+                {/if}
+                {displayManga?.sourceName ?? displayManga?.source?.displayName}
+              </span>
             {/if}
             {#if inLibrary}
               <span class="badge badge-accent">In Library</span>
@@ -553,7 +608,7 @@
                 <Play size={12} weight="fill" />{continueLabel}
               </button>
             {/if}
-          {:else if !loadingDetail}
+          {:else if !loadingDetail && !loadingChapters}
             <span class="chapter-label" style="color:var(--text-faint)">No chapters in local library</span>
           {/if}
         </div>
@@ -601,7 +656,7 @@
                 </div>
                 <div class="meta-row">
                   <span class="meta-key">Source</span>
-                  <span class="meta-val">{displayManga?.source?.displayName ?? "N/A"}</span>
+                  <span class="meta-val">{displayManga?.sourceName ?? displayManga?.source?.displayName ?? "Unknown source"}</span>
                 </div>
                 <div class="meta-row">
                   <span class="meta-key">Link</span>
@@ -828,6 +883,8 @@
     padding: 3px 8px; border-radius: var(--radius-sm);
     border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint);
   }
+  .badge-src { display: inline-flex; align-items: center; gap: 4px; text-transform: none; letter-spacing: var(--tracking-normal); }
+  :global(.badge-src-icon) { width: 11px; height: 11px; border-radius: 2px; object-fit: contain; }
   .badge-green  { background: rgba(34,197,94,0.12);  border-color: rgba(34,197,94,0.3);  color: #22c55e; }
   .badge-accent { background: var(--accent-muted);   border-color: var(--accent-dim);    color: var(--accent-fg); }
   .badge-unread { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); color: #f59e0b; }

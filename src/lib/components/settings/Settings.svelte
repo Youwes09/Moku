@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { X, Book, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Wrench, PaintBrush, ListChecks, Lock, ShieldCheck, Robot, Bug } from 'phosphor-svelte'
+  import { X, Book, FilmSlate, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Wrench, PaintBrush, ShieldCheck, Robot, Bug, Broadcast } from 'phosphor-svelte'
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
   import { eventToKeybind } from '$lib/core/keybinds/keybindEngine'
   import type { Keybinds } from '$lib/core/keybinds/defaultBinds'
@@ -9,36 +9,36 @@
   import GeneralSettings     from './sections/GeneralSettings.svelte'
   import AppearanceSettings  from './sections/AppearanceSettings.svelte'
   import ReaderSettings      from './sections/ReaderSettings.svelte'
+  import PlayerSettings      from './sections/PlayerSettings.svelte'
   import LibrarySettings     from './sections/LibrarySettings.svelte'
   import AutomationSettings  from './sections/AutomationSettings.svelte'
   import PerformanceSettings from './sections/PerformanceSettings.svelte'
   import KeybindsSettings    from './sections/KeybindsSettings.svelte'
   import StorageSettings     from './sections/StorageSettings.svelte'
   import FoldersSettings     from './sections/FoldersSettings.svelte'
-  import TrackingSettings    from './sections/TrackingSettings.svelte'
-  import SecuritySettings    from './sections/SecuritySettings.svelte'
   import ContentSettings     from './sections/ContentSettings.svelte'
   import AboutSettings       from './sections/AboutSettings.svelte'
   import DevtoolsSettings    from './sections/DevToolsSettings.svelte'
+  import TrackingSettings    from './sections/TrackingSettings.svelte'
   import ModalBlur           from '$lib/components/shared/ui/ModalBlur.svelte'
   import BugReporter         from './BugReporter.svelte'
 
   interface Props { onclose?: () => void; onOpenThemeEditor?: (id?: string | null) => void }
   let { onclose, onOpenThemeEditor }: Props = $props()
 
-  type Tab = 'general'|'appearance'|'reader'|'library'|'automation'|'performance'|'keybinds'|'storage'|'folders'|'tracking'|'security'|'content'|'about'|'devtools'
+  type Tab = 'general'|'appearance'|'reader'|'player'|'library'|'automation'|'tracking'|'performance'|'keybinds'|'storage'|'folders'|'content'|'about'|'devtools'
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: 'general',     label: 'General',     icon: Gear        },
     { id: 'appearance',  label: 'Appearance',  icon: PaintBrush  },
     { id: 'reader',      label: 'Reader',      icon: Book        },
+    { id: 'player',      label: 'Player',      icon: FilmSlate   },
     { id: 'library',     label: 'Library',     icon: Image       },
     { id: 'automation',  label: 'Automation',  icon: Robot       },
+    { id: 'tracking',    label: 'Tracking',    icon: Broadcast   },
     { id: 'performance', label: 'Performance', icon: Sliders     },
     { id: 'keybinds',    label: 'Keybinds',    icon: Keyboard    },
     { id: 'storage',     label: 'Storage',     icon: HardDrives  },
     { id: 'folders',     label: 'Folders',     icon: FolderSimple },
-    { id: 'tracking',    label: 'Tracking',    icon: ListChecks  },
-    { id: 'security',    label: 'Security',    icon: Lock        },
     { id: 'content',     label: 'Content',     icon: ShieldCheck },
     { id: 'about',       label: 'About',       icon: Info        },
     { id: 'devtools',    label: 'Dev Tools',   icon: Wrench      },
@@ -175,27 +175,27 @@
 
       <div class="s-content-body" bind:this={contentBodyEl}>
         {#if tab === 'general'}
-          <GeneralSettings {selectOpen} {closingSelect} {toggleSelect} {registerTrigger} {getTrigger} {selectPortal} {modalEl} {anims} />
+          <GeneralSettings {selectOpen} {closingSelect} {toggleSelect} {registerTrigger} {getTrigger} {selectPortal} {anims} />
         {:else if tab === 'appearance'}
-          <AppearanceSettings {selectOpen} {closingSelect} {toggleSelect} {registerTrigger} {getTrigger} {selectPortal} {modalEl} {anims} {onOpenThemeEditor} />
+          <AppearanceSettings {selectOpen} {closingSelect} {toggleSelect} {anims} {onOpenThemeEditor} />
         {:else if tab === 'reader'}
-          <ReaderSettings {selectOpen} {closingSelect} {toggleSelect} {registerTrigger} {getTrigger} {selectPortal} {modalEl} {anims} />
+          <ReaderSettings {selectOpen} {closingSelect} {toggleSelect} {registerTrigger} {getTrigger} {selectPortal} {anims} />
+        {:else if tab === 'player'}
+          <PlayerSettings />
         {:else if tab === 'library'}
-          <LibrarySettings {selectOpen} {closingSelect} {toggleSelect} {registerTrigger} {getTrigger} {selectPortal} {modalEl} {anims} />
+          <LibrarySettings {selectOpen} {closingSelect} {toggleSelect} {registerTrigger} {getTrigger} {selectPortal} {anims} />
         {:else if tab === 'automation'}
           <AutomationSettings />
+        {:else if tab === 'tracking'}
+          <TrackingSettings />
         {:else if tab === 'performance'}
           <PerformanceSettings />
         {:else if tab === 'keybinds'}
           <KeybindsSettings bind:listeningKey />
         {:else if tab === 'storage'}
-          <StorageSettings {selectOpen} {closingSelect} {toggleSelect} {registerTrigger} {getTrigger} {selectPortal} {modalEl} />
+          <StorageSettings />
         {:else if tab === 'folders'}
           <FoldersSettings />
-        {:else if tab === 'tracking'}
-          <TrackingSettings />
-        {:else if tab === 'security'}
-          <SecuritySettings {selectOpen} {toggleSelect} {registerTrigger} {getTrigger} {selectPortal} {modalEl} />
         {:else if tab === 'content'}
           <ContentSettings />
         {:else if tab === 'about'}

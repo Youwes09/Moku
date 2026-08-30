@@ -5,7 +5,7 @@
   } from "phosphor-svelte";
   import { canOpenFolder }  from "$lib/core/filesystem";
   import LibraryFilters from "./LibraryFilters.svelte";
-  import type { Category } from "$lib/types";
+  import type { Folder as FolderType } from "$lib/server-adapters/types";
   import type { LibrarySortOption, LibrarySortDir, LibraryStatusFilter, LibraryContentFilter, LibraryViewMode } from "$lib/state/library.svelte";
 
   interface Props {
@@ -16,9 +16,9 @@
     tabFilters:       Partial<Record<LibraryContentFilter, boolean>>;
     hasActiveFilters: boolean;
     anims?:           boolean;
-    visibleCategories: Category[];
+    visibleFolders:   FolderType[];
     visibleTabIds:    string[];
-    completedCatId:   number | null;
+    completedFolderId: string | null;
     counts:           Record<string, number>;
     search:           string;
     viewMode:          LibraryViewMode;
@@ -50,7 +50,7 @@
 
   let {
     tab, tabSortMode, tabSortDir, tabStatus, tabFilters, hasActiveFilters,
-    anims = false, visibleCategories, visibleTabIds, completedCatId,
+    anims = false, visibleFolders, visibleTabIds, completedFolderId,
     counts, search, viewMode,
     activeDragKind, dragInsertIdx, dragTabId, dragOverTabId, sortPanelOpen, filterPanelOpen,
     tabsEl = $bindable(),
@@ -69,7 +69,7 @@
     tabsEl?.scrollBy({ left: e.deltaY * 0.5, behavior: "instant" })
     if (wheelTimer) return
     wheelTimer = setTimeout(() => { wheelTimer = null }, 180)
-    const ids = visibleTabIds.filter(id => id === "library" || id === "downloaded" || visibleCategories.some(c => String(c.id) === id));
+    const ids = visibleTabIds.filter(id => id === "library" || id === "downloaded" || visibleFolders.some(f => f.id === id));
     const idx = ids.indexOf(tab);
     if (e.deltaY > 0 && idx < ids.length - 1) onTabChange(ids[idx + 1]);
     else if (e.deltaY < 0 && idx > 0) onTabChange(ids[idx - 1]);
@@ -108,10 +108,10 @@
 
   <div class="tabs" class:tabs-anims={anims} bind:this={tabsEl} onwheel={onTabsWheel}>
     {#each visibleTabIds as id, idx}
-      {@const cat = visibleCategories.find(c => String(c.id) === id)}
+      {@const cat = visibleFolders.find(f => f.id === id)}
       {#if id === "library" || id === "downloaded" || cat}
         {@const isBuiltin   = id === "library" || id === "downloaded"}
-        {@const isCompleted = cat && id === String(completedCatId)}
+        {@const isCompleted = cat && id === completedFolderId}
         {@const isDraggable = true}
         {#if activeDragKind === "tab" && dragInsertIdx === idx}
           <div class="tab-insert-bar" aria-hidden="true"></div>
@@ -131,7 +131,7 @@
         >
           {#if id === "library"}<Books size={11} weight="bold" />
           {:else if id === "downloaded"}<DownloadSimple size={11} weight="bold" />
-          {:else if cat && id === String(completedCatId)}<CheckSquare size={11} weight="bold" />
+          {:else if cat && id === completedFolderId}<CheckSquare size={11} weight="bold" />
           {:else if cat}<Folder size={11} weight="bold" />
           {/if}
           {id === "library" ? "Saved" : id === "downloaded" ? "Downloaded" : (cat?.name ?? id)}

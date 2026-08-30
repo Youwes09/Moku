@@ -2,10 +2,10 @@
   import { onDestroy, untrack } from "svelte";
   import { page }               from "$app/stores";
   import { goto }               from "$app/navigation";
-  import { getAdapter }         from "$lib/request-manager";
+  import { tsunagu }            from "$lib/server-adapters/tsunagu";
   import { settingsState }      from "$lib/state/settings.svelte";
   import { setPreviewManga }    from "$lib/state/series.svelte";
-  import { toCachedManga, shouldHideNsfw, runConcurrent, type CachedManga } from "$lib/components/browse/lib/searchFilter";
+  import { toCachedManga, toBrowseManga, toSource, shouldHideNsfw, runConcurrent, type CachedManga } from "$lib/components/browse/lib/searchFilter";
   import type { Manga, Source } from "$lib/types";
 
   import KeywordTab from "$lib/components/browse/KeywordTab.svelte";
@@ -57,9 +57,16 @@
   const SEARCH_BATCH        = 20;
   const POPULAR_CACHE_PAGES = 3;
 
-  let allSources:    Source[] = $state([]);
+  let allSourcesRaw:  Source[] = $state([]);
   let localSource:   Source | null = $state(null);
   let loadingSources             = $state(false);
+
+  const contentTypeFilter = $derived(settingsState.settings.contentTypeFilter ?? "all");
+  const allSources = $derived(
+    contentTypeFilter === "all"
+      ? allSourcesRaw
+      : allSourcesRaw.filter((s) => s.contentType === contentTypeFilter)
+  );
 
   const preferredLang    = $derived(settingsState.settings.preferredExtensionLang ?? "en");
   const availableLangs   = $derived(Array.from(new Set<string>(allSources.map((s) => s.lang))).sort());
@@ -72,11 +79,11 @@
     const ctrl = new AbortController();
     sourcesAbort = ctrl;
     loadingSources = true;
-    getAdapter().getSources()
-      .then((nodes: Source[]) => {
+    tsunagu.installedExtensions()
+      .then((exts) => {
         if (ctrl.signal.aborted) return;
-        localSource = nodes.find((s: Source) => s.id === "0") ?? null;
-        allSources  = nodes.filter((s: Source) => s.id !== "0");
+        localSource   = null;
+        allSourcesRaw = exts.map(toSource);
       })
       .catch(console.error)
       .finally(() => { if (!ctrl.signal.aborted) loadingSources = false; });
@@ -88,7 +95,7 @@
   let popular_abortCtrl: AbortController | null = null;
   let popular_sourcePool:   Source[] = [];
   let popular_sourceCursor             = 0;
-  let popular_seenIds    = new Set<number>();
+  let popular_seenIds    = new Set<string>();
   let popular_seenTitles = new Set<string>();
 
   const popular_results = $derived(popular_raw.map((m, i) => ({ ...m, _priority: Math.max(0, 50 - i) })));
@@ -119,9 +126,9 @@
       for (let p = 1; p <= SEARCH_PAGES; p++) {
         if (signal.aborted) return;
         try {
-          const result = await getAdapter().browseSource(src.id, p);
+          const result = await tsunagu.popularManga(src.id, p, signal);
           if (signal.aborted) return;
-          popular_push(result.items as Manga[]);
+          popular_push(result.results.map((r) => toBrowseManga(r, src.id)));
           if (!result.hasNextPage) break;
         } catch { break; }
       }
@@ -150,7 +157,7 @@
     })();
   }
 
-  export const sourceCache = new Map<number, CachedManga>();
+  export const sourceCache = new Map<string, CachedManga>();
   let sourceCacheReady     = $state(false);
   let sourceCacheLoading   = $state(false);
   let sourceCacheEnriching = $state(false);
@@ -164,9 +171,10 @@
     await runConcurrent(tasks, async ({ src, page: p }) => {
       if (signal.aborted) return;
       try {
-        const result = await getAdapter().browseSource(src.id, p);
+        const result = await tsunagu.popularManga(src.id, p, signal);
         if (signal.aborted) return;
-        for (const m of result.items as Manga[]) {
+        for (const r of result.results) {
+          const m = toBrowseManga(r, src.id);
           if (!sourceCache.has(m.id)) sourceCache.set(m.id, toCachedManga(m as any, src.id));
         }
       } catch (e: any) {
@@ -175,29 +183,7 @@
     }, signal);
   }
 
-  async function enrichGenres(signal: AbortSignal) {
-    const unenriched = [...sourceCache.values()].filter((m) => !m.genreEnriched);
-    if (!unenriched.length) return;
-    sourceCacheEnriching = true;
-    await runConcurrent(unenriched, async (entry) => {
-      if (signal.aborted) return;
-      try {
-        const m = await getAdapter().getManga(String(entry.id));
-        if (signal.aborted) return;
-        const updated = sourceCache.get(entry.id);
-        if (updated) {
-          updated.genre         = (m as any).genre ?? [];
-          updated.status        = (m as any).status ?? updated.status;
-          updated.lowerGenres   = updated.genre.map((g: string) => g.toLowerCase());
-          updated.genreEnriched = true;
-        }
-      } catch {
-        const updated = sourceCache.get(entry.id);
-        if (updated) updated.genreEnriched = true;
-      }
-    }, signal);
-    if (!signal.aborted) sourceCacheEnriching = false;
-  }
+  async function enrichGenres(_signal: AbortSignal) {}
 
   function startSourceCacheBuild() {
     if (sourceCacheLoading || sourceCacheReady) return;
@@ -218,6 +204,24 @@
         sourceCacheLoading = false;
       });
   }
+
+  let prevContentType = untrack(() => contentTypeFilter);
+  $effect(() => {
+    const ct = contentTypeFilter;
+    if (ct === prevContentType) return;
+    prevContentType = ct;
+    untrack(() => {
+      popular_abortCtrl?.abort();
+      popular_raw = [];
+      popular_seenIds.clear();
+      popular_seenTitles.clear();
+      popular_sourceCursor = 0;
+      sourceCacheAbort?.abort();
+      sourceCache.clear();
+      sourceCacheReady   = false;
+      sourceCacheLoading = false;
+    });
+  });
 
   $effect(() => {
     if ($page.url.pathname !== "/browse") return;

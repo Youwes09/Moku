@@ -1,11 +1,8 @@
-import type { DownloadStatus, DownloadQueueItem } from "$lib/types/api";
-import {
-  loadDownloadStatus, dequeueDownload, dequeueDownloads,
-  reorderDownload, clearDownloads, startDownloader, stopDownloader, enqueueDownload,
-  getStorageInfo,
-} from "$lib/request-manager/downloads";
+import type { Download, DownloaderStatus, Chapter } from "$lib/server-adapters/types";
+import { tsunagu } from "$lib/server-adapters/tsunagu";
 import { settingsState, updateSettings } from "$lib/state/settings.svelte";
 import { addToast }                      from "$lib/state/notifications.svelte";
+import { libraryState }                  from "$lib/state/library.svelte";
 import {
   isRunning, getErrored, calcSpeed, estimateEta, estimateQueueBytes,
   type SpeedSample,
@@ -14,56 +11,67 @@ import { startAutoRetry, type AutoRetryHandle } from "$lib/components/downloads/
 import { mount, unmount }                        from "svelte";
 import StorageWarningDialog                       from "$lib/components/downloads/StorageWarningDialog.svelte";
 
+function fakeChapter(chapterId: string, mediaId: string): Chapter {
+  return {
+    id: chapterId, mediaId, externalId: "", title: null, number: null, scanlator: null,
+    sourceOrder: null, uploadedAt: null, completed: false, downloaded: false, readingProgress: null, download: null, pages: null, pageCount: 0, videoUrl: null,
+  };
+}
+
 class DownloadStore {
-  status:        DownloadStatus | null = $state(null);
+  queue:         Download[] = $state([]);
+  completed:     Download[] = $state([]);
+  downloaderStatusVal: DownloaderStatus | null = $state(null);
   loading                              = $state(true);
   togglingPlay                         = $state(false);
   clearing                             = $state(false);
-  dequeueing                           = $state(new Set<number>());
-  selected                             = $state(new Set<number>());
+  dequeueing                           = $state(new Set<string>());
+  selected                             = $state(new Set<string>());
   batchWorking                         = $state(false);
   pagesPerSec:   number | null         = $state(null);
   eta:           number | null         = $state(null);
   storageWarning                       = $state(false);
+  drawerOpen                           = $state(false);
 
   private freeBytes:    number | null      = null;
   private lastSample:   SpeedSample | null = null;
-  private prevQueue:    DownloadQueueItem[] = [];
+  private prevQueue:    Download[] = [];
   private autoRetryHnd: AutoRetryHandle | null = null;
 
-  get queue()            { return this.status?.queue ?? []; }
-  get isRunning()        { return isRunning(this.status?.state); }
-  get erroredIds()       { return new Set(getErrored(this.queue).map(i => i.chapter.id)); }
+  get isRunning()        { return isRunning(this.downloaderStatusVal); }
+  get erroredIds()       { return new Set(getErrored(this.queue).map(i => i.chapterId)); }
   get hasErrored()       { return this.erroredIds.size > 0; }
   get toastsEnabled()    { return settingsState.settings.downloadToastsEnabled ?? true; }
   get autoRetryEnabled() { return settingsState.settings.downloadAutoRetry ?? false; }
 
-  private applyStatus(ds: DownloadStatus) {
-    this.detectTransitions(ds.queue);
-    this.status = ds;
-    this.updateSpeed(ds);
-    this.syncFreeBytes(ds);
+  private mangaTitleFor(libraryEntryId: string): string {
+    return libraryState.items.find(m => m.id === libraryEntryId)?.title ?? "Unknown series";
   }
 
-  private updateSpeed(ds: DownloadStatus) {
-    const active = ds.queue[0];
-    if (!active || active.state !== "DOWNLOADING") {
+  private mediaIdFor(chapterId: string): string {
+    return (this.queue.find(i => i.chapterId === chapterId)
+      ?? this.completed.find(i => i.chapterId === chapterId))?.mediaId ?? "";
+  }
+
+  private updateSpeed() {
+    const active = this.queue[0];
+    if (!active || active.status !== "DOWNLOADING") {
       this.lastSample = null; this.pagesPerSec = null; this.eta = null;
       return;
     }
     const sample: SpeedSample = { ts: Date.now(), progress: active.progress, pages: active.chapter.pageCount ?? 0 };
     const speed = calcSpeed(this.lastSample, sample);
     this.lastSample = sample;
-    if (speed !== null) { this.pagesPerSec = speed; this.eta = estimateEta(speed, ds.queue); }
+    if (speed !== null) { this.pagesPerSec = speed; this.eta = estimateEta(speed, this.queue); }
   }
 
-  private async syncFreeBytes(ds: DownloadStatus) {
+  private async syncFreeBytes() {
     const path = settingsState.settings.serverDownloadsPath ?? "";
     if (!path) return;
     try {
-      const info = await getStorageInfo(path);
-      this.freeBytes     = info.freeBytes;
-      this.storageWarning = estimateQueueBytes(ds.queue) > info.freeBytes * 0.95;
+      const info = await tsunagu.storageInfo();
+      this.freeBytes      = info.freeBytes;
+      this.storageWarning = estimateQueueBytes(this.queue) > info.freeBytes * 0.95;
     } catch { }
   }
 
@@ -81,40 +89,69 @@ class DownloadStore {
     });
   }
 
-  private async guardStorage(queueAfter: DownloadQueueItem[]): Promise<boolean> {
+  private async guardStorage(queueAfter: Download[]): Promise<boolean> {
     if (this.freeBytes === null) return true;
     if (estimateQueueBytes(queueAfter) <= this.freeBytes * 0.95) return true;
     return this.confirmStorageOverrun();
   }
 
-  detectTransitions(next: DownloadQueueItem[]) {
-    if (!this.toastsEnabled) return;
-    const nextMap = new Map(next.map(i => [i.chapter.id, i]));
-    for (const item of this.prevQueue) {
-      if (item.state !== "DOWNLOADING") continue;
-      const nextItem = nextMap.get(item.chapter.id);
-      const label    = item.chapter.manga
-        ? `${item.chapter.manga.title} — ${item.chapter.name}`
-        : item.chapter.name;
-      if (!nextItem)                       addToast({ kind: "download", title: "Chapter downloaded", body: label, duration: 4000 });
-      else if (nextItem.state === "ERROR") addToast({ kind: "error",    title: "Download failed",    body: label, duration: 5000 });
+  detectTransitions(next: Download[], done: Download[]) {
+    if (this.toastsEnabled) {
+      const nextMap = new Map(next.map(i => [i.chapterId, i]));
+      const doneSet = new Set(done.map(i => i.chapterId));
+      for (const item of this.prevQueue) {
+        if (item.status !== "DOWNLOADING") continue;
+        const nextItem = nextMap.get(item.chapterId);
+        const label    = `${this.mangaTitleFor(item.mediaId)} — ${item.chapter.title ?? "Chapter"}`;
+        if (!nextItem && doneSet.has(item.chapterId)) addToast({ kind: "download", title: "Chapter downloaded", body: label, duration: 4000 });
+        else if (nextItem?.status === "FAILED")       addToast({ kind: "error",    title: "Download failed",    body: label, duration: 5000 });
+      }
     }
     this.prevQueue = next.slice();
   }
 
+  async tickStatus() {
+    try {
+      const status = await tsunagu.downloaderStatus();
+      this.downloaderStatusVal = status;
+      const active =
+        status.isRunning ||
+        status.queuedCount > 0 ||
+        status.downloadingCount > 0 ||
+        status.failedCount > 0;
+      if (active || this.drawerOpen || this.wasActive) await this.poll();
+      this.wasActive = active;
+    } catch { } finally {
+      this.loading = false;
+    }
+  }
+  private wasActive = false;
+
   async poll() {
     try {
-      const ds = await loadDownloadStatus();
-      if (ds) this.applyStatus(ds);
+      const [all, status] = await Promise.all([tsunagu.downloadQueue(), tsunagu.downloaderStatus()]);
+      const active = all.filter(d => d.status !== "DONE");
+      const done   = all.filter(d => d.status === "DONE")
+        .sort((a, b) => (Date.parse(b.completedAt ?? "") || 0) - (Date.parse(a.completedAt ?? "") || 0));
+      this.detectTransitions(active, done);
+      this.queue               = active;
+      this.completed           = done;
+      this.downloaderStatusVal = status;
+      this.updateSpeed();
+      await this.syncFreeBytes();
     } catch { } finally {
       this.loading = false;
     }
   }
 
-  async enqueue(chapterId: number): Promise<boolean> {
-    const projected = [...this.queue, { chapter: { id: chapterId, pageCount: 0 }, progress: 0, state: "QUEUED" } as DownloadQueueItem];
+  async enqueue(chapterId: string, mediaId: string): Promise<boolean> {
+    const projected: Download[] = [...this.queue, {
+      id: "", mediaId, chapterId, chapter: fakeChapter(chapterId, mediaId), status: "QUEUED", progress: 0,
+      downloadedBytes: null, bytesPerSec: null, finalSizeBytes: null, error: null,
+      createdAt: "", completedAt: null,
+    }];
     if (!(await this.guardStorage(projected))) return false;
-    try { await enqueueDownload(String(chapterId)); await this.poll(); } catch { }
+    try { await tsunagu.enqueueDownload(mediaId, chapterId); await this.poll(); } catch { }
     return true;
   }
 
@@ -145,10 +182,9 @@ class DownloadStore {
     if (this.togglingPlay) return;
     this.togglingPlay = true;
     const wasRunning = this.isRunning;
-    if (this.status) this.status = { ...this.status, state: wasRunning ? "STOPPED" : "STARTED" };
     try {
-      const ds = wasRunning ? await stopDownloader() : await startDownloader();
-      if (ds) this.applyStatus(ds); else await this.poll();
+      if (wasRunning) await tsunagu.stopDownloader(); else await tsunagu.startDownloader();
+      await this.poll();
     } catch { await this.poll(); }
     finally { this.togglingPlay = false; }
   }
@@ -157,20 +193,33 @@ class DownloadStore {
     if (this.clearing) return;
     this.clearing = true;
     this.selected = new Set();
-    if (this.status) this.status = { ...this.status, queue: [] };
+    this.queue    = [];
     try {
-      await clearDownloads();
+      await tsunagu.clearDownloads(["QUEUED", "DOWNLOADING", "FAILED"]);
       addToast({ kind: "info", title: "Queue cleared", duration: 2500 });
     } catch { await this.poll(); }
     finally { this.clearing = false; }
   }
 
-  async dequeue(chapterId: number) {
+  async clearCompleted() {
+    if (this.clearing) return;
+    this.clearing = true;
+    const prev = this.completed;
+    this.completed = [];
+    try {
+      await tsunagu.clearDownloads(["DONE"]);
+      addToast({ kind: "info", title: "Download history cleared", duration: 2500 });
+    } catch { this.completed = prev; await this.poll(); }
+    finally { this.clearing = false; }
+  }
+
+  async dequeue(chapterId: string) {
     if (this.dequeueing.has(chapterId)) return;
+    const mediaId = this.mediaIdFor(chapterId);
     this.dequeueing = new Set(this.dequeueing).add(chapterId);
-    if (this.status) this.status = { ...this.status, queue: this.queue.filter(i => i.chapter.id !== chapterId) };
+    this.queue = this.queue.filter(i => i.chapterId !== chapterId);
     const next = new Set(this.selected); next.delete(chapterId); this.selected = next;
-    try { await dequeueDownload(String(chapterId)); await this.poll(); }
+    try { await tsunagu.dequeueDownload(mediaId, chapterId); await this.poll(); }
     catch { await this.poll(); }
     finally { const s = new Set(this.dequeueing); s.delete(chapterId); this.dequeueing = s; }
   }
@@ -180,24 +229,26 @@ class DownloadStore {
     this.batchWorking = true;
     const ids   = [...this.selected];
     const idSet = new Set(ids);
+    const mids  = new Map(ids.map(id => [id, this.mediaIdFor(id)]));
     this.selected = new Set();
-    if (this.status) this.status = { ...this.status, queue: this.queue.filter(i => !idSet.has(i.chapter.id)) };
+    this.queue = this.queue.filter(i => !idSet.has(i.chapterId));
     try {
-      await dequeueDownloads(ids.map(String));
+      await Promise.all(ids.map(id => tsunagu.dequeueDownload(mids.get(id) ?? "", id)));
       addToast({ kind: "info", title: `Removed ${ids.length} download${ids.length !== 1 ? "s" : ""}`, duration: 2500 });
       await this.poll();
     } catch { await this.poll(); }
     finally { this.batchWorking = false; }
   }
 
-  async retryOne(chapterId: number) {
+  async retryOne(chapterId: string) {
     if (this.dequeueing.has(chapterId)) return;
+    const mediaId = this.mediaIdFor(chapterId);
     this.dequeueing = new Set(this.dequeueing).add(chapterId);
     try {
-      await dequeueDownload(String(chapterId));
-      const projected = this.queue.filter(i => i.chapter.id !== chapterId);
+      await tsunagu.dequeueDownload(mediaId, chapterId);
+      const projected = this.queue.filter(i => i.chapterId !== chapterId);
       if (!(await this.guardStorage(projected))) { await this.poll(); return; }
-      await enqueueDownload(String(chapterId));
+      await tsunagu.enqueueDownload(mediaId, chapterId);
       await this.poll();
     } catch { await this.poll(); }
     finally { const s = new Set(this.dequeueing); s.delete(chapterId); this.dequeueing = s; }
@@ -207,11 +258,12 @@ class DownloadStore {
     if (this.batchWorking || !this.hasErrored) return;
     this.batchWorking = true;
     const ids = [...this.erroredIds];
+    const mids = new Map(ids.map(id => [id, this.mediaIdFor(id)]));
     try {
-      await dequeueDownloads(ids.map(String));
-      const projected = this.queue.filter(i => !this.erroredIds.has(i.chapter.id));
+      await Promise.all(ids.map(id => tsunagu.dequeueDownload(mids.get(id) ?? "", id)));
+      const projected = this.queue.filter(i => !this.erroredIds.has(i.chapterId));
       if (!(await this.guardStorage(projected))) { await this.poll(); return; }
-      for (const id of ids) await enqueueDownload(String(id));
+      for (const id of ids) await tsunagu.enqueueDownload(mids.get(id) ?? "", id);
       addToast({ kind: "info", title: `Retrying ${ids.length} failed download${ids.length !== 1 ? "s" : ""}`, duration: 3000 });
       await this.poll();
     } catch { await this.poll(); }
@@ -222,13 +274,15 @@ class DownloadStore {
     if (this.batchWorking || !this.selected.size) return;
     this.batchWorking = true;
     const ids     = [...this.selected].filter(id => this.erroredIds.has(id));
+    const mids    = new Map(ids.map(id => [id, this.mediaIdFor(id)]));
     this.selected = new Set();
     try {
       if (ids.length) {
-        await dequeueDownloads(ids.map(String));
-        const projected = this.queue.filter(i => !new Set(ids).has(i.chapter.id));
+        await Promise.all(ids.map(id => tsunagu.dequeueDownload(mids.get(id) ?? "", id)));
+        const idSet = new Set(ids);
+        const projected = this.queue.filter(i => !idSet.has(i.chapterId));
         if (!(await this.guardStorage(projected))) { await this.poll(); return; }
-        for (const id of ids) await enqueueDownload(String(id));
+        for (const id of ids) await tsunagu.enqueueDownload(mids.get(id) ?? "", id);
         addToast({ kind: "info", title: `Retrying ${ids.length} failed download${ids.length !== 1 ? "s" : ""}`, duration: 3000 });
       }
       await this.poll();
@@ -236,17 +290,17 @@ class DownloadStore {
     finally { this.batchWorking = false; }
   }
 
-  async reorder(chapterId: number, direction: "up" | "down") {
-    const idx = this.queue.findIndex(i => i.chapter.id === chapterId);
+  async reorder(chapterId: string, direction: "up" | "down") {
+    const idx = this.queue.findIndex(i => i.chapterId === chapterId);
     if (idx === -1) return;
     const to = direction === "up" ? idx - 1 : idx + 1;
     if (to < 0 || to >= this.queue.length) return;
     const newQueue = [...this.queue];
     [newQueue[idx], newQueue[to]] = [newQueue[to], newQueue[idx]];
-    if (this.status) this.status = { ...this.status, queue: newQueue };
+    this.queue = newQueue;
     try {
-      const ds = await reorderDownload(chapterId, to);
-      if (ds) this.applyStatus(ds); else await this.poll();
+      await tsunagu.reorderDownload(this.mediaIdFor(chapterId), chapterId, to);
+      await this.poll();
     } catch { await this.poll(); }
   }
 
@@ -255,7 +309,7 @@ class DownloadStore {
     this.batchWorking = true;
     const queue           = [...this.queue];
     const selectedIndices = queue
-      .map((item, i) => ({ id: item.chapter.id, i }))
+      .map((item, i) => ({ id: item.chapterId, i }))
       .filter(({ id }) => this.selected.has(id))
       .map(({ i }) => i)
       .sort((a, b) => direction === "up" ? a - b : b - a);
@@ -268,19 +322,19 @@ class DownloadStore {
       const to = direction === "up" ? Math.max(0, idx - step) : Math.min(newQueue.length - 1, idx + step);
       [newQueue[idx], newQueue[to]] = [newQueue[to], newQueue[idx]];
     }
-    if (this.status) this.status = { ...this.status, queue: newQueue };
+    this.queue = newQueue;
     try {
       for (const idx of selectedIndices) {
         const to = direction === "up" ? Math.max(0, idx - step) : Math.min(queue.length - 1, idx + step);
-        await reorderDownload(queue[idx].chapter.id, to);
+        await tsunagu.reorderDownload(queue[idx].mediaId, queue[idx].chapterId, to);
       }
       await this.poll();
     } catch { await this.poll(); }
     finally { this.batchWorking = false; }
   }
 
-  async reorderToEdge(chapterId: number, edge: "top" | "bottom") {
-    const idx   = this.queue.findIndex(i => i.chapter.id === chapterId);
+  async reorderToEdge(chapterId: string, edge: "top" | "bottom") {
+    const idx   = this.queue.findIndex(i => i.chapterId === chapterId);
     if (idx === -1) return;
     const first = this.isRunning ? 1 : 0;
     const last  = this.queue.length - 1;
@@ -289,10 +343,10 @@ class DownloadStore {
     const newQueue = [...this.queue];
     newQueue.splice(idx, 1);
     newQueue.splice(to, 0, this.queue[idx]);
-    if (this.status) this.status = { ...this.status, queue: newQueue };
+    this.queue = newQueue;
     try {
-      const ds = await reorderDownload(chapterId, to);
-      if (ds) this.applyStatus(ds); else await this.poll();
+      await tsunagu.reorderDownload(this.mediaIdFor(chapterId), chapterId, to);
+      await this.poll();
     } catch { await this.poll(); }
   }
 
@@ -302,30 +356,30 @@ class DownloadStore {
     const first    = this.isRunning ? 1 : 0;
     const active   = this.queue.slice(0, first);
     const moveable = this.queue.slice(first);
-    const pinned   = moveable.filter(i => this.selected.has(i.chapter.id));
-    const rest     = moveable.filter(i => !this.selected.has(i.chapter.id));
+    const pinned   = moveable.filter(i => this.selected.has(i.chapterId));
+    const rest     = moveable.filter(i => !this.selected.has(i.chapterId));
     const newQueue = edge === "top" ? [...active, ...pinned, ...rest] : [...active, ...rest, ...pinned];
-    if (this.status) this.status = { ...this.status, queue: newQueue };
+    this.queue = newQueue;
     const last = this.queue.length - 1;
     try {
       if (edge === "top") {
         for (let i = 0; i < pinned.length; i++)
-          await reorderDownload(pinned[i].chapter.id, first + i);
+          await tsunagu.reorderDownload(pinned[i].mediaId, pinned[i].chapterId, first + i);
       } else {
         for (let i = 0; i < pinned.length; i++)
-          await reorderDownload(pinned[i].chapter.id, last - (pinned.length - 1 - i));
+          await tsunagu.reorderDownload(pinned[i].mediaId, pinned[i].chapterId, last - (pinned.length - 1 - i));
       }
       await this.poll();
     } catch { await this.poll(); }
     finally { this.batchWorking = false; }
   }
 
-  async moveSeries(items: DownloadQueueItem[], direction: "up" | "down") {
+  async moveSeries(items: Download[], direction: "up" | "down") {
     if (this.batchWorking || !items.length) return;
-    const targetMangaId = items[0]?.chapter.manga?.id ?? 0;
-    const groupOrder: number[] = [];
+    const targetMangaId = items[0]?.mediaId ?? "";
+    const groupOrder: string[] = [];
     for (const item of this.queue) {
-      const mId = item.chapter.manga?.id ?? 0;
+      const mId = item.mediaId ?? "";
       if (!groupOrder.includes(mId)) groupOrder.push(mId);
     }
     const gIdx = groupOrder.indexOf(targetMangaId);
@@ -336,81 +390,81 @@ class DownloadStore {
     this.batchWorking = true;
     [groupOrder[gIdx], groupOrder[targetIdx]] = [groupOrder[targetIdx], groupOrder[gIdx]];
 
-    const map = new Map<number, DownloadQueueItem[]>();
+    const map = new Map<string, Download[]>();
     for (const item of this.queue) {
-      const mId = item.chapter.manga?.id ?? 0;
+      const mId = item.mediaId ?? "";
       if (!map.has(mId)) map.set(mId, []);
       map.get(mId)!.push(item);
     }
 
     const first = this.isRunning ? 1 : 0;
     const active = this.queue.slice(0, first);
-    const reorderedMoveable: DownloadQueueItem[] = [];
+    const reorderedMoveable: Download[] = [];
     for (const mId of groupOrder) {
       const groupItems = map.get(mId) ?? [];
       for (const item of groupItems) {
-        if (first === 1 && item.chapter.id === active[0]?.chapter.id) continue;
+        if (first === 1 && item.chapterId === active[0]?.chapterId) continue;
         reorderedMoveable.push(item);
       }
     }
     const newQueue = [...active, ...reorderedMoveable];
-    if (this.status) this.status = { ...this.status, queue: newQueue };
+    this.queue = newQueue;
     try {
       for (let i = 0; i < reorderedMoveable.length; i++) {
-        await reorderDownload(reorderedMoveable[i].chapter.id, first + i);
+        await tsunagu.reorderDownload(reorderedMoveable[i].mediaId, reorderedMoveable[i].chapterId, first + i);
       }
       await this.poll();
     } catch { await this.poll(); }
     finally { this.batchWorking = false; }
   }
 
-  async moveSeriesToTop(items: DownloadQueueItem[]) {
+  async moveSeriesToTop(items: Download[]) {
     if (this.batchWorking || !items.length) return;
     this.batchWorking = true;
-    const seriesIdSet = new Set(items.map(i => i.chapter.id));
+    const seriesIdSet = new Set(items.map(i => i.chapterId));
     const first  = this.isRunning ? 1 : 0;
     const active = this.queue.slice(0, first);
     const moveable = this.queue.slice(first);
-    const seriesItems = moveable.filter(i => seriesIdSet.has(i.chapter.id));
-    const rest        = moveable.filter(i => !seriesIdSet.has(i.chapter.id));
+    const seriesItems = moveable.filter(i => seriesIdSet.has(i.chapterId));
+    const rest        = moveable.filter(i => !seriesIdSet.has(i.chapterId));
     const newQueue    = [...active, ...seriesItems, ...rest];
-    if (this.status) this.status = { ...this.status, queue: newQueue };
+    this.queue = newQueue;
     try {
       for (let i = 0; i < seriesItems.length; i++) {
-        await reorderDownload(seriesItems[i].chapter.id, first + i);
+        await tsunagu.reorderDownload(seriesItems[i].mediaId, seriesItems[i].chapterId, first + i);
       }
       await this.poll();
     } catch { await this.poll(); }
     finally { this.batchWorking = false; }
   }
 
-  async moveSeriesToBottom(items: DownloadQueueItem[]) {
+  async moveSeriesToBottom(items: Download[]) {
     if (this.batchWorking || !items.length) return;
     this.batchWorking = true;
-    const seriesIdSet = new Set(items.map(i => i.chapter.id));
+    const seriesIdSet = new Set(items.map(i => i.chapterId));
     const first  = this.isRunning ? 1 : 0;
     const active = this.queue.slice(0, first);
     const moveable = this.queue.slice(first);
-    const seriesItems = moveable.filter(i => seriesIdSet.has(i.chapter.id));
-    const rest        = moveable.filter(i => !seriesIdSet.has(i.chapter.id));
+    const seriesItems = moveable.filter(i => seriesIdSet.has(i.chapterId));
+    const rest        = moveable.filter(i => !seriesIdSet.has(i.chapterId));
     const newQueue    = [...active, ...rest, ...seriesItems];
-    if (this.status) this.status = { ...this.status, queue: newQueue };
+    this.queue = newQueue;
     const last = this.queue.length - 1;
     try {
       for (let i = 0; i < seriesItems.length; i++) {
-        await reorderDownload(seriesItems[i].chapter.id, last - (seriesItems.length - 1 - i));
+        await tsunagu.reorderDownload(seriesItems[i].mediaId, seriesItems[i].chapterId, last - (seriesItems.length - 1 - i));
       }
       await this.poll();
     } catch { await this.poll(); }
     finally { this.batchWorking = false; }
   }
 
-  async reverseSeriesOrder(items: DownloadQueueItem[]) {
+  async reverseSeriesOrder(items: Download[]) {
     if (this.batchWorking || items.length <= 1) return;
     this.batchWorking = true;
-    const seriesIdSet = new Set(items.map(i => i.chapter.id));
+    const seriesIdSet = new Set(items.map(i => i.chapterId));
     const seriesIndices = this.queue
-      .map((item, i) => ({ id: item.chapter.id, i }))
+      .map((item, i) => ({ id: item.chapterId, i }))
       .filter(({ id }) => seriesIdSet.has(id))
       .map(({ i }) => i);
 
@@ -419,24 +473,24 @@ class DownloadStore {
     for (let k = 0; k < seriesIndices.length; k++) {
       newQueue[seriesIndices[k]] = reversedItems[k];
     }
-    if (this.status) this.status = { ...this.status, queue: newQueue };
+    this.queue = newQueue;
     try {
       for (let k = 0; k < seriesIndices.length; k++) {
-        await reorderDownload(reversedItems[k].chapter.id, seriesIndices[k]);
+        await tsunagu.reorderDownload(reversedItems[k].mediaId, reversedItems[k].chapterId, seriesIndices[k]);
       }
       await this.poll();
     } catch { await this.poll(); }
     finally { this.batchWorking = false; }
   }
 
-  selectOnly(chapterId: number)   { this.selected = new Set([chapterId]); }
-  toggleSelect(chapterId: number) {
+  selectOnly(chapterId: string)   { this.selected = new Set([chapterId]); }
+  toggleSelect(chapterId: string) {
     const next = new Set(this.selected);
     next.has(chapterId) ? next.delete(chapterId) : next.add(chapterId);
     this.selected = next;
   }
-  selectRange(fromId: number, toId: number) {
-    const ids = this.queue.map(i => i.chapter.id);
+  selectRange(fromId: string, toId: string) {
+    const ids = this.queue.map(i => i.chapterId);
     const a = ids.indexOf(fromId), b = ids.indexOf(toId);
     if (a === -1 || b === -1) return;
     const [lo, hi] = a < b ? [a, b] : [b, a];
@@ -444,7 +498,7 @@ class DownloadStore {
     for (let i = lo; i <= hi; i++) next.add(ids[i]);
     this.selected = next;
   }
-  selectAll()      { this.selected = new Set(this.queue.map(i => i.chapter.id)); }
+  selectAll()      { this.selected = new Set(this.queue.map(i => i.chapterId)); }
   clearSelection() { this.selected = new Set(); }
 }
 

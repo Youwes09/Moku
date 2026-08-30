@@ -1,31 +1,30 @@
 import { getBlobUrl, preloadBlobUrls, revokeBlobUrl } from "$lib/core/cache/imageCache";
-import { authHeaders }                                from "$lib/core/auth";
 import { settingsState }                              from "$lib/state/settings.svelte";
 
-const pageCache        = new Map<number, string[]>();
-const inflight         = new Map<number, Promise<string[]>>();
+const pageCache        = new Map<string, string[]>();
+const inflight         = new Map<string, Promise<string[]>>();
 const resolvedUrlCache = new Map<string, Promise<string>>();
 const aspectCache      = new Map<string, number>();
 
 function getServerUrl(): string {
-  return settingsState.settings.serverUrl ?? "http://localhost:4567";
+  const u = settingsState.settings.serverUrl;
+  return typeof u === "string" && u.trim() ? u.replace(/\/$/, "") : "http://localhost:6007";
 }
+export { getServerUrl as pageServerUrl };
 
-async function fetchChapterPagesFromServer(chapterId: number): Promise<string[]> {
-  const base    = getServerUrl();
-  const headers = { "Content-Type": "application/json", ...authHeaders() };
-  const query = `mutation FetchChapterPages($chapterId: Int!) { fetchChapterPages(input: { chapterId: $chapterId }) { pages } }`;
+async function fetchChapterPagesFromServer(_mediaId: string, chapterId: string): Promise<string[]> {
+  const base  = getServerUrl();
+  const query = `query ChapterPages($id: ID!) { chapter(id: $id) { pages } }`;
   const res   = await fetch(`${base}/api/graphql`, {
     method: "POST",
-    headers,
-    body: JSON.stringify({ query, variables: { chapterId } }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables: { id: chapterId } }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
   if (json.errors?.length) throw new Error(json.errors[0].message);
-  return (json.data.fetchChapterPages.pages as string[]).map(p =>
-    p.startsWith("http") ? p : `${base}${p}`
-  );
+  const pages = (json.data?.chapter?.pages as string[] | null) ?? [];
+  return pages.map(p => (p.startsWith("http") ? p : `${base}${p}`));
 }
 
 export function resolveUrl(url: string, useBlob: boolean, priority = 0): Promise<string> {
@@ -41,7 +40,8 @@ export function resolveUrl(url: string, useBlob: boolean, priority = 0): Promise
 }
 
 export function fetchPages(
-  chapterId: number,
+  mediaId: string,
+  chapterId: string,
   useBlob: boolean,
   signal?: AbortSignal,
   priorityPage = 0,
@@ -51,7 +51,7 @@ export function fetchPages(
   if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
 
   if (!inflight.has(chapterId)) {
-    const p = fetchChapterPagesFromServer(chapterId)
+    const p = fetchChapterPagesFromServer(mediaId, chapterId)
       .then(urls => {
         if (useBlob && urls[priorityPage]) getBlobUrl(urls[priorityPage], 999);
         pageCache.set(chapterId, urls);
@@ -96,7 +96,7 @@ export function getCachedAspect(url: string): number | undefined {
   return aspectCache.get(url);
 }
 
-export function clearPageCache(chapterId?: number): void {
+export function clearPageCache(chapterId?: string): void {
   if (chapterId !== undefined) {
     pageCache.delete(chapterId);
     inflight.delete(chapterId);

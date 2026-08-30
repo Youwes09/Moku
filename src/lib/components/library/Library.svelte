@@ -1,29 +1,22 @@
 <script lang="ts">
-  import { getAdapter }   from '$lib/request-manager'
-  import { libraryState } from '$lib/state/library.svelte'
+  import { tsunagu }      from '$lib/server-adapters/tsunagu'
+  import { libraryState, loadLibrary, loadFolders } from '$lib/state/library.svelte'
   import type { LibrarySortOption, LibraryContentFilter, LibraryStatusFilter } from '$lib/state/library.svelte'
   import { addToast }           from '$lib/state/notifications.svelte'
   import { updateSettings, settingsState } from '$lib/state/settings.svelte'
-  import { readerState } from '$lib/state/reader.svelte'
+  import { readerState } from '$lib/state/mangaReader.svelte'
   import { goto }               from '$app/navigation'
+  import { seriesHref }         from '$lib/state/series.svelte'
   import LibraryToolbar  from '$lib/components/library/LibraryToolbar.svelte'
   import LibraryGrid     from '$lib/components/library/LibraryGrid.svelte'
-  import ContextMenu     from '$lib/components/shared/ui/ContextMenu.svelte'
+  import ContextMenu, { type MenuEntry } from '$lib/components/shared/ui/ContextMenu.svelte'
 
-  interface MenuEntry {
-    label?:    string
-    icon?:     unknown
-    onClick?:  () => void
-    children?: MenuEntry[]
-    separator?: boolean
-    danger?:   boolean
-    disabled?: boolean
-  }
-  import type { Manga, Category } from '$lib/types'
+  import type { Manga } from '$lib/types'
+  import type { Folder, LibraryEntry } from '$lib/server-adapters/types'
   import {
-    Books, Folder, FolderSimple, FolderSimplePlus,
-    Trash, CheckSquare, ArrowSquareOut, ArrowsClockwise, ArrowsCounterClockwise,
-    PencilSimple, Star, Eye, EyeSlash, DownloadSimple,
+    Books, Folder as FolderIcon, FolderSimple, FolderSimplePlus,
+    Trash, CheckSquare, ArrowSquareOut, ArrowsClockwise,
+    PencilSimple, Star, Eye, EyeSlash,
   } from 'phosphor-svelte'
   import { openMangaFolder, openDownloadsFolder } from '$lib/core/filesystem'
 
@@ -56,52 +49,11 @@
     if (readerState.activeManga === null) loadLibrary()
   })
 
-  async function loadLibrary() {
-    libraryState.loading = true
-    libraryState.error   = null
-    try {
-      const result       = await getAdapter().getMangaList({ inLibrary: true })
-      libraryState.items = result.items
-      await loadCategories()
-    } catch (e) {
-      libraryState.error = String(e)
-    } finally {
-      libraryState.loading = false
-    }
-  }
-
-  async function loadCategories() {
-    try {
-      let cats = await getAdapter().getCategories()
-
-      if (!cats.some(c => c.name === COMPLETED_NAME)) {
-        try {
-          const created = await getAdapter().createCategory(COMPLETED_NAME)
-          cats = [...cats, created]
-        } catch {}
-      }
-
-      const needsPopulation = cats.every(c => !(c as any).mangas?.nodes?.length)
-      if (needsPopulation && libraryState.items.length > 0) {
-        cats = cats.map(c => {
-          const nodes = libraryState.items.filter(m =>
-            (m as any).categories?.nodes?.some((mc: any) => mc.id === c.id) ||
-            (m as any).categoryIds?.includes(c.id)
-          )
-          return { ...c, mangas: { nodes } }
-        }) as unknown as Category[]
-      }
-
-      libraryState.setCategories(cats)
-    } catch (e) {
-      libraryState.error = String(e)
-    }
-  }
 
   function onCardClick(e: MouseEvent, m: Manga) {
     if (libraryState.selectMode) { libraryState.toggleSelect(m.id); return }
     if (e.metaKey || e.ctrlKey || e.shiftKey) { e.preventDefault(); libraryState.enterSelect(m.id); return }
-    goto(`/series/${m.id}`)
+    goto(seriesHref(m))
   }
 
   function openCtx(e: MouseEvent, m: Manga) {
@@ -111,39 +63,35 @@
   }
 
   async function doRemove(m: Manga) {
-    const catIds = libraryState.categories
-      .filter(c => (libraryState.categoryMangaMap.get(c.id) ?? []).some(x => x.id === m.id))
-      .map(c => c.id)
-    if (catIds.length) {
-      try {
-        await getAdapter().updateMangaCategories(String(m.id), [], catIds)
-      } catch (e) { console.error(e) }
+    try {
+      await tsunagu.removeFromLibrary(m.id)
+      await loadLibrary(true)
+      addToast({ kind: 'success', title: 'Removed from library', body: m.title })
+    } catch (e) {
+      addToast({ kind: 'error', title: 'Remove failed', body: String(e) })
     }
-    await getAdapter().removeFromLibrary(String(m.id))
-    libraryState.items = libraryState.items.filter(x => x.id !== m.id)
-    await loadCategories()
   }
 
   async function doDeleteDownloads(m: Manga) {
     try {
-      const chapters   = await getAdapter().getChapters(String(m.id))
-      const downloaded = chapters.filter(c => c.downloaded).map(c => String(c.id))
+      const entry       = await tsunagu.libraryEntry(m.id)
+      const downloaded  = (entry?.chapters ?? []).filter(c => c.downloaded).map(c => c.id)
       if (!downloaded.length) return
-      await getAdapter().deleteDownloadedChapters(downloaded)
+      await Promise.all(downloaded.map(id => tsunagu.deleteDownload(m.id, id)))
       libraryState.items = libraryState.items.map(x =>
         x.id === m.id ? { ...x, downloadCount: 0 } : x
       )
     } catch (e) { console.error(e) }
   }
 
-
   async function refreshSingleManga(m: Manga) {
     if (libraryState.refreshingMangaId !== null) return
     libraryState.refreshingMangaId = m.id
     try {
-      await getAdapter().fetchManga(String(m.id))
-      await loadLibrary()
-      addToast({ kind: 'success', title: 'Manga refreshed', body: m.title })
+      await tsunagu.refreshMetadata(m.id)
+      await tsunagu.syncChapters(m.id)
+      await loadLibrary(true)
+      addToast({ kind: 'success', title: 'Refreshed', body: m.title })
     } catch (e) {
       addToast({ kind: 'error', title: 'Refresh failed', body: String(e) })
     } finally {
@@ -151,73 +99,46 @@
     }
   }
 
-  export async function checkAndMarkCompleted(mangaId: number) {
-    const completedCat = libraryState.categories.find(c => c.name === COMPLETED_NAME)
-    if (!completedCat) return
-    const alreadyIn = (libraryState.categoryMangaMap.get(completedCat.id) ?? []).some(m => m.id === mangaId)
-    if (alreadyIn) return
-    try {
-      await getAdapter().updateMangaCategories(String(mangaId), [completedCat.id], [])
-      await loadCategories()
-    } catch (e) { console.error(e) }
-  }
+  export async function checkAndMarkCompleted(_mangaId: string) {}
 
-  async function toggleMangaCategory(manga: Manga, cat: Category) {
-    const nodes = (cat as any).mangas?.nodes ?? libraryState.categoryMangaMap.get(cat.id) ?? []
-    const inCat = nodes.some((m: Manga) => m.id === manga.id)
-    libraryState.setCategories(
-      libraryState.categories.map(c => {
-        if (c.id !== cat.id) return c
-        const existing = (c as any).mangas?.nodes ?? []
-        const updated  = inCat
-          ? existing.filter((m: Manga) => m.id !== manga.id)
-          : [...existing, manga]
-        return { ...c, mangas: { nodes: updated } }
-      }) as unknown as Category[]
-    )
-    if (!inCat) libraryState.bumpCategoryFrecency(cat.id)
+  async function toggleMangaFolder(manga: Manga, folder: Folder) {
+    const inFolder = (libraryState.folderMangaMap.get(folder.id) ?? []).some(m => m.id === manga.id)
     try {
-      await getAdapter().updateMangaCategories(String(manga.id), inCat ? [] : [cat.id], inCat ? [cat.id] : [])
-    } catch {}
-    await loadCategories()
+      if (inFolder) await tsunagu.removeEntryFromFolder(manga.id, folder.id)
+      else          await tsunagu.addEntryToFolder(manga.id, folder.id)
+      if (!inFolder) libraryState.bumpFolderFrecency(folder.id)
+      await loadFolders()
+    } catch (e) { console.error(e) }
   }
 
   async function createAndAssign(manga: Manga) {
     const name = prompt('Folder name:')
     if (!name?.trim()) return
     try {
-      const cat = await getAdapter().createCategory(name.trim())
-      libraryState.setCategories([...libraryState.categories, cat])
-      await getAdapter().updateMangaCategories(String(manga.id), [cat.id], [])
-      libraryState.bumpCategoryFrecency(cat.id)
-      await loadCategories()
+      const folder = await tsunagu.createFolder(name.trim())
+      libraryState.addFolder(folder)
+      await tsunagu.addEntryToFolder(manga.id, folder.id)
+      libraryState.bumpFolderFrecency(folder.id)
+      await loadFolders()
     } catch (e) { console.error(e) }
   }
 
-  async function bulkMove(cat: Category) {
+  async function bulkMove(folder: Folder) {
     bulkWorking = true
     try {
-      await getAdapter().updateMangasCategories(
-        [...libraryState.selected].map(String),
-        [cat.id],
-        [],
-      )
-      await loadCategories()
+      await Promise.all([...libraryState.selected].map(id => tsunagu.addEntryToFolder(id, folder.id)))
+      await loadFolders()
     } catch (e) { console.error(e) }
     finally { bulkWorking = false; libraryState.exitSelect() }
   }
 
   async function bulkRemoveFromFolder() {
-    const catId = Number(libraryState.tab)
-    if (Number.isNaN(catId)) return
+    const folderId = libraryState.tab
+    if (folderId === 'library' || folderId === 'downloaded') return
     bulkWorking = true
     try {
-      await getAdapter().updateMangasCategories(
-        [...libraryState.selected].map(String),
-        [],
-        [catId],
-      )
-      await loadCategories()
+      await Promise.all([...libraryState.selected].map(id => tsunagu.removeEntryFromFolder(id, folderId)))
+      await loadFolders()
     } catch (e) { console.error(e) }
     finally { bulkWorking = false; libraryState.exitSelect() }
   }
@@ -226,51 +147,45 @@
     bulkWorking = true
     try {
       await Promise.allSettled(
-        [...libraryState.selected].map(async (id) => {
-          const catIds = libraryState.categories
-            .filter(c => (libraryState.categoryMangaMap.get(c.id) ?? []).some(x => x.id === id))
-            .map(c => c.id)
-          if (catIds.length) {
-            try { await getAdapter().updateMangaCategories(String(id), [], catIds) } catch {}
-          }
-          return getAdapter().removeFromLibrary(String(id))
-        })
+        [...libraryState.selected].map(id => tsunagu.removeFromLibrary(id))
       )
-      libraryState.items = libraryState.items.filter(m => !libraryState.selected.has(m.id))
+      await loadLibrary(true)
       libraryState.exitSelect()
     } finally { bulkWorking = false }
   }
 
-  async function refreshCategory(catId: number) {
-    if (libraryState.refreshingCatId !== null || libraryState.refreshing) return
-    libraryState.refreshingCatId = catId
+  async function refreshFolder(folderId: string) {
+    if (libraryState.refreshingFolderId !== null || libraryState.refreshing) return
+    libraryState.refreshingFolderId = folderId
+    const folder = libraryState.folders.find(f => f.id === folderId)
     try {
-      await getAdapter().updateCategoryManga(catId)
-      await loadLibrary()
-      const cat = libraryState.categories.find(c => c.id === catId)
-      addToast({ kind: 'success', title: 'Folder refreshed', body: cat?.name ?? '' })
+      const refreshed = await tsunagu.refreshFolder(folderId)
+      await loadFolders()
+      addToast({ kind: 'success', title: 'Folder refreshed', body: `${folder?.name ?? ''} (${refreshed.length} updated)` })
     } catch (e) {
       addToast({ kind: 'error', title: 'Refresh failed', body: String(e) })
-    } finally { libraryState.refreshingCatId = null }
+    } finally { libraryState.refreshingFolderId = null }
   }
 
   function buildCtxItems(m: Manga): MenuEntry[] {
-    const sorted   = [...libraryState.visibleCategories].sort(
-      (a, b) => (libraryState.categoryFrecency[b.id] ?? 0) - (libraryState.categoryFrecency[a.id] ?? 0)
+    const sorted   = [...libraryState.visibleFolders].sort(
+      (a, b) => (libraryState.folderFrecency[b.id] ?? 0) - (libraryState.folderFrecency[a.id] ?? 0)
     )
     const pinned   = sorted.slice(0, CTX_FOLDER_CAP)
     const overflow = sorted.slice(CTX_FOLDER_CAP)
 
-    const makeCatEntry = (cat: Category): MenuEntry => {
-      const inCat = (libraryState.categoryMangaMap.get(cat.id) ?? []).some(x => x.id === m.id)
-      return { label: inCat ? `Remove from ${cat.name}` : cat.name, icon: Folder, onClick: () => toggleMangaCategory(m, cat) }
+    const makeFolderEntry = (folder: Folder): MenuEntry => {
+      const inFolder = (libraryState.folderMangaMap.get(folder.id) ?? []).some(x => x.id === m.id)
+      return { label: inFolder ? `Remove from ${folder.name}` : folder.name, icon: FolderIcon, onClick: () => toggleMangaFolder(m, folder) }
     }
 
     return [
       { label: m.inLibrary ? 'Remove from library' : 'Add to library', icon: Books,
         onClick: () => m.inLibrary
           ? doRemove(m)
-          : getAdapter().addToLibrary(String(m.id)).then(loadLibrary).catch(console.error) },
+          : (() => {
+              console.warn('Add to library: extensionId/sourceEntryId not yet threaded onto Manga')
+            })() },
       { label: libraryState.refreshingMangaId === m.id ? 'Refreshing…' : 'Refresh manga', icon: ArrowsClockwise,
         disabled: libraryState.refreshingMangaId !== null, onClick: () => refreshSingleManga(m) },
       { label: 'Open in file manager', icon: ArrowSquareOut,
@@ -279,8 +194,8 @@
         disabled: !(m.downloadCount && m.downloadCount > 0), onClick: () => doDeleteDownloads(m) },
       { separator: true },
       { label: 'Select', icon: CheckSquare, onClick: () => libraryState.enterSelect(m.id) },
-      ...(pinned.length ? [{ separator: true } as MenuEntry, ...pinned.map(makeCatEntry)] : []),
-      ...(overflow.length ? [{ label: `More folders (${overflow.length})`, icon: FolderSimple, onClick: () => {}, children: overflow.map(makeCatEntry) } as MenuEntry] : []),
+      ...(pinned.length ? [{ separator: true } as MenuEntry, ...pinned.map(makeFolderEntry)] : []),
+      ...(overflow.length ? [{ label: `More folders (${overflow.length})`, icon: FolderSimple, onClick: () => {}, children: overflow.map(makeFolderEntry) } as MenuEntry] : []),
       { separator: true },
       { label: 'New folder', icon: FolderSimplePlus, onClick: () => createAndAssign(m) },
     ]
@@ -293,8 +208,8 @@
         const name = prompt('Folder name:')
         if (!name?.trim()) return
         try {
-          const cat = await getAdapter().createCategory(name.trim())
-          libraryState.setCategories([...libraryState.categories, cat])
+          const folder = await tsunagu.createFolder(name.trim())
+          libraryState.addFolder(folder)
         } catch (e) { console.error(e) }
       },
     }]
@@ -310,47 +225,43 @@
     updateSettings({ hiddenLibraryTabs: current.includes(id) ? current.filter(x => x !== id) : [...current, id] })
   }
 
-  function toggleDefaultFolder(cat: Category) {
-    const current = settingsState.settings.defaultLibraryCategoryId ?? null
-    const next    = current === cat.id ? null : cat.id
-    updateSettings({ defaultLibraryCategoryId: next })
-    if (next !== null) libraryState.tab = String(next)
-  }
-
-  async function renameFolderTab(cat: Category) {
-    const name = prompt('Rename folder:', cat.name)
-    if (!name?.trim() || name.trim() === cat.name) return
+  async function toggleFolderFlag(folder: Folder, flag: 'includeInUpdate' | 'includeInDownload') {
     try {
-      await (getAdapter() as any).updateCategory(cat.id, { name: name.trim() })
-      libraryState.setCategories(libraryState.categories.map(c => c.id === cat.id ? { ...c, name: name.trim() } : c))
+      await tsunagu.updateFolderFlags(folder.id, { [flag]: !folder[flag] })
+      await loadFolders()
     } catch (e) { console.error(e) }
   }
 
-  async function toggleCategoryFlag(cat: Category, flag: 'includeInUpdate' | 'includeInDownload') {
-    const next = !(cat as any)[flag]
-    libraryState.setCategories(libraryState.categories.map(c => c.id === cat.id ? { ...c, [flag]: next } : c))
-    try {
-      await (getAdapter() as any).updateCategories([cat.id], { [flag]: next ? 'INCLUDE' : 'EXCLUDE' })
-    } catch (e) {
-      libraryState.setCategories(libraryState.categories.map(c => c.id === cat.id ? { ...c, [flag]: !next } : c))
-      console.error(e)
-    }
+  function toggleDefaultFolder(folder: Folder) {
+    const current = settingsState.settings.defaultLibraryCategoryId ?? null
+    const next    = current === folder.id ? null : folder.id
+    updateSettings({ defaultLibraryCategoryId: next })
+    if (next !== null) libraryState.tab = next
   }
 
-  async function deleteFolderTab(cat: Category) {
-    if (!confirm(`Delete folder "${cat.name}"? This cannot be undone.`)) return
+  async function renameFolderTab(folder: Folder) {
+    const name = prompt('Rename folder:', folder.name)
+    if (!name?.trim() || name.trim() === folder.name) return
     try {
-      await getAdapter().deleteCategory(cat.id)
-      libraryState.setCategories(libraryState.categories.filter(c => c.id !== cat.id))
-      if (libraryState.tab === String(cat.id)) libraryState.tab = 'library'
+      await tsunagu.renameFolder(folder.id, name.trim())
+      await loadFolders()
+    } catch (e) { console.error(e) }
+  }
+
+  async function deleteFolderTab(folder: Folder) {
+    if (!confirm(`Delete folder "${folder.name}"? This cannot be undone.`)) return
+    try {
+      await tsunagu.deleteFolder(folder.id)
+      if (libraryState.tab === folder.id) libraryState.tab = 'library'
+      await loadFolders()
     } catch (e) { console.error(e) }
   }
 
   function buildTabCtxItems(id: string): MenuEntry[] {
-    const isBuiltin    = id === 'library' || id === 'downloaded'
-    const cat          = libraryState.categories.find(c => String(c.id) === id)
-    const isCompleted  = !!cat && id === String(libraryState.completedCatId)
-    const hidden       = (settingsState.settings.hiddenLibraryTabs ?? []).includes(id)
+    const isBuiltin   = id === 'library' || id === 'downloaded'
+    const folder       = libraryState.folders.find(f => f.id === id)
+    const isCompleted = !!folder && id === libraryState.completedFolderId
+    const hidden      = (settingsState.settings.hiddenLibraryTabs ?? []).includes(id)
 
     const hideItem: MenuEntry = {
       label:   hidden ? 'Show tab in library' : 'Hide tab from library',
@@ -358,24 +269,23 @@
       onClick: () => toggleTabHidden(id),
     }
 
-    if (isBuiltin || isCompleted || !cat) return [hideItem]
+    if (isBuiltin || isCompleted || !folder) return [hideItem]
 
-    const isDefault = (settingsState.settings.defaultLibraryCategoryId ?? null) === cat.id
+    const isDefault = (settingsState.settings.defaultLibraryCategoryId ?? null) === folder.id
 
     return [
-      { label: 'Rename folder', icon: PencilSimple, onClick: () => renameFolderTab(cat) },
+      { label: 'Rename folder', icon: PencilSimple, onClick: () => renameFolderTab(folder) },
       { separator: true },
       { label: isDefault ? 'Remove as default folder' : 'Set as default folder', icon: Star,
-        onClick: () => toggleDefaultFolder(cat) },
+        onClick: () => toggleDefaultFolder(folder) },
       hideItem,
-      { label: cat.includeInUpdate !== false ? 'Exclude from updates' : 'Include in updates',
-        icon: cat.includeInUpdate !== false ? ArrowsClockwise : ArrowsCounterClockwise,
-        onClick: () => toggleCategoryFlag(cat, 'includeInUpdate') },
-      { label: cat.includeInDownload !== false ? 'Exclude from auto-downloads' : 'Include in auto-downloads',
-        icon: DownloadSimple,
-        onClick: () => toggleCategoryFlag(cat, 'includeInDownload') },
       { separator: true },
-      { label: 'Delete folder', icon: Trash, danger: true, onClick: () => deleteFolderTab(cat) },
+      { label: folder.includeInUpdate ? 'Exclude from update checks' : 'Include in update checks', icon: ArrowsClockwise,
+        onClick: () => toggleFolderFlag(folder, 'includeInUpdate') },
+      { label: folder.includeInDownload ? 'Exclude from auto-download' : 'Include in auto-download', icon: ArrowsClockwise,
+        onClick: () => toggleFolderFlag(folder, 'includeInDownload') },
+      { separator: true },
+      { label: 'Delete folder', icon: Trash, danger: true, onClick: () => deleteFolderTab(folder) },
     ]
   }
 
@@ -415,21 +325,12 @@
 
     libraryState.pinnedTabOrder = tabs
     updateSettings({ libraryPinnedTabOrder: tabs })
-    const catIds    = tabs.filter(id => id !== 'library' && id !== 'downloaded')
-    const zeroCat   = libraryState.categories.filter(c => c.id === 0)
-    const reordered = catIds.map((id, i) => {
-      const c = libraryState.categories.find(x => String(x.id) === id)!
-      return { ...c, order: i + 1 }
-    })
-    libraryState.setCategories([...zeroCat, ...reordered])
 
-    if (dragStrId !== 'library' && dragStrId !== 'downloaded') {
-      const serverPos = catIds.indexOf(dragStrId) + 1
-      try {
-        const cats = await getAdapter().updateCategoryOrder(Number(dragStrId), serverPos)
-        libraryState.setCategories(cats)
-      } catch { await loadCategories() }
-    }
+    const folderTabs = tabs.filter(id => id !== 'library' && id !== 'downloaded')
+    try {
+      await Promise.all(folderTabs.map((id, idx) => tsunagu.reorderFolder(id, idx)))
+      await loadFolders()
+    } catch (e) { console.error(e) }
   }
 
   function onTabDragEnd() { activeDragKind = null; dragTabId = null; dragOverTabId = null; dragInsertIdx = -1 }
@@ -448,7 +349,7 @@
     <div class="center">
       <p class="error-msg">Could not load library</p>
       <p class="error-detail">{libraryState.error}</p>
-      <button class="retry-btn" onclick={() => { loadLibrary(); loadCategories() }}>Retry</button>
+      <button class="retry-btn" onclick={() => loadLibrary(true)}>Retry</button>
     </div>
   {:else}
     <LibraryToolbar
@@ -458,9 +359,9 @@
       tabStatus={libraryState.tabStatus[libraryState.tab] ?? 'ALL'}
       tabFilters={libraryState.tabFilters[libraryState.tab] ?? {}}
       hasActiveFilters={libraryState.hasActiveFilters}
-      visibleCategories={libraryState.visibleCategories}
+      visibleFolders={libraryState.visibleFolders}
       visibleTabIds={libraryState.visibleTabIds}
-      completedCatId={libraryState.completedCatId}
+      completedFolderId={libraryState.completedFolderId}
       counts={libraryState.counts}
       search={libraryState.filter.query}
       viewMode={libraryState.viewMode}
@@ -496,7 +397,7 @@
       selectMode={libraryState.selectMode}
       selected={libraryState.selected}
       tab={libraryState.tab}
-      visibleCategories={libraryState.visibleCategories}
+      visibleFolders={libraryState.visibleFolders}
       {bulkWorking}
       viewMode={libraryState.viewMode}
       onCardClick={onCardClick}

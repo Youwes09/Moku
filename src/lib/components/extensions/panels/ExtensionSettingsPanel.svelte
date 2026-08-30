@@ -1,7 +1,6 @@
 <script lang="ts">
   import { X, CircleNotch, CaretUpDown, Check, CaretLeft, CaretRight } from "phosphor-svelte";
   import Thumbnail from "$lib/components/shared/manga/Thumbnail.svelte";
-  import { getAdapter } from "$lib/request-manager";
   import { addToast } from "$lib/state/notifications.svelte";
 
   interface Preference {
@@ -65,25 +64,10 @@
     prefs    = [];
     editKey  = null;
     listOpen = null;
-    try {
-      prefs = (await getAdapter().getSourceSettings(src.id)) as Preference[];
-    } catch (e: any) {
-      addToast({ kind: "error", title: "Failed to load settings", body: e?.message ?? "" });
-    } finally {
-      loading = false;
-    }
+    loading  = false;
   }
 
   async function save(position: number, changeType: string, value: unknown) {
-    if (!activeSource) return;
-    saving = prefs[position].key;
-    try {
-      prefs = (await getAdapter().updateSourcePreference(activeSource.id, position, changeType, value)) as Preference[];
-    } catch (e: any) {
-      addToast({ kind: "error", title: "Failed to save", body: e?.message ?? "" });
-    } finally {
-      saving = null;
-    }
   }
 
   function getTitle(p: Preference) {

@@ -37,6 +37,13 @@
       "icons/icon.png"
     ],
     "externalBin": [],
+    "resources": {
+      "resources/tsunagu": "tsunagu",
+      "resources/sandbox": "sandbox"
+    },
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",

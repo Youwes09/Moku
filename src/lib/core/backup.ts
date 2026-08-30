@@ -47,7 +47,6 @@ export async function importAppData(): Promise<void> {
     saveLibrary({
       sessions:        l.sessions        ?? [],
       bookmarks:       l.bookmarks       ?? [],
-      markers:         l.markers         ?? [],
       dailyReadCounts: l.dailyReadCounts ?? {},
     }),
     saveUpdates({

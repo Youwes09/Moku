@@ -3,11 +3,12 @@
   pkgs,
   rustToolchain,
   runtimeLibs,
-  suwayomiServer,
+  gstPluginPath,
   version,
   versions,
   src,
   appIcon,
+  tsunaguBin,
 }:
 
 pkgs.stdenv.mkDerivation {
@@ -48,7 +49,7 @@ pkgs.stdenv.mkDerivation {
 
   buildPhase = ''
     export HOME=$(mktemp -d)
-    pnpm tauri:build
+    pnpm exec tauri build --config '{"bundle":{"resources":null}}'
   '';
 
   installPhase = ''
@@ -60,12 +61,12 @@ pkgs.stdenv.mkDerivation {
 Version=1.0
 Type=Application
 Name=Moku
-Comment=Manga reader frontend for Suwayomi
+Comment=Manga, novel and anime reader
 Exec=$out/bin/moku
 Icon=moku
 Terminal=false
 Categories=Graphics;Viewer;
-Keywords=manga;comic;reader;suwayomi;
+Keywords=manga;comic;novel;anime;reader;
 StartupWMClass=moku
 EOF2
 
@@ -90,7 +91,9 @@ EOF2
         pkgs.gtk3
       ]}" \
       --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath runtimeLibs}" \
-      --prefix PATH : "${lib.makeBinPath [ suwayomiServer ]}" \
+      --prefix GST_PLUGIN_SYSTEM_PATH_1_0 : "${gstPluginPath}" \
+      --prefix GIO_EXTRA_MODULES : "${pkgs.glib-networking}/lib/gio/modules" \
+      --set TSUNAGU_BIN "${tsunaguBin}" \
       --set GDK_BACKEND wayland \
       --set WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS 1
   '';

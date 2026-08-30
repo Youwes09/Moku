@@ -1,24 +1,26 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
   import { goto }               from '$app/navigation'
-  import { getAdapter }         from '$lib/request-manager'
+  import { tsunagu }            from '$lib/server-adapters/tsunagu'
   import { cache, CACHE_KEYS, CACHE_GROUPS } from '$lib/core/cache/queryCache'
-  import { homeState, clearHistory } from '$lib/state/home.svelte'
+  import { clearHistory }             from '$lib/state/home.svelte'
   import { historyState }            from '$lib/state/history.svelte'
+  import { libraryState, loadLibrary } from '$lib/state/library.svelte'
+  import { settingsState }             from '$lib/state/settings.svelte'
   import { setActiveManga, openReaderForChapter, setPreviewManga } from '$lib/state/series.svelte'
   import { addToast }           from '$lib/state/notifications.svelte'
   import { downloadStore }      from '$lib/state/downloads.svelte'
   import { collapseAndGroupByDay }                     from './lib/recentHistory'
-  import { fetchedAtMs, parseServerTimestamp, groupUpdatesByDay } from './lib/recentUpdates'
+  import { groupUpdatesByDay, mapRecentChapterToUpdate } from './lib/recentUpdates'
   import RecentToolbar  from './RecentToolbar.svelte'
   import UpdatesTab     from './UpdatesTab.svelte'
   import HistoryTab     from './HistoryTab.svelte'
-  import type { Manga, Chapter } from '$lib/types'
+  import type { Manga } from '$lib/types'
   import type { RecentUpdate, UpdateGroup } from './lib/recentUpdates'
   import type { HistoryGroup }              from './lib/recentHistory'
+  import type { LibraryUpdateStatus }       from '$lib/server-adapters/types'
 
   const RECENT_UPDATES_TTL_MS = 60 * 1_000
-  const UPDATE_STATUS_POLL_MS = 2_000
 
   let tab:                 'updates' | 'history' = $state('history')
   let historySearch:       string  = $state('')
@@ -28,88 +30,90 @@
   let updates:             RecentUpdate[] = $state([])
   let updatesLoading:      boolean        = $state(true)
   let updatesError:        string | null  = $state(null)
-  let openingId:           number | null  = $state(null)
-  let enqueueing:          Set<number>    = $state(new Set())
-  let updaterRunning:      boolean        = $state(false)
-  let lastUpdatedTs:       number | null  = $state(null)
-  let updaterFinishedJobs: number | null  = $state(null)
-  let updaterTotalJobs:    number | null  = $state(null)
+  let openingId:           string | null  = $state(null)
+  let enqueueing:          Set<string>    = $state(new Set())
 
-  let libraryManga: Manga[] = $state([])
+  let ctrl: AbortController | null = null
 
-  let ctrl:            AbortController | null              = null
-  let statusPollTimer: ReturnType<typeof setTimeout> | null = null
+  let updateStatus = $state<LibraryUpdateStatus | null>(null)
+  let updatePollTimer: ReturnType<typeof setInterval> | null = null
+
+  const updaterRunning = $derived(updateStatus?.running ?? false)
+  const updaterProgressLabel = $derived(
+    updateStatus?.running && updateStatus.total > 0 ? `${updateStatus.done}/${updateStatus.total}` : null,
+  )
 
   onMount(() => {
     void loadUpdates()
-    cache.get(CACHE_KEYS.LIBRARY, () =>
-      getAdapter().getMangaList({ inLibrary: true }).then(r => r.items)
-    ).then(m => { libraryManga = m }).catch(() => {})
+    if (!libraryState.items.length) loadLibrary()
+    tsunagu.libraryUpdateStatus().then(s => {
+      updateStatus = s
+      if (s.running && !updatePollTimer) updatePollTimer = setInterval(pollUpdateStatus, 1500)
+    }).catch(() => {})
   })
 
   onDestroy(() => {
     ctrl?.abort()
-    stopStatusPolling()
+    if (updatePollTimer) clearInterval(updatePollTimer)
   })
 
-  const updateGroups = $derived(groupUpdatesByDay(updates))
+  async function pollUpdateStatus() {
+    try {
+      updateStatus = await tsunagu.libraryUpdateStatus()
+    } catch {
+      return
+    }
+    if (!updateStatus.running) {
+      if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
+      const n = updateStatus.newChapterCount
+      addToast({
+        kind:  n > 0 ? 'success' : 'info',
+        title: 'Library update complete',
+        body:  n > 0 ? `${n} new chapter${n === 1 ? '' : 's'}` : 'No new chapters',
+      })
+      if (updateStatus.failedTitles.length) {
+        addToast({ kind: 'error', title: `${updateStatus.failedTitles.length} series failed to update`, body: updateStatus.failedTitles.slice(0, 3).join(', ') })
+      }
+      if (n > 0) loadUpdates(true)
+    }
+  }
 
-  const lastUpdatedLabel = $derived(
-    lastUpdatedTs
-      ? new Date(lastUpdatedTs).toLocaleString('en-US', {
-          month: 'short', day: 'numeric', year: 'numeric',
-          hour: 'numeric', minute: '2-digit',
-        })
-      : null
-  )
+  async function runLibraryUpdate() {
+    if (updaterRunning) return
+    try {
+      const started = await tsunagu.startLibraryUpdate()
+      updateStatus = await tsunagu.libraryUpdateStatus()
+      if (!started && !updateStatus.running) {
+        addToast({ kind: 'error', title: 'Update failed', body: 'Could not start library update.' })
+        return
+      }
+      if (updateStatus.running && !updatePollTimer) {
+        updatePollTimer = setInterval(pollUpdateStatus, 1500)
+      }
+    } catch (e: any) {
+      addToast({ kind: 'error', title: 'Update failed', body: e?.message ?? 'Could not start library update.' })
+    }
+  }
 
-  const updaterProgressLabel = $derived(
-    typeof updaterFinishedJobs === 'number' &&
-    typeof updaterTotalJobs   === 'number' &&
-    updaterTotalJobs > 0
-      ? `${updaterFinishedJobs}/${updaterTotalJobs}`
-      : null
-  )
+  const ctFilter = $derived(settingsState.settings.contentTypeFilter)
+  function matchesContentType(mangaId: string): boolean {
+    if (!ctFilter || ctFilter === 'all') return true
+    return libraryState.items.find(m => m.id === mangaId)?.contentType === ctFilter
+  }
 
-  const filteredHistory = $derived(historySearch.trim()
-    ? historyState.sessions.filter(s =>
-        s.mangaTitle.toLowerCase().includes(historySearch.toLowerCase()) ||
-        s.endChapterName.toLowerCase().includes(historySearch.toLowerCase())
-      )
-    : historyState.sessions)
+  const visibleUpdates  = $derived(updates.filter(u => matchesContentType(u.mangaId)))
+  const updateGroups     = $derived(groupUpdatesByDay(visibleUpdates))
+
+  const filteredHistory = $derived(
+    (historySearch.trim()
+      ? historyState.sessions.filter(s =>
+          s.mangaTitle.toLowerCase().includes(historySearch.toLowerCase()) ||
+          s.endChapterName.toLowerCase().includes(historySearch.toLowerCase())
+        )
+      : historyState.sessions
+    ).filter(s => matchesContentType(s.mangaId)))
 
   const historyGroups = $derived(collapseAndGroupByDay(filteredHistory))
-
-  function applyUpdateStatus(statusRes: { isRunning?: boolean; finishedJobs?: number; totalJobs?: number; lastUpdated?: unknown } | null) {
-    if (!statusRes) return
-    updaterRunning      = statusRes.isRunning    ?? false
-    updaterFinishedJobs = statusRes.finishedJobs ?? null
-    updaterTotalJobs    = statusRes.totalJobs    ?? null
-    lastUpdatedTs       = parseServerTimestamp(statusRes.lastUpdated ?? null)
-  }
-
-  function stopStatusPolling() {
-    if (!statusPollTimer) return
-    clearTimeout(statusPollTimer)
-    statusPollTimer = null
-  }
-
-  function scheduleStatusPoll() {
-    if (statusPollTimer) return
-    const tick = async () => {
-      statusPollTimer = null
-      try {
-        const statusRes  = await getAdapter().getLibraryUpdateStatus()
-        const wasRunning = updaterRunning
-        applyUpdateStatus(statusRes)
-        if (updaterRunning)      statusPollTimer = setTimeout(tick, UPDATE_STATUS_POLL_MS)
-        else if (wasRunning) void loadUpdates(true)
-      } catch {
-        if (updaterRunning) statusPollTimer = setTimeout(tick, UPDATE_STATUS_POLL_MS)
-      }
-    }
-    statusPollTimer = setTimeout(tick, UPDATE_STATUS_POLL_MS)
-  }
 
   async function loadUpdates(force = false) {
     ctrl?.abort()
@@ -122,34 +126,20 @@
       const key = CACHE_KEYS.RECENT_UPDATES
       if (force) cache.clear(key)
 
-      const [updatesRes, statusRes] = await Promise.all([
-        cache.get<Chapter[]>(
-          key,
-          () => getAdapter().getRecentlyUpdated(),
-          RECENT_UPDATES_TTL_MS,
-          CACHE_GROUPS.LIBRARY,
-        ),
-        getAdapter().getLibraryUpdateStatus().catch(() => null),
-      ])
-
-      applyUpdateStatus(statusRes)
-      if (updaterRunning) scheduleStatusPoll()
-      else stopStatusPolling()
+      const updatesRes = await cache.get<RecentUpdate[]>(
+        key,
+        () => tsunagu.chapterUpdates(undefined, 100).then(items => items.map(mapRecentChapterToUpdate)),
+        RECENT_UPDATES_TTL_MS,
+        CACHE_GROUPS.LIBRARY,
+      )
 
       if (nextCtrl.signal.aborted) return
 
-      updates = (updatesRes ?? [])
-        .map(item => ({ ...item, isRead: item.read }))
-        .sort((a, b) => fetchedAtMs(b) - fetchedAtMs(a))
+      updates = updatesRes ?? []
     } catch (e: any) {
       if (nextCtrl.signal.aborted) return
-      updatesError        = e?.message ?? 'Failed to load updates'
-      updates             = []
-      updaterRunning      = false
-      lastUpdatedTs       = null
-      updaterFinishedJobs = null
-      updaterTotalJobs    = null
-      stopStatusPolling()
+      updatesError = e?.message ?? 'Failed to load updates'
+      updates      = []
     } finally {
       if (!nextCtrl.signal.aborted) updatesLoading = false
     }
@@ -169,10 +159,25 @@
     openingId = item.id
     const manga = mangaStub(item)
     try {
-      const chapters = await getAdapter().getChapters(String(item.mangaId))
-      const target   = chapters.find(ch => ch.id === item.id)
-      if (target) openReaderForChapter(target, manga)
-      else        setPreviewManga(manga)
+      const entry  = await tsunagu.libraryEntry(String(item.mangaId))
+      const target = entry?.chapters.find((ch) => ch.id === item.id)
+      if (target) {
+        openReaderForChapter({
+          id: target.id,
+          name: target.title ?? '',
+          chapterNumber: target.number ?? 0,
+          sourceOrder: target.sourceOrder ?? 0,
+          read: target.completed ?? false,
+          downloaded: target.downloaded ?? false,
+          bookmarked: false,
+          pageCount: target.pageCount ?? 0,
+          mangaId: String(item.mangaId),
+          uploadDate: target.uploadedAt,
+          scanlator: null,
+        }, manga)
+      } else {
+        setPreviewManga(manga)
+      }
     } catch {
       setPreviewManga(manga)
       addToast({ kind: 'error', title: "Couldn't open chapter", body: 'Opened the series instead.' })
@@ -181,8 +186,8 @@
     }
   }
 
-  function thumbFor(mangaId: number, fallback: string): string {
-    return libraryManga.find(m => m.id === mangaId)?.thumbnailUrl ?? fallback ?? ''
+  function thumbFor(mangaId: string, fallback: string): string {
+    return libraryState.items.find(m => m.id === mangaId)?.thumbnailUrl ?? fallback ?? ''
   }
 
   function handleHistoryClear() {
@@ -199,8 +204,8 @@
     if (enqueueing.has(item.id)) return
     enqueueing = new Set(enqueueing).add(item.id)
     try {
-      const allowed = await downloadStore.enqueue(item.id)
-      if (allowed) addToast({ kind: 'download', title: 'Download queued', body: item.name ?? 'Chapter' })
+      await tsunagu.enqueueDownload(item.mangaId, item.id)
+      addToast({ kind: 'download', title: 'Download queued', body: item.name ?? 'Chapter' })
     } catch {
       addToast({ kind: 'error', title: 'Download failed', body: 'Could not queue chapter.' })
     } finally {
@@ -211,27 +216,16 @@
 
   async function deleteDownloaded(item: RecentUpdate) {
     try {
-      await getAdapter().deleteDownloadedChapters([String(item.id)])
-      updates = updates.map(u => u.id === item.id ? { ...u, isDownloaded: false } : u)
+      await tsunagu.deleteDownload(item.mangaId, item.id)
+      updates = updates.map(u => u.id === item.id ? { ...u, downloaded: false } : u)
     } catch {
       addToast({ kind: 'error', title: 'Delete failed', body: 'Could not delete download.' })
     }
   }
 
-  async function toggleLibraryUpdate() {
-    try {
-      if (updaterRunning) {
-        await getAdapter().stopLibraryUpdate()
-        updaterRunning = false
-        stopStatusPolling()
-      } else {
-        await getAdapter().startLibraryUpdate()
-        updaterRunning = true
-        scheduleStatusPoll()
-      }
-    } catch (e: any) {
-      addToast({ kind: 'error', title: 'Update error', body: e?.message ?? 'Failed' })
-    }
+  function toggleLibraryUpdate() {
+    if (updaterRunning) { void pollUpdateStatus(); return }
+    void runLibraryUpdate()
   }
 </script>
 
@@ -248,7 +242,7 @@
     onHistorySearchChange={(v) => historySearch = v}
     onUpdatesSearchChange={(v) => updatesSearch = v}
     onHistoryClear={handleHistoryClear}
-    onRefreshUpdates={() => loadUpdates(true)}
+    onRefreshUpdates={runLibraryUpdate}
     onToggleUpdate={toggleLibraryUpdate}
   />
 
@@ -259,11 +253,11 @@
         error={updatesError}
         groups={updateGroups}
         {updatesSearch}
-        totalCount={updates.filter(u => !u.isRead).length}
+        totalCount={visibleUpdates.filter(u => !u.isRead).length}
         {openingId}
         {enqueueing}
         {updaterRunning}
-        {lastUpdatedLabel}
+        lastUpdatedLabel={updateStatus?.finishedAt ? new Date(updateStatus.finishedAt).toLocaleString() : null}
         {updaterProgressLabel}
         onOpenUpdate={openUpdate}
         onOpenSeries={(item) => setActiveManga(mangaStub(item))}
@@ -277,7 +271,7 @@
         {historySearch}
         stats={historyState.stats}
         {thumbFor}
-        onOpenChapter={(mangaId, chapterId) => goto(`/reader/${mangaId}/${chapterId}`)}
+        onOpenChapter={(mangaId, chapterId) => goto(`/media/${encodeURIComponent(mangaId)}/${encodeURIComponent(chapterId)}`)}
         onDeleteMangaHistory={(mangaId) => historyState.clearMangaHistory(mangaId)}
       />
     {/if}

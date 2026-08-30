@@ -10,7 +10,7 @@ const subs   = new Map<string, Set<() => void>>();
 const keyToGroups = new Map<string, Set<string>>();
 const groups      = new Map<string, Set<string>>();
 
-export const DEFAULT_TTL_MS = 5 * 60 * 1_000;
+const DEFAULT_TTL_MS = 5 * 60 * 1_000;
 
 function notify(key: string) { subs.get(key)?.forEach(cb => cb()); }
 
@@ -142,100 +142,11 @@ export const cache = {
 
 export const CACHE_GROUPS = {
   LIBRARY: "g:library",
-  SOURCES: "g:sources",
 } as const;
 
 export const CACHE_KEYS = {
   LIBRARY:        "library",
   RECENT_UPDATES: "recent_updates",
-  ALL_MANGA:      "all_manga_unfiltered",
-  CATEGORIES:     "categories",
-  SEARCH:         "search_all_manga",
-  SOURCES:        "sources",
-  POPULAR:        "popular",
-  GENRE:    (genre: string) => `genre:${genre}`,
-  MANGA:    (id: number)    => `manga:${id}`,
-  CHAPTERS: (id: number)    => `chapters:${id}`,
-
-  sourceMangaPages(sourceId: string, type: "POPULAR" | "LATEST" | "SEARCH", query?: string | string[]): string {
-    const q = Array.isArray(query) ? [...query].sort().join("+") : (query ?? "");
-    return `pages:${sourceId}:${type}:${q}`;
-  },
-
-  sourceMangaPage(sourceId: string, type: "POPULAR" | "LATEST" | "SEARCH", page: number, query?: string | string[]): string {
-    const q = Array.isArray(query) ? [...query].sort().join("+") : (query ?? "");
-    return `page:${sourceId}:${type}:${page}:${q}`;
-  },
+  MANGA:    (id: string)    => `manga:${id}`,
 } as const;
 
-const inflight = new Map<string, Promise<unknown>>();
-
-export function deduped<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
-  if (inflight.has(key)) return inflight.get(key) as Promise<T>;
-  const p = fetcher().finally(() => inflight.delete(key));
-  inflight.set(key, p);
-  return p;
-}
-
-const _pageSets = new Map<string, Set<number>>();
-
-export interface PageSet {
-  add(page: number): void;
-  pages(): Set<number>;
-  next(): number;
-  clear(): void;
-}
-
-export function getPageSet(sourceId: string, type: "POPULAR" | "LATEST" | "SEARCH", query?: string | string[]): PageSet {
-  const key = CACHE_KEYS.sourceMangaPages(sourceId, type, query);
-  return {
-    add(page)  { if (!_pageSets.has(key)) _pageSets.set(key, new Set()); _pageSets.get(key)!.add(page); },
-    pages()    { return new Set(_pageSets.get(key) ?? []); },
-    next()     { const s = _pageSets.get(key); return s?.size ? Math.max(...s) + 1 : 1; },
-    clear()    { _pageSets.delete(key); },
-  };
-}
-
-const FRECENCY_KEY         = "moku-source-frecency";
-const MAX_FRECENCY_SOURCES = 4;
-type FrecencyMap = Record<string, number>;
-
-function loadFrecency(): FrecencyMap {
-  try { const r = localStorage.getItem(FRECENCY_KEY); return r ? JSON.parse(r) : {}; }
-  catch { return {}; }
-}
-
-function saveFrecency(map: FrecencyMap) {
-  try { localStorage.setItem(FRECENCY_KEY, JSON.stringify(map)); } catch {}
-}
-
-export function recordSourceAccess(sourceId: string) {
-  if (!sourceId || sourceId === "0") return;
-  const map = loadFrecency();
-  map[sourceId] = (map[sourceId] ?? 0) + 1;
-  saveFrecency(map);
-}
-
-export function getTopSources<T extends { id: string }>(sources: T[]): T[] {
-  const map = loadFrecency();
-  const withScore = sources.map(s => ({ s, score: map[s.id] ?? 0 }));
-  if (withScore.some(x => x.score > 0)) {
-    return withScore.sort((a, b) => b.score - a.score).slice(0, MAX_FRECENCY_SOURCES).map(x => x.s);
-  }
-  return sources.slice(0, MAX_FRECENCY_SOURCES);
-}
-
-export async function refreshMangaCache(mangaId: number, thumbnailUrl?: string): Promise<void> {
-  const didRefresh = cache.refresh(CACHE_KEYS.MANGA(mangaId));
-  if (!didRefresh) cache.clear(CACHE_KEYS.MANGA(mangaId));
-
-  cache.clear(CACHE_KEYS.CHAPTERS(mangaId));
-  cache.clear(CACHE_KEYS.LIBRARY);
-  cache.clear(CACHE_KEYS.ALL_MANGA);
-
-  if (thumbnailUrl) {
-    const { revokeBlobUrl, getBlobUrl } = await import("$lib/core/cache/imageCache");
-    revokeBlobUrl(thumbnailUrl);
-    getBlobUrl(thumbnailUrl, 999).catch(() => {});
-  }
-}

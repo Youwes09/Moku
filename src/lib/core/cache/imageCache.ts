@@ -1,5 +1,4 @@
 import { platformService } from "$lib/platform-service";
-import { authHeaders }    from "$lib/core/auth";
 
 const cache    = new Map<string, string>();
 const inflight = new Map<string, Promise<string>>();
@@ -18,7 +17,7 @@ interface QueueEntry {
 const queue: QueueEntry[] = [];
 
 async function doFetch(url: string, gen: number): Promise<string> {
-  const headers = authHeaders();
+  const headers = {};
   if (gen !== generation) throw new DOMException("Cancelled", "AbortError");
   const blob    = await platformService.fetchImage(url, headers);
   if (gen !== generation) throw new DOMException("Cancelled", "AbortError");

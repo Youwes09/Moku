@@ -1,11 +1,11 @@
 <script lang="ts">
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
-  import { requestManager } from '$lib/request-manager'
+  import { tsunagu } from '$lib/server-adapters/tsunagu'
   import { platformService } from '$lib/platform-service'
   import type { ContentLevel } from '$lib/types/settings'
-  import type { Source } from '$lib/types'
+  import type { Extension } from '$lib/server-adapters/types'
 
-  let contentSources        = $state<Source[]>([])
+  let contentSources        = $state<Extension[]>([])
   let contentSourcesLoading = $state(false)
   let sourceSearch          = $state('')
 
@@ -17,7 +17,7 @@
   async function loadContentSources() {
     contentSourcesLoading = true
     try {
-      const d = await requestManager.extensions.getSources()
+      const d = await tsunagu.installedExtensions()
       contentSources = d.filter(s => s.id !== '0')
     } catch (e) { console.error(e) }
     finally { contentSourcesLoading = false }
@@ -51,16 +51,16 @@
     }
   }
 
-  interface ContentSourceGroup { name: string; iconUrl: string; isNsfw: boolean; sources: Source[] }
+  interface ContentSourceGroup { name: string; iconUrl: string | null; sources: Extension[] }
 
   const contentSourcesFiltered = $derived.by(() => {
     const q = sourceSearch.trim().toLowerCase()
     const filtered = q
-      ? contentSources.filter(s => s.displayName.toLowerCase().includes(q) || s.lang.toLowerCase().includes(q))
+      ? contentSources.filter(s => s.name.toLowerCase().includes(q) || s.lang.toLowerCase().includes(q))
       : contentSources
     const map = new Map<string, ContentSourceGroup>()
     for (const s of filtered) {
-      if (!map.has(s.name)) map.set(s.name, { name: s.name, iconUrl: s.iconUrl, isNsfw: s.isNsfw, sources: [] })
+      if (!map.has(s.name)) map.set(s.name, { name: s.name, iconUrl: s.iconUrl, sources: [] })
       map.get(s.name)!.sources.push(s)
     }
     return Array.from(map.values())
@@ -121,7 +121,7 @@
         {#if contentSourcesLoading}
           <p class="s-empty">Loading sources…</p>
         {:else if contentSources.length === 0}
-          <p class="s-empty">No sources found — check your server connection.</p>
+          <p class="s-empty">No sources found. Check your server connection.</p>
         {:else}
           <div class="s-source-list">
             {#each contentSourcesFiltered as group (group.name)}
@@ -131,11 +131,13 @@
               {@const isAllowed = ids.every(id => allowed.includes(id))}
               {@const isBlocked = ids.every(id => blocked.includes(id))}
               <div class="s-source-row" class:allowed={isAllowed} class:blocked={isBlocked}>
-                <img src={platformService.thumbUrl(group.iconUrl)} alt="" class="s-source-icon" loading="lazy" decoding="async" />
+                {#if group.iconUrl}
+                  <img src={group.iconUrl} alt="" class="s-source-icon" loading="lazy" decoding="async" />
+                {/if}
                 <div class="s-source-info">
                   <span class="s-source-name">{group.name}</span>
                   <span class="s-source-meta">
-                    {group.sources[0].isNsfw ? 'NSFW · ' : ''}{group.sources.length > 1 ? `${group.sources.length} languages` : group.sources[0].lang.toUpperCase()}
+                    {group.sources.length > 1 ? `${group.sources.length} languages` : group.sources[0].lang.toUpperCase()}
                   </span>
                 </div>
                 <div class="s-source-actions">

@@ -50,7 +50,7 @@
         <button role="switch" aria-checked={settingsState.settings.automationEnabled ?? false} aria-label="Enable automation" class="s-toggle" class:on={settingsState.settings.automationEnabled ?? false} onclick={() => updateSettings({ automationEnabled: !(settingsState.settings.automationEnabled ?? false) })}><span class="s-toggle-thumb"></span></button>
       </label>
       <label class="s-row">
-        <div class="s-row-info"><span class="s-label">Enforce global defaults</span><span class="s-desc">Ignore per-series overrides — all series use the global settings below</span></div>
+        <div class="s-row-info"><span class="s-label">Enforce global defaults</span><span class="s-desc">Ignore per-series overrides.</span></div>
         <button role="switch" aria-checked={enforceGlobal} aria-label="Enforce global defaults" class="s-toggle" class:on={enforceGlobal} onclick={() => updateSettings({ automationEnforceGlobal: !enforceGlobal })}><span class="s-toggle-thumb"></span></button>
       </label>
       {#if enforceGlobal}

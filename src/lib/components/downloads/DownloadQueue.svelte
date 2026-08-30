@@ -4,17 +4,18 @@
   import DownloadItem    from "$lib/components/downloads/DownloadItem.svelte";
   import ContextMenu, { type MenuEntry } from "$lib/components/shared/ui/ContextMenu.svelte";
   import { downloadStore } from "$lib/state/downloads.svelte";
-  import type { DownloadQueueItem } from "$lib/types/api";
+  import { libraryState } from "$lib/state/library.svelte";
+  import type { Download } from "$lib/server-adapters/types";
 
   interface Props {
-    queue:      DownloadQueueItem[];
+    queue:      Download[];
     loading:    boolean;
     isRunning:  boolean;
-    dequeueing: Set<number>;
-    selected:   Set<number>;
-    onRemove: (chapterId: number) => void;
-    onRetry:  (chapterId: number) => void;
-    onSelect: (chapterId: number, e: MouseEvent) => void;
+    dequeueing: Set<string>;
+    selected:   Set<string>;
+    onRemove: (chapterId: string) => void;
+    onRetry:  (chapterId: string) => void;
+    onSelect: (chapterId: string, e: MouseEvent) => void;
   }
 
   const {
@@ -22,17 +23,17 @@
     onRemove, onRetry, onSelect,
   }: Props = $props();
 
-  let expandedSeriesIds: Set<number> = $state(new Set());
-  let confirmDeleteSeries: { title: string; items: DownloadQueueItem[] } | null = $state(null);
+  let expandedSeriesIds: Set<string> = $state(new Set());
+  let confirmDeleteSeries: { title: string; items: Download[] } | null = $state(null);
   let seriesCtx = $state<{ x: number; y: number; group: SeriesDownloadGroup } | null>(null);
 
   export interface SeriesDownloadGroup {
-    mangaId:           number;
+    mangaId:           string;
     mangaTitle:        string;
     thumbnailUrl:      string;
-    items:             DownloadQueueItem[];
+    items:             Download[];
     seriesPct:         number;
-    activeChapter:     DownloadQueueItem | null;
+    activeChapter:     Download | null;
     activeChapterPct:  number;
     activeChapterName: string;
     isDownloading:     boolean;
@@ -40,23 +41,23 @@
   }
 
   const seriesGroups = $derived((() => {
-    const map = new Map<number, DownloadQueueItem[]>();
+    const map = new Map<string, Download[]>();
     for (const item of queue) {
-      const mId = item.chapter.manga?.id ?? 0;
+      const mId = item.mediaId ?? "";
       if (!map.has(mId)) map.set(mId, []);
       map.get(mId)!.push(item);
     }
 
     const groups: SeriesDownloadGroup[] = [];
     for (const [mangaId, items] of map.entries()) {
-      const first = items[0];
-      const title = first.chapter.manga?.title ?? "Unknown Series";
-      const thumb = first.chapter.manga?.thumbnailUrl ?? "";
+      const manga = libraryState.items.find(m => m.id === mangaId) ?? null;
+      const title = manga?.title ?? "Unknown Series";
+      const thumb = manga?.thumbnailUrl ?? "";
 
       const totalProg = items.reduce((sum, i) => sum + (i.progress ?? 0), 0);
       const seriesPct = Math.round((totalProg / items.length) * 100);
 
-      const downloading = items.find(i => i.state === "DOWNLOADING");
+      const downloading = items.find(i => i.status === "DOWNLOADING");
       const active = downloading ?? items.find(i => (i.progress ?? 0) > 0) ?? items[0];
       const activePct = active ? Math.round((active.progress ?? 0) * 100) : 0;
 
@@ -68,16 +69,16 @@
         seriesPct,
         activeChapter:     active,
         activeChapterPct:  activePct,
-        activeChapterName: active ? active.chapter.name : "",
-        isDownloading:     items.some(i => i.state === "DOWNLOADING"),
-        hasError:          items.some(i => i.state === "ERROR"),
+        activeChapterName: active ? (active.chapter.title ?? "Chapter") : "",
+        isDownloading:     items.some(i => i.status === "DOWNLOADING"),
+        hasError:          items.some(i => i.status === "FAILED"),
       });
     }
 
     return groups;
   })());
 
-  function toggleExpand(mangaId: number, e: MouseEvent) {
+  function toggleExpand(mangaId: string, e: MouseEvent) {
     e.stopPropagation();
     const next = new Set(expandedSeriesIds);
     if (next.has(mangaId)) next.delete(mangaId);
@@ -85,9 +86,9 @@
     expandedSeriesIds = next;
   }
 
-  function retrySeries(items: DownloadQueueItem[], e: MouseEvent) {
+  function retrySeries(items: Download[], e: MouseEvent) {
     e.stopPropagation();
-    items.filter(i => i.state === "ERROR").forEach(i => onRetry(i.chapter.id));
+    items.filter(i => i.status === "FAILED").forEach(i => onRetry(i.chapterId));
   }
 
   function openSeriesCtx(e: MouseEvent, group: SeriesDownloadGroup) {
@@ -221,13 +222,13 @@
 
         {#if isExpanded}
           <div class="sub-item-list">
-            {#each group.items as item (item.chapter.id)}
-              {@const globalIdx = queue.findIndex(q => q.chapter.id === item.chapter.id)}
+            {#each group.items as item (item.chapterId)}
+              {@const globalIdx = queue.findIndex(q => q.chapterId === item.chapterId)}
               <DownloadItem
                 {item}
                 isActive={globalIdx === 0 && isRunning}
-                isRemoving={dequeueing.has(item.chapter.id)}
-                isSelected={selected.has(item.chapter.id)}
+                isRemoving={dequeueing.has(item.chapterId)}
+                isSelected={selected.has(item.chapterId)}
                 {onRemove}
                 {onRetry}
                 {onSelect}
@@ -260,7 +261,7 @@
           class="btn-danger"
           onclick={() => {
             if (confirmDeleteSeries) {
-              confirmDeleteSeries.items.forEach(i => onRemove(i.chapter.id));
+              confirmDeleteSeries.items.forEach(i => onRemove(i.chapterId));
             }
             confirmDeleteSeries = null;
           }}
@@ -318,7 +319,6 @@
   .prog-label { font-family: var(--font-ui); font-size: 10px; color: var(--text-muted); min-width: 85px; max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
   .prog-track { flex: 1; height: 3px; background: var(--border-base); border-radius: var(--radius-full); overflow: hidden; }
   .prog-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); transition: width 0.3s ease; }
-  .prog-fill.series-fill { background: color-mix(in srgb, var(--accent) 70%, #3b82f6); }
   .prog-pct { font-family: var(--font-ui); font-size: 10px; font-weight: 600; color: var(--accent-fg); min-width: 28px; text-align: right; flex-shrink: 0; }
 
   .series-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }

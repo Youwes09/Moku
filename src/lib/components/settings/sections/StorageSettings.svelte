@@ -6,15 +6,11 @@
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
   import { exportAppData, importAppData } from '$lib/core/backup'
   import { loadBackups, saveBackups, saveSettings, saveLibrary } from '$lib/core/persistence/persist'
-  import type { BackupEntry } from '$lib/core/persistence/persist'
   import { DEFAULT_SETTINGS } from '$lib/types/settings'
   import { DEFAULT_READING_STATS } from '$lib/types/history'
   import { clearBlobCache } from '$lib/core/cache/imageCache'
-  import { clearPageCache } from '$lib/request-manager'
   import { cache as queryCache } from '$lib/core/cache/queryCache'
-  import { getAdapter } from '$lib/request-manager'
-  import { requestManager } from '$lib/request-manager'
-  import type { ValidateBackupResult, RestoreStatus } from '$lib/server-adapters/types'
+  import { tsunagu } from '$lib/server-adapters/tsunagu'
 
   const supportsFilesystem = platformService.isSupported('filesystem')
 
@@ -22,10 +18,9 @@
   interface ResetItem { key: string; label: string; desc: string; state: ResetState; error: string | null; confirm: boolean }
 
   let resetItems = $state<ResetItem[]>([
-    { key: 'all-cache',       label: 'Clear all caches',      desc: 'Flushes the image blob cache, page cache, query cache, Moku disk cache, Suwayomi disk cache, and server image/thumbnail cache in one pass.', state: 'idle', error: null, confirm: false },
-    { key: 'reading-history', label: 'Clear reading history', desc: 'Erases chapter history, read log, reading stats, and daily read counts.',                                                                    state: 'idle', error: null, confirm: true  },
-    { key: 'moku-settings',   label: 'Reset Moku settings',   desc: 'Restores all app settings to their defaults. Does not affect library data.',                                                                   state: 'idle', error: null, confirm: true  },
-    { key: 'suwayomi-data',   label: 'Reset Suwayomi data',   desc: 'Deletes the database, extensions, settings, and logs. Downloads and backups are preserved.',                                                   state: 'idle', error: null, confirm: true  },
+    { key: 'all-cache',       label: 'Clear all caches',      desc: 'Flushes the image blob cache, page cache, query cache, Moku disk cache, and server image/thumbnail cache in one pass.', state: 'idle', error: null, confirm: false },
+    { key: 'reading-history', label: 'Clear reading history', desc: 'Erases chapter history, read log, reading stats, and daily read counts.',                                                        state: 'idle', error: null, confirm: true  },
+    { key: 'moku-settings',   label: 'Reset Moku settings',   desc: 'Restores all app settings to their defaults. Does not affect library data.',                                                       state: 'idle', error: null, confirm: true  },
   ])
 
   let confirming = $state<string | null>(null)
@@ -77,12 +72,10 @@
 
   async function clearAllCaches(): Promise<void> {
     clearBlobCache()
-    clearPageCache()
     queryCache.clearAll()
     await Promise.all([
       platformService.clearMokuCache(),
-      platformService.clearSuwayomiCache(),
-      getAdapter().clearCachedImages({ cachedPages: true, cachedThumbnails: true, downloadedThumbnails: false }),
+      tsunagu.clearImageCache(),
     ])
   }
 
@@ -95,18 +88,11 @@
           await clearAllCaches()
           break
         case 'reading-history':
-          await saveLibrary({ sessions: [], bookmarks: [], markers: [], dailyReadCounts: {} })
+          await saveLibrary({ sessions: [], bookmarks: [], dailyReadCounts: {} })
           break
         case 'moku-settings':
           localStorage.clear()
           await saveSettings({ settings: DEFAULT_SETTINGS, storeVersion: 2 })
-          patchReset(key, { state: 'done' })
-          await showExitCountdown()
-          platformService.exitApp()
-          return
-        case 'suwayomi-data':
-          localStorage.clear()
-          await platformService.resetSuwayomiData()
           patchReset(key, { state: 'done' })
           await showExitCountdown()
           platformService.exitApp()
@@ -122,7 +108,7 @@
   interface StorageInfo { manga_bytes: number; total_bytes: number; free_bytes: number; path: string }
 
   const isExternalServer = $derived.by(() => {
-    const url = (settingsState.settings.serverUrl ?? 'http://localhost:4567').toLowerCase().trim()
+    const url = (settingsState.settings.serverUrl ?? 'http://localhost:6007').toLowerCase().trim()
     try {
       const host = new URL(url).hostname
       return host !== 'localhost' && host !== '127.0.0.1' && host !== '::1'
@@ -135,6 +121,20 @@
 
   let downloadsPathInput   = $state(settingsState.settings.serverDownloadsPath ?? '')
   let localSourcePathInput = $state(settingsState.settings.serverLocalSourcePath ?? '')
+  let rescanning           = $state(false)
+
+  async function rescanLocal() {
+    if (rescanning) return
+    rescanning = true
+    try {
+      const found = await tsunagu.rescanLocalMedia()
+      const { loadLibrary } = await import('$lib/state/library.svelte')
+      await loadLibrary(true)
+      toast({ kind: 'success', title: 'Local library rescanned', body: `${found.length} local ${found.length === 1 ? 'title' : 'titles'}` })
+    } catch (e) {
+      toast({ kind: 'error', title: 'Rescan failed', body: String(e) })
+    } finally { rescanning = false }
+  }
   let pathsSaving          = $state(false)
   let pathsError           = $state<string | null>(null)
   let pathsFieldError      = $state<{ dl?: string; loc?: string }>({})
@@ -171,11 +171,9 @@
     if (!supportsFilesystem) return
     storageLoading = true; storageError = null
     try {
-      const { downloadsPath: dl, localSourcePath: loc } = await getAdapter().getDownloadsPath()
-      downloadsPathInput = dl; localSourcePathInput = loc
-      confirmedDownloadsPath = dl; confirmedLocalSourcePath = loc
-      updateSettings({ serverDownloadsPath: dl, serverLocalSourcePath: loc })
       if (isExternalServer) { multiStorageInfos = []; storageInfo = null; return }
+      const dl  = settingsState.settings.serverDownloadsPath ?? ''
+      const loc = settingsState.settings.serverLocalSourcePath ?? ''
       const effectiveDl = dl || defaultDownloadsPath
       const dirsToScan: { path: string; label: string }[] = []
       if (effectiveDl) dirsToScan.push({ path: effectiveDl, label: dl ? 'Downloads' : 'Downloads (default)' })
@@ -217,8 +215,6 @@
     if (dlErr || locErr) { pathsFieldError = { ...(dlErr ? { dl: dlErr } : {}), ...(locErr ? { loc: locErr } : {}) }; return }
     pathsSaving = true
     try {
-      await getAdapter().setDownloadsPath(dl)
-      if (loc) await getAdapter().setLocalSourcePath(loc)
       updateSettings({ serverDownloadsPath: dl, serverLocalSourcePath: loc })
       if (supportsFilesystem && !isExternalServer) {
         const oldDl = confirmedDownloadsPath || defaultDownloadsPath
@@ -287,7 +283,7 @@
 
   let backupLoading = $state(false)
   let backupError   = $state<string | null>(null)
-  let backupList    = $state<(BackupEntry & { deleting?: boolean })[]>([])
+  let backupList    = $state<{ url: string; name: string; deleting?: boolean }[]>([])
 
   async function loadBackupList() {
     backupList = (await loadBackups()).map(b => ({ ...b }))
@@ -295,95 +291,6 @@
 
   async function saveBackupList() {
     await saveBackups(backupList.map(({ url, name }) => ({ url, name })))
-  }
-
-  async function createBackup() {
-    backupLoading = true; backupError = null
-    try {
-      const { url } = await getAdapter().createBackup()
-      const name = url.split('/').pop() ?? url
-      backupList = [{ url, name }, ...backupList]
-      await saveBackupList()
-    } catch (e: any) { backupError = e?.message ?? 'Failed to create backup' }
-    finally { backupLoading = false }
-  }
-
-  async function deleteBackup(url: string) {
-    backupList = backupList.map(b => b.url === url ? { ...b, deleting: true } : b)
-    try {
-      await getAdapter().deleteBackup(url)
-      backupList = backupList.filter(b => b.url !== url)
-      await saveBackupList()
-    } catch (e: any) {
-      backupList = backupList.map(b => b.url === url ? { ...b, deleting: false } : b)
-      backupError = e?.message ?? 'Failed to delete backup'
-    }
-  }
-
-  async function downloadBackup(backup: BackupEntry) {
-    try {
-      const blob = await getAdapter().downloadBackup(backup.url)
-      if ('showSaveFilePicker' in window) {
-        try {
-          const handle = await (window as any).showSaveFilePicker({
-            suggestedName: backup.name,
-            types: [{ description: 'Backup file', accept: { 'application/octet-stream': ['.tachibk', '.proto.gz'] } }],
-          })
-          const writable = await handle.createWritable()
-          await writable.write(blob); await writable.close()
-          toast({ kind: 'success', message: 'Backup saved', detail: backup.name }); return
-        } catch (pickerErr: any) { if (pickerErr?.name === 'AbortError') return }
-      }
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl; a.download = backup.name
-      document.body.appendChild(a); a.click(); document.body.removeChild(a)
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 5000)
-      toast({ kind: 'download', message: 'Backup downloaded', detail: backup.name })
-    } catch (e: any) { backupError = e?.message ?? 'Failed to download backup' }
-  }
-
-  let restoreLoading      = $state(false)
-  let restoreError        = $state<string | null>(null)
-  let restoreStatus       = $state<RestoreStatus | null>(null)
-  let restorePollInterval = $state<ReturnType<typeof setInterval> | null>(null)
-  let validateLoading     = $state(false)
-  let validateError       = $state<string | null>(null)
-  let validateResult      = $state<ValidateBackupResult | null>(null)
-  let restoreFile         = $state<File | null>(null)
-
-  function stopRestorePoll() {
-    if (restorePollInterval) { clearInterval(restorePollInterval); restorePollInterval = null }
-  }
-
-  async function pollRestoreStatus(id: string) {
-    try {
-      const status = await getAdapter().pollRestoreStatus(id)
-      restoreStatus = status
-      if (status?.state === 'SUCCESS' || status?.state === 'FAILURE') stopRestorePoll()
-    } catch {}
-  }
-
-  async function submitRestore() {
-    if (!restoreFile) return
-    restoreLoading = true; restoreError = null; restoreStatus = null
-    stopRestorePoll()
-    try {
-      const result = await requestManager.meta.restoreBackup(restoreFile)
-      restoreStatus = result.status
-      if (result.status?.state !== 'SUCCESS' && result.status?.state !== 'FAILURE')
-        restorePollInterval = setInterval(() => pollRestoreStatus(result.id), 1500)
-    } catch (e: any) { restoreError = e?.message ?? 'Failed to start restore' }
-    finally { restoreLoading = false }
-  }
-
-  async function submitValidate() {
-    if (!restoreFile) return
-    validateLoading = true; validateError = null; validateResult = null
-    try {
-      validateResult = await requestManager.meta.validateBackup(restoreFile)
-    } catch (e: any) { validateError = e?.message ?? 'Failed to validate backup' }
-    finally { validateLoading = false }
   }
 
   let appDataExporting = $state(false)
@@ -421,7 +328,6 @@
   }
 
   $effect(() => { untrack(() => { loadBackupList(); fetchStorage() }) })
-  $effect(() => { return () => stopRestorePoll() })
 </script>
 
 <div class="s-panel">
@@ -429,7 +335,7 @@
   {#if migrateFrom && !isExternalServer}
     <div class="s-migrate-banner">
       <div class="s-migrate-body">
-        <span class="s-migrate-title">Manga found at previous path — move to new location?</span>
+        <span class="s-migrate-title">Manga found at the previous path. Move it?</span>
         <span class="s-migrate-paths">{migrateFrom} → {migrateTo}</span>
         {#if migrateProgress && migrateProgress.total > 0}
           <div class="s-migrate-bar"><div class="s-migrate-fill" style="width:{Math.round((migrateProgress.done/migrateProgress.total)*100)}%"></div></div>
@@ -459,7 +365,7 @@
       {:else if !supportsFilesystem}
         <p class="s-empty">Disk usage is unavailable in web mode.</p>
       {:else if isExternalServer}
-        <p class="s-empty">Disk usage is unavailable for external servers — filesystem access requires a local connection.</p>
+        <p class="s-empty">Disk usage needs a local server connection.</p>
       {:else if multiStorageInfos.length > 0}
         {#each multiStorageInfos as info}
           {@const limitGb    = settingsState.settings.storageLimitGb ?? null}
@@ -492,7 +398,7 @@
     <div class="s-section-body">
       {#if isExternalServer}
         <div class="s-row">
-          <span class="s-desc">Connected to an external server. The path below is read from the server — changes here will update the server's config directly.</span>
+          <span class="s-desc">Read from the external server. Edits update its config directly.</span>
         </div>
       {/if}
       <div class="s-row" style="gap:var(--sp-2)">
@@ -584,6 +490,7 @@
                   catch (e: any) { pathsFieldError = { ...pathsFieldError, loc: e?.message ?? 'Failed' } }
                 }}>Create</button>
               {/if}
+              <button class="s-btn" onclick={rescanLocal} disabled={rescanning}>{rescanning ? 'Scanning…' : 'Rescan'}</button>
             </div>
             {#if pathsFieldError.loc}<span class="s-desc" style="color:var(--color-error)">{pathsFieldError.loc}</span>{/if}
           </div>
@@ -628,111 +535,18 @@
 
         <div class="s-row">
           <div class="s-row-info">
-            <span class="s-label">Create backup</span>
-            <span class="s-desc">Snapshot your library, categories, and tracker links</span>
+            <span class="s-label">Library backup</span>
+            <span class="s-desc">Not available yet.</span>
           </div>
-          <button class="s-btn s-btn-accent" onclick={createBackup} disabled={backupLoading}>
-            {backupLoading ? 'Creating…' : 'Create backup'}
-          </button>
         </div>
-
-        {#if backupError}
-          <div class="s-banner s-banner-error">{backupError}</div>
-        {/if}
-
-        {#if backupList.length === 0}
-          <p class="s-empty">No backups yet — create one above.</p>
-        {:else}
-          {#each backupList as backup}
-            <div class="s-folder-row">
-              <ClockCounterClockwise size={14} weight="light" style="color:var(--text-faint);flex-shrink:0" />
-              <span class="s-folder-name" style="font-family:monospace;font-size:var(--text-xs)">{backup.name}</span>
-              <button class="s-btn-icon" onclick={() => downloadBackup(backup)} title="Download">↓</button>
-              <button class="s-btn-icon danger" onclick={() => deleteBackup(backup.url)} disabled={backup.deleting} title="Delete">
-                <Trash size={12} weight="light" />
-              </button>
-            </div>
-          {/each}
-        {/if}
 
         <div class="s-row">
           <div class="s-row-info">
             <span class="s-label">Restore from file</span>
-            <span class="s-desc">{restoreFile ? restoreFile.name : 'Select a .tachibk file'}</span>
+            <span class="s-desc">Not available yet.</span>
           </div>
-          <label class="s-btn" style="cursor:pointer">
-            Browse
-            <input type="file" accept=".tachibk,.proto.gz" style="display:none"
-              onchange={(e) => {
-                const f = (e.currentTarget as HTMLInputElement).files?.[0] ?? null
-                restoreFile = f; restoreStatus = null; restoreError = null; validateResult = null; validateError = null
-              }} />
-          </label>
+          <button class="s-btn" disabled>Browse</button>
         </div>
-
-        {#if restoreFile}
-          <div class="s-row">
-            <div class="s-row-info"></div>
-            <div class="s-btn-row">
-              <button class="s-btn" onclick={submitValidate} disabled={validateLoading || restoreLoading}>
-                {validateLoading ? 'Checking…' : 'Validate'}
-              </button>
-              <button class="s-btn s-btn-accent" onclick={submitRestore} disabled={restoreLoading || validateLoading}>
-                {restoreLoading ? 'Restoring…' : 'Restore'}
-              </button>
-            </div>
-          </div>
-        {/if}
-
-        {#if validateError}
-          <div class="s-banner s-banner-error">{validateError}</div>
-        {/if}
-
-        {#if validateResult}
-          {#if validateResult.missingSources.length === 0 && validateResult.missingTrackers.length === 0}
-            <div class="s-row"><span class="s-desc" style="color:var(--color-success,#4caf50)">✓ All sources and trackers present</span></div>
-          {:else}
-            {#if validateResult.missingSources.length > 0}
-              <div class="s-row">
-                <div class="s-row-info">
-                  <span class="s-label" style="color:var(--color-error)">Missing sources</span>
-                  <span class="s-desc">{validateResult.missingSources.map(s => s.name).join(', ')}</span>
-                </div>
-              </div>
-            {/if}
-            {#if validateResult.missingTrackers.length > 0}
-              <div class="s-row">
-                <div class="s-row-info">
-                  <span class="s-label" style="color:var(--color-error)">Missing trackers</span>
-                  <span class="s-desc">{validateResult.missingTrackers.map(t => t.name).join(', ')}</span>
-                </div>
-              </div>
-            {/if}
-          {/if}
-        {/if}
-
-        {#if restoreError}
-          <div class="s-banner s-banner-error">{restoreError}</div>
-        {/if}
-
-        {#if restoreStatus}
-          <div class="s-row">
-            <div class="s-row-info">
-              <span class="s-label">
-                {restoreStatus.state === 'SUCCESS' ? '✓ Restore complete' :
-                 restoreStatus.state === 'FAILURE' ? '✗ Restore failed'  : 'Restoring…'}
-              </span>
-              {#if restoreStatus.totalManga > 0}
-                <span class="s-desc">{restoreStatus.mangaProgress} / {restoreStatus.totalManga} manga</span>
-              {/if}
-            </div>
-            {#if restoreStatus.state !== 'SUCCESS' && restoreStatus.state !== 'FAILURE' && restoreStatus.totalManga > 0}
-              <div class="s-storage-bar" style="width:160px;flex-shrink:0">
-                <div class="s-storage-fill" style="width:{Math.round((restoreStatus.mangaProgress / restoreStatus.totalManga) * 100)}%"></div>
-              </div>
-            {/if}
-          </div>
-        {/if}
 
         <p class="s-subsection-title">App data backup</p>
 

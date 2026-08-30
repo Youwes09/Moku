@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
-  import { getAdapter }         from "$lib/request-manager";
+  import { tsunagu }            from "$lib/server-adapters/tsunagu";
+  import { toBrowseManga }      from "$lib/components/browse/lib/searchFilter";
   import { settingsState, updateSettings } from "$lib/state/settings.svelte";
   import { shouldHideNsfw } from "$lib/core/util";
   import Thumbnail              from "$lib/components/shared/manga/Thumbnail.svelte";
+  import ExtensionIcon          from "$lib/components/extensions/ExtensionIcon.svelte";
   import ContextMenu            from "$lib/components/shared/ui/ContextMenu.svelte";
   import { PushPin, PushPinSlash, ArrowRight } from "phosphor-svelte";
   import type { Manga, Source } from "$lib/types";
@@ -47,6 +49,13 @@
     if (target) srcSelectSource(target);
   });
 
+  $effect(() => {
+    const active = src_activeSource;
+    if (active && allSources.length && !allSources.some((s) => s.id === active.id)) {
+      untrack(() => { src_activeSource = null; src_browseQuery = ""; src_submitted = ""; });
+    }
+  });
+
   let src_langInitialized = false;
 
   $effect(() => {
@@ -86,14 +95,14 @@
     src_abortCtrl = ctrl;
     if (page === 1) { src_loadingBrowse = true; src_browseResults = []; }
     try {
-      let result: { items: Manga[]; hasNextPage: boolean };
-      if (type === "SEARCH" && q) {
-        result = await getAdapter().searchSource(src.id, q, page, ctrl.signal);
-      } else {
-        result = await getAdapter().browseSource(src.id, page);
-      }
+      const pkgName = src.id;
+      const result = type === "SEARCH" && q
+        ? await tsunagu.search(pkgName, q, page, undefined, ctrl.signal)
+        : await tsunagu.popularManga(pkgName, page, ctrl.signal);
       if (ctrl.signal.aborted) return;
-      const incoming = result.items.filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
+      const incoming = result.results
+        .map((r) => toBrowseManga(r, pkgName, src.id))
+        .filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
       src_browseResults = page === 1 ? incoming : [...src_browseResults, ...incoming];
       src_hasNextPage   = result.hasNextPage;
       src_currentPage   = page;
@@ -141,7 +150,7 @@
       <span class="langPocketLabel">Language</span>
       <select class="langSelect" bind:value={src_selectedLang}>
         <option value="all">All</option>
-        {#each availableLangs as lang (lang)}
+        {#each availableLangs.filter((l) => l.toLowerCase() !== "all") as lang (lang)}
           <option value={lang}>{lang.toUpperCase()}{lang === preferredLang ? " ★" : ""}</option>
         {/each}
       </select>
@@ -181,7 +190,7 @@
               onclick={() => srcSelectSource(src)}
               oncontextmenu={(e) => openCtx(e, src)}
             >
-              <Thumbnail src={src.iconUrl} alt="" class="splitSourceIcon" onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <ExtensionIcon src={src.iconUrl} alt="" class="splitSourceIcon" />
               <span class="splitItemLabel">{src.name}</span>
               <span class="pinIndicator" title="Pinned">
                 <PushPin size={9} weight="fill" />
@@ -200,7 +209,7 @@
             onclick={() => srcSelectSource(src)}
             oncontextmenu={(e) => openCtx(e, src)}
           >
-            <Thumbnail src={src.iconUrl} alt="" class="splitSourceIcon" onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            <ExtensionIcon src={src.iconUrl} alt="" class="splitSourceIcon" />
             <span class="splitItemLabel">{src.name}</span>
             {#if src_selectedLang === "all"}
               <span class="sourceLang">{src.lang.toUpperCase()}</span>
@@ -227,7 +236,7 @@
     {:else}
       <div class="splitContentHeader">
         <div class="splitSourceTitle">
-          <Thumbnail src={src_activeSource.iconUrl} alt="" class="splitSourceIcon" onerror={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+          <ExtensionIcon src={src_activeSource.iconUrl} alt="" class="splitSourceIcon" />
           <span class="splitContentTitle">{src_activeSource.displayName}</span>
           {#if src_loadingBrowse}
             <svg width="13" height="13" viewBox="0 0 256 256" fill="currentColor" class="anim-spin" style="color:var(--text-faint)" aria-hidden="true">
@@ -265,7 +274,7 @@
         </div>
       {:else if src_browseResults.length > 0}
         <div class="tagGrid">
-          {#each src_browseResults as m, i (m.id)}
+          {#each src_browseResults as m, i (`${m.extensionId}-${m.sourceEntryId}`)}
             <button class="card" onclick={() => onPreview(m)}>
               <div class="coverWrap">
                 <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} />

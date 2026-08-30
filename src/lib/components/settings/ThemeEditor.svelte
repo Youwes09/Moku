@@ -130,7 +130,7 @@
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        if (!data.tokens || typeof data.tokens !== "object") throw new Error("Invalid theme file — missing tokens");
+        if (!data.tokens || typeof data.tokens !== "object") throw new Error("Invalid theme file, missing tokens");
         if (typeof data.name === "string") themeName = data.name;
         tokens      = { ...DEFAULT_THEME_TOKENS, ...data.tokens };
         importError = null;

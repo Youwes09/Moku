@@ -1,13 +1,12 @@
 <script lang="ts">
   import { X, MagnifyingGlass, CircleNotch, ArrowRight, Check, Warning, Sparkle } from "phosphor-svelte";
   import { untrack }        from "svelte";
-  import { getAdapter }     from "$lib/request-manager";
+  import { tsunagu }        from "$lib/server-adapters/tsunagu";
   import Thumbnail          from "$lib/components/shared/manga/Thumbnail.svelte";
   import { resolvedCover }  from "$lib/core/cover/coverResolver";
-  import { updateManga }    from "$lib/request-manager/manga";
-  import { updateChaptersProgress } from "$lib/request-manager/chapters";
   import { libraryState }   from "$lib/state/library.svelte";
-  import type { Manga, Chapter, Source } from "$lib/types";
+  import type { Manga, Chapter } from "$lib/types";
+  import type { Extension, PreviewChapter } from "$lib/server-adapters/types";
 
   interface Props {
     manga:           Manga;
@@ -20,9 +19,17 @@
   type Step = "source" | "search" | "confirm";
   const STEPS = ["source", "search", "confirm"] as const satisfies Step[];
 
+  interface SearchHit {
+    id:            string;
+    sourceEntryId: string;
+    title:         string;
+    coverUrl:      string | null;
+    similarity:    number;
+  }
+
   interface Match {
-    manga:      Manga;
-    chapters:   Chapter[];
+    hit:        SearchHit;
+    chapters:   PreviewChapter[];
     readCount:  number;
     similarity: number;
   }
@@ -39,40 +46,40 @@
 
   function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
 
-  let step: Step                    = $state("source");
-  let sources: Source[]             = $state([]);
-  let loadingSources                = $state(true);
-  let selectedSource: Source | null = $state(null);
-  let selectedLang                  = $state("all");
+  let step: Step                      = $state("source");
+  let extensions: Extension[]         = $state([]);
+  let loadingSources                  = $state(true);
+  let selectedExtension: Extension | null = $state(null);
+  let selectedLang                    = $state("all");
   let langStripEl: HTMLDivElement | undefined = $state();
 
   const stepIdx        = $derived(STEPS.indexOf(step));
   const availableLangs = $derived.by(() => {
-    const langs = Array.from(new Set<string>(sources.map(s => s.lang))).sort();
+    const langs = Array.from(new Set<string>(extensions.map(e => e.lang))).sort();
     const en = langs.indexOf("en");
     if (en > 0) { langs.splice(en, 1); langs.unshift("en"); }
     return langs;
   });
   const hasMultipleLangs = $derived(availableLangs.length > 1);
-  const visibleSources   = $derived.by(() => {
-    if (selectedLang !== "all") return sources.filter(s => s.lang === selectedLang);
-    const map = new Map<string, Source>();
-    for (const s of sources) {
-      const existing = map.get(s.name);
-      if (!existing || s.lang < existing.lang) map.set(s.name, s);
+  const visibleExtensions = $derived.by(() => {
+    if (selectedLang !== "all") return extensions.filter(e => e.lang === selectedLang);
+    const map = new Map<string, Extension>();
+    for (const e of extensions) {
+      const existing = map.get(e.name);
+      if (!existing || e.lang < existing.lang) map.set(e.name, e);
     }
     return Array.from(map.values());
   });
 
   let query          = $state(untrack(() => manga.title));
-  let results: { manga: Manga; similarity: number }[] = $state([]);
+  let results: SearchHit[] = $state([]);
   let searching      = $state(false);
-  let selectedMatch: Match | null = $state(null);
-  let loadingMatchId: number | null = $state(null);
+  let selectedMatch: Match | null = $state<Match | null>(null);
+  let loadingMatchId: string | null = $state(null);
   let migrating      = $state(false);
   let error: string | null = $state(null);
 
-  const readCount   = $derived(currentChapters.filter(c => c.isRead).length);
+  const readCount   = $derived(currentChapters.filter(c => c.read).length);
   const totalCount  = $derived(currentChapters.length);
   const chapterDiff = $derived(selectedMatch ? selectedMatch.chapters.length - totalCount : 0);
 
@@ -90,11 +97,11 @@
   }
 
   $effect(() => {
-    getAdapter().getSources()
-      .then((all: Source[]) => {
-        const filtered = all.filter(s => s.id !== "0" && s.id !== manga.source?.id);
-        sources = filtered;
-        const langs = new Set(filtered.map(s => s.lang));
+    tsunagu.installedExtensions()
+      .then((all) => {
+        const filtered = all.filter(e => e.id !== manga.sourceId);
+        extensions = filtered;
+        const langs = new Set(filtered.map(e => e.lang));
         const prefLang = (libraryState as any).preferredExtensionLang ?? "";
         if (prefLang && langs.has(prefLang) && langs.size > 1) selectedLang = prefLang;
       })
@@ -105,14 +112,20 @@
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  async function searchSource(src: Source, q: string) {
-    if (!src || !q.trim()) return;
+  async function searchSource(ext: Extension, q: string) {
+    if (!ext || !q.trim()) return;
     searching = true; results = []; error = null;
     try {
-      const items = await getAdapter().searchManga(q.trim(), src.id);
-      results = items
-        .map((m: Manga) => ({ manga: m, similarity: titleSimilarity(manga.title, m.title) }))
-        .sort((a: { similarity: number }, b: { similarity: number }) => b.similarity - a.similarity);
+      const res = await tsunagu.search(ext.packageName ?? ext.id, q.trim());
+      results = res.results
+        .map(r => ({
+          id:            r.id,
+          sourceEntryId: r.externalId,
+          title:         r.title,
+          coverUrl:      r.thumbnailUrl ?? null,
+          similarity:    titleSimilarity(manga.title, r.title),
+        }))
+        .sort((a, b) => b.similarity - a.similarity);
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -120,65 +133,62 @@
     }
   }
 
-  function pickSource(src: Source) {
-    selectedSource = src;
+  function pickSource(ext: Extension) {
+    selectedExtension = ext;
     step = "search";
-    searchSource(src, query);
+    searchSource(ext, query);
   }
 
-  async function selectMatch(m: Manga, similarity: number) {
-    loadingMatchId = m.id; error = null;
+  async function selectMatch(hit: SearchHit) {
+    if (!selectedExtension) return;
+    loadingMatchId = hit.sourceEntryId; error = null;
     try {
-      const chapters = await getAdapter().fetchChapters(String(m.id));
-      const matchReadCount = chapters.filter((c: Chapter) => {
-        const old = currentChapters.find(o => Math.abs(o.chapterNumber - c.chapterNumber) < 0.01);
-        return old?.isRead;
+      const chapters = await tsunagu.previewChapters(selectedExtension.packageName ?? selectedExtension.id, hit.sourceEntryId);
+      const matchReadCount = chapters.filter((c: PreviewChapter) => {
+        const old = currentChapters.find(o => Math.abs(o.chapterNumber - (c.number ?? 0)) < 0.01);
+        return old?.read;
       }).length;
-      selectedMatch = { manga: m, chapters, readCount: matchReadCount, similarity };
+      selectedMatch = { hit, chapters, readCount: matchReadCount, similarity: hit.similarity };
       step = "confirm";
     } catch (e: any) {
-      if (/no chapters found/i.test(e.message)) {
-        selectedMatch = { manga: m, chapters: [], readCount: 0, similarity };
-        step = "confirm";
-      } else {
-        error = e.message;
-      }
+      error = e.message;
     } finally {
       loadingMatchId = null;
     }
   }
 
   async function migrate() {
-    if (!selectedMatch) return;
+    if (!selectedMatch || !selectedExtension) return;
     migrating = true; error = null;
     try {
-      const { manga: newManga, chapters: newChapters } = selectedMatch;
-      const oldByNum = new Map(currentChapters.map(c => [Math.round(c.chapterNumber * 100), c]));
+      const { hit } = selectedMatch;
 
-      const toMarkRead:       number[] = [];
-      const toMarkBookmarked: number[] = [];
-      const progressUpdates:  { id: number; lastPageRead: number }[] = [];
+      const newEntry = await tsunagu.addToLibrary(hit.id);
+      const newChapters = await tsunagu.syncChapters(newEntry.id);
+
+      const oldByNum = new Map(currentChapters.map(c => [Math.round(c.chapterNumber * 100), c]));
+      const toMarkRead: string[] = [];
 
       for (const nc of newChapters) {
-        const old = oldByNum.get(Math.round(nc.chapterNumber * 100));
+        const old = oldByNum.get(Math.round((nc.number ?? 0) * 100));
         if (!old) continue;
-        if (old.isRead)       toMarkRead.push(nc.id);
-        if (old.isBookmarked) toMarkBookmarked.push(nc.id);
-        if ((old.lastPageRead ?? 0) > 0 && !old.isRead)
-          progressUpdates.push({ id: nc.id, lastPageRead: old.lastPageRead! });
+        if (old.read) toMarkRead.push(nc.id);
       }
 
-      if (toMarkRead.length)
-        await updateChaptersProgress(toMarkRead.map(String), { isRead: true });
-      if (toMarkBookmarked.length)
-        await updateChaptersProgress(toMarkBookmarked.map(String), { isBookmarked: true });
-      for (const { id, lastPageRead } of progressUpdates)
-        await updateChaptersProgress([String(id)], { lastPageRead });
+      if (toMarkRead.length) {
+        await tsunagu.markChaptersRead(newEntry.id, toMarkRead, true);
+      }
 
-      await updateManga(newManga.id, { inLibrary: true });
-      await updateManga(manga.id,    { inLibrary: false });
+      await tsunagu.removeFromLibrary(manga.id);
 
-      onMigrated({ ...newManga, inLibrary: true });
+      onMigrated({
+        id: newEntry.id,
+        title: newEntry.title,
+        thumbnailUrl: newEntry.thumbnailUrl ?? "",
+        inLibrary: true,
+        description: newEntry.description,
+        status: newEntry.status,
+      });
     } catch (e: any) {
       error = e.message;
       migrating = false;
@@ -186,7 +196,6 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 <div class="overlay" onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
   <div class="modal">
 
@@ -198,8 +207,8 @@
         <div class="manga-context-info">
           <span class="modal-eyebrow">Migrate source</span>
           <span class="modal-title">{manga.title}</span>
-          {#if manga.source?.displayName}
-            <span class="modal-source">{manga.source.displayName}</span>
+          {#if manga.sourceName || manga.source?.displayName}
+            <span class="modal-source">{manga.sourceName ?? manga.source?.displayName}</span>
           {/if}
         </div>
       </div>
@@ -213,7 +222,7 @@
             {#if i < stepIdx}<Check size={9} weight="bold" />{:else}{i + 1}{/if}
           </span>
           <span class="step-label">
-            {st === "source" ? "Pick source" : st === "search" ? (selectedSource?.displayName ?? "Search") : "Confirm"}
+            {st === "source" ? "Pick source" : st === "search" ? (selectedExtension?.name ?? "Search") : "Confirm"}
           </span>
         </div>
       {/each}
@@ -226,7 +235,7 @@
           <div class="centered">
             <CircleNotch size={16} weight="light" class="anim-spin" style="color:var(--text-faint)" />
           </div>
-        {:else if sources.length === 0}
+        {:else if extensions.length === 0}
           <div class="centered"><span class="hint">No other sources installed.</span></div>
         {:else}
           {#if hasMultipleLangs}
@@ -244,14 +253,14 @@
             </div>
           {/if}
           <div class="source-list">
-            {#each visibleSources as src}
-              <button class="source-row" class:source-row-active={selectedSource?.id === src.id} onclick={() => pickSource(src)}>
+            {#each visibleExtensions as ext}
+              <button class="source-row" class:source-row-active={selectedExtension?.id === ext.id} onclick={() => pickSource(ext)}>
                 <div class="source-icon-wrap">
-                  <Thumbnail src={src.iconUrl} alt={src.name} class="source-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+                  <Thumbnail src={ext.iconUrl ?? ""} alt={ext.name} class="source-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
                 </div>
                 <div class="source-info">
-                  <span class="source-name">{src.displayName}</span>
-                  <span class="source-meta">{src.lang.toUpperCase()}{src.isNsfw ? " · NSFW" : ""}</span>
+                  <span class="source-name">{ext.name}</span>
+                  <span class="source-meta">{ext.lang.toUpperCase()}</span>
                 </div>
                 <ArrowRight size={13} weight="light" class="source-arrow" />
               </button>
@@ -261,12 +270,12 @@
 
       {:else if step === "search"}
         <div class="search-step">
-          {#if selectedSource}
+          {#if selectedExtension}
             <div class="search-context">
               <div class="source-icon-wrap" style="width:20px;height:20px;border-radius:var(--radius-sm)">
-                <Thumbnail src={selectedSource.iconUrl} alt={selectedSource.name} class="search-context-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+                <Thumbnail src={selectedExtension.iconUrl ?? ""} alt={selectedExtension.name} class="search-context-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
               </div>
-              <span class="search-context-name">{selectedSource.displayName}</span>
+              <span class="search-context-name">{selectedExtension.name}</span>
               <button class="search-context-change" onclick={() => { step = "source"; results = []; }}>Change</button>
             </div>
           {/if}
@@ -277,13 +286,13 @@
               <input
                 class="search-input"
                 bind:value={query}
-                onkeydown={(e) => e.key === "Enter" && selectedSource && searchSource(selectedSource, query)}
+                onkeydown={(e) => e.key === "Enter" && selectedExtension && searchSource(selectedExtension, query)}
                 placeholder="Search title…"
                 autofocus />
             </div>
             <button class="search-btn"
-              onclick={() => selectedSource && searchSource(selectedSource, query)}
-              disabled={searching || !selectedSource}>
+              onclick={() => selectedExtension && searchSource(selectedExtension, query)}
+              disabled={searching || !selectedExtension}>
               {#if searching}
                 <CircleNotch size={13} weight="light" class="anim-spin" />
               {:else}
@@ -306,22 +315,22 @@
                 </div>
               {/each}
             {:else}
-              {#each results as { manga: m, similarity }, idx}
-                <button class="result-row" onclick={() => selectMatch(m, similarity)} disabled={loadingMatchId !== null}>
+              {#each results as hit, idx}
+                <button class="result-row" onclick={() => selectMatch(hit)} disabled={loadingMatchId !== null}>
                   <div class="result-cover-wrap">
-                    <Thumbnail src={resolvedCover(m.id, m.thumbnailUrl)} alt={m.title} class="result-cover" />
+                    <Thumbnail src={hit.coverUrl ?? ""} alt={hit.title} class="result-cover" />
                   </div>
                   <div class="result-info">
-                    <span class="result-title">{m.title}</span>
+                    <span class="result-title">{hit.title}</span>
                     <div class="result-meta">
-                      {#if idx === 0 && similarity > 0.5}
+                      {#if idx === 0 && hit.similarity > 0.5}
                         <span class="best-match-badge"><Sparkle size={9} weight="fill" /> Best match</span>
                       {/if}
-                      <span class="sim-bar"><span class="sim-fill" style="width:{Math.round(similarity * 100)}%"></span></span>
-                      <span class="sim-label">{Math.round(similarity * 100)}%</span>
+                      <span class="sim-bar"><span class="sim-fill" style="width:{Math.round(hit.similarity * 100)}%"></span></span>
+                      <span class="sim-label">{Math.round(hit.similarity * 100)}%</span>
                     </div>
                   </div>
-                  {#if loadingMatchId === m.id}
+                  {#if loadingMatchId === hit.sourceEntryId}
                     <CircleNotch size={13} weight="light" class="anim-spin" style="color:var(--text-faint);flex-shrink:0" />
                   {:else}
                     <ArrowRight size={13} weight="light" style="color:var(--text-faint);flex-shrink:0;opacity:0.4" />
@@ -345,7 +354,7 @@
                 <Thumbnail src={resolvedCover(manga.id, manga.thumbnailUrl)} alt={manga.title} class="confirm-cover" />
               </div>
               <p class="confirm-title">{manga.title}</p>
-              <p class="confirm-source">{manga.source?.displayName ?? "Unknown"}</p>
+              <p class="confirm-source">{manga.sourceName ?? manga.source?.displayName ?? "Unknown"}</p>
               <span class="confirm-tag">Current</span>
             </div>
             <div class="confirm-arrow-wrap">
@@ -353,10 +362,10 @@
             </div>
             <div class="confirm-manga">
               <div class="confirm-cover-wrap">
-                <Thumbnail src={resolvedCover(selectedMatch.manga.id, selectedMatch.manga.thumbnailUrl)} alt={selectedMatch.manga.title} class="confirm-cover" />
+                <Thumbnail src={selectedMatch.hit.coverUrl ?? ""} alt={selectedMatch.hit.title} class="confirm-cover" />
               </div>
-              <p class="confirm-title">{selectedMatch.manga.title}</p>
-              <p class="confirm-source">{selectedSource?.displayName ?? "Unknown"}</p>
+              <p class="confirm-title">{selectedMatch.hit.title}</p>
+              <p class="confirm-source">{selectedExtension?.name ?? "Unknown"}</p>
               <span class="confirm-tag confirm-tag-new">New</span>
             </div>
           </div>
@@ -504,7 +513,7 @@
   .confirm-manga { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); flex: 1; max-width: 150px; }
   .confirm-cover-wrap { width: 100%; aspect-ratio: 2/3; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-dim); }
   :global(.confirm-cover) { width: 100%; height: 100%; object-fit: cover; }
-  .confirm-title  { font-size: var(--text-xs); color: var(--text-secondary); text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: var(--leading-snug); }
+  .confirm-title  { font-size: var(--text-xs); color: var(--text-secondary); text-align: center; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: var(--leading-snug); }
   .confirm-source { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); text-align: center; }
   .confirm-tag     { font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; padding: 2px 7px; border-radius: var(--radius-full); background: var(--bg-raised); border: 1px solid var(--border-dim); color: var(--text-faint); }
   .confirm-tag-new { background: var(--accent-muted); border-color: var(--accent-dim); color: var(--accent-fg); }

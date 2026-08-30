@@ -2,16 +2,22 @@
   import { X, CaretLeft, CaretRight, CircleNotch } from "phosphor-svelte";
   import { setPref }                               from "$lib/state/series.svelte";
   import { coverCandidatesSync, dedupeByImage }    from "$lib/core/cover/coverResolver";
+  import { tsunagu }                               from "$lib/server-adapters/tsunagu";
+  import { addToast }                              from "$lib/state/notifications.svelte";
   import Thumbnail                                 from "$lib/components/shared/manga/Thumbnail.svelte";
   import type { Manga }                            from "$lib/types";
 
   interface Props {
-    manga:    Manga;
-    allManga: Manga[];
-    onClose:  () => void;
+    manga:      Manga;
+    mediaId?:   string;
+    allManga:   Manga[];
+    onApplied?: (url: string | null) => void;
+    onClose:    () => void;
   }
 
-  let { manga, allManga, onClose }: Props = $props();
+  let { manga, mediaId, allManga, onApplied, onClose }: Props = $props();
+
+  let saving = $state(false);
 
   type MangaWithTitle = Manga & { title: string };
 
@@ -43,10 +49,25 @@
   function prev() { index = (index - 1 + candidates.length) % candidates.length; }
   function next() { index = (index + 1) % candidates.length; }
 
-  function confirm() {
-    if (!current) return;
-    if (current.mangaId === manga.id) setPref(manga.id, "coverUrl", undefined as any);
-    else                               setPref(manga.id, "coverUrl", current.url);
+  async function confirm() {
+    if (!current || saving) return;
+    const reset = current.mangaId === manga.id;
+    const url   = reset ? null : current.url;
+
+    if (mediaId) {
+      saving = true;
+      try {
+        await tsunagu.setMediaCover(mediaId, url);
+      } catch (e: any) {
+        addToast({ kind: "error", title: "Couldn't set cover", body: e?.message ?? String(e) });
+        saving = false;
+        return;
+      }
+      saving = false;
+    }
+
+    setPref(manga.id, "coverUrl", (reset ? undefined : url) as any);
+    onApplied?.(url);
     onClose();
   }
 
@@ -110,7 +131,9 @@
     {/if}
 
     <div class="footer">
-      <button class="confirm-btn" onclick={confirm}>Use this cover</button>
+      <button class="confirm-btn" onclick={confirm} disabled={saving || !current}>
+        {saving ? "Saving…" : current && current.mangaId === manga.id ? "Reset to source cover" : "Use this cover"}
+      </button>
     </div>
   </div>
 </div>
@@ -204,7 +227,8 @@
     cursor: pointer;
     transition: opacity var(--t-base);
   }
-  .confirm-btn:hover { opacity: 0.88; }
+  .confirm-btn:hover:not(:disabled) { opacity: 0.88; }
+  .confirm-btn:disabled { opacity: 0.5; cursor: default; }
   .loading { display: flex; align-items: center; justify-content: center; padding: var(--sp-10) 0; }
   @keyframes fadeIn  { from { opacity: 0 }                         to { opacity: 1 } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.97) } to { opacity: 1; transform: scale(1) } }

@@ -1,5 +1,4 @@
-export type { Manga, MangaDetail, Category, ChapterRef } from './manga'
+export type { Manga } from './manga'
 export type { Chapter } from './chapter'
-export type { Extension, Source } from './extension'
-export type { Tracker, TrackRecord, TrackerStatus } from './tracking'
-export type { Settings, MangaPrefs, ContentLevel } from './settings'
+export type { Source } from './extension'
+export type { Settings } from './settings'

@@ -1,15 +1,15 @@
 <script lang="ts">
   import { onDestroy, untrack }  from "svelte";
-  import { getAdapter }          from "$lib/request-manager";
+  import { tsunagu }             from "$lib/server-adapters/tsunagu";
   import { settingsState }       from "$lib/state/settings.svelte";
   import { shouldHideNsfw, dedupeMangaById, dedupeMangaByTitle, normalizeTitle } from "$lib/core/util";
-  import { runConcurrent, filterSourceCache, buildTagFilter, COMMON_GENRES, MANGA_STATUSES, type TagMode, type CachedManga } from "$lib/components/browse/lib/searchFilter";
+  import { runConcurrent, filterSourceCache, buildTagFilter, COMMON_GENRES, MANGA_STATUSES, toBrowseManga, type TagMode, type CachedManga } from "$lib/components/browse/lib/searchFilter";
   import Thumbnail               from "$lib/components/shared/manga/Thumbnail.svelte";
   import type { Manga, Source }  from "$lib/types";
 
   interface Props {
     allSources:           Source[];
-    sourceCache:          Map<number, CachedManga>;
+    sourceCache:          Map<string, CachedManga>;
     sourceCacheReady:     boolean;
     sourceCacheLoading:   boolean;
     sourceCacheEnriching: boolean;
@@ -66,22 +66,7 @@
     tag_localResults = []; tag_totalCount = 0; tag_localOffset = 0; tag_localHasNext = false;
     tag_loadingLocal = true;
     const limit = renderLimit;
-    try {
-      const d = await getAdapter().getMangasByGenre(
-        buildTagFilter(activeTags, tagMode, activeStatuses), limit, 0, ctrl.signal,
-      );
-      if (ctrl.signal.aborted) return;
-      const nsfwFilter = (m: Manga) => !shouldHideNsfw(m as any, settingsState.settings);
-      tag_localResults = d.items.filter(nsfwFilter);
-      tag_totalCount   = d.totalCount;
-      tag_localHasNext = d.hasNextPage;
-      tag_localOffset  = limit;
-      if (d.hasNextPage && tag_localResults.length < 20) tagLoadMoreLocal();
-    } catch (e: any) {
-      if (e?.name !== "AbortError") console.error(e);
-    } finally {
-      if (!ctrl.signal.aborted) tag_loadingLocal = false;
-    }
+    tag_loadingLocal = false;
   }
 
   async function tagLoadMoreLocal() {
@@ -91,20 +76,7 @@
     tag_abortLoadMore    = ctrl;
     tag_loadingMoreLocal = true;
     const limit = renderLimit;
-    try {
-      const d = await getAdapter().getMangasByGenre(
-        buildTagFilter(tag_activeTags, tag_tagMode, tag_activeStatuses), limit, tag_localOffset, ctrl.signal,
-      );
-      if (ctrl.signal.aborted) return;
-      const nsfwFilter = (m: Manga) => !shouldHideNsfw(m as any, settingsState.settings);
-      tag_localResults  = [...tag_localResults, ...d.items.filter(nsfwFilter)];
-      tag_localHasNext  = d.hasNextPage;
-      tag_localOffset  += limit;
-    } catch (e: any) {
-      if (e?.name !== "AbortError") console.error(e);
-    } finally {
-      if (!ctrl.signal.aborted) tag_loadingMoreLocal = false;
-    }
+    tag_loadingMoreLocal = false;
   }
 
   let tag_searchSources   = $state(false);
@@ -150,7 +122,7 @@
     tag_sourceFanOut = [];
     tag_fanOutLoading = true;
 
-    const seenIds    = new Set<number>();
+    const seenIds    = new Set<string>();
     const seenTitles = new Set<string>();
     const genreLower = genre.toLowerCase();
 
@@ -159,17 +131,14 @@
     await runConcurrent(srcs, async (src) => {
       for (let page = 1; page <= 2; page++) {
         if (ctrl.signal.aborted) return;
-        let result: { items: Manga[]; hasNextPage: boolean } | null = null;
+        let result: { results: { id: string; externalId: string; title: string; thumbnailUrl: string | null; inLibrary: boolean; status: string | null; genres: string[] }[]; hasNextPage: boolean } | null = null;
         try {
-          result = await getAdapter().searchSource(src.id, genre, page, ctrl.signal);
+          result = await tsunagu.search(src.id, genre, page, undefined, ctrl.signal);
         } catch { return; }
         if (!result || ctrl.signal.aborted) return;
-        const matching = result.items.filter((m) =>
-          ((m as any).genre ?? []).some((g: string) => g.toLowerCase() === genreLower)
-        );
-        const candidates = (matching.length ? matching : result.items).filter(
-          (m) => !shouldHideNsfw(m as any, settingsState.settings)
-        );
+        const candidates = result.results
+          .map((r) => toBrowseManga(r, src.id))
+          .filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
         const toAdd: Manga[] = [];
         for (const m of candidates) {
           if (seenIds.has(m.id)) continue;
@@ -367,7 +336,7 @@
         </div>
       {:else if tag_mergedResults.length > 0}
         <div class="tagGrid">
-          {#each tag_mergedResults as m, i (m.id)}
+          {#each tag_mergedResults as m, i (`${m.extensionId}-${m.sourceEntryId}`)}
             <button class="card" onclick={() => onPreview(m)}>
               <div class="coverWrap">
                 <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} />

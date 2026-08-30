@@ -1,7 +1,13 @@
 <script lang="ts">
-  import { CircleNotch, CaretRight, CaretDown, Books } from "phosphor-svelte";
-  import Thumbnail from "$lib/components/shared/manga/Thumbnail.svelte";
-  import type { Extension } from "$lib/types";
+  import { CircleNotch, CaretRight, CaretDown, Books, ImageSquare, BookOpenText, FilmSlate } from "phosphor-svelte";
+  import ExtensionIcon from "$lib/components/extensions/ExtensionIcon.svelte";
+  import type { Extension } from "$lib/server-adapters/types";
+
+  function contentTypeIcon(ct: Extension["contentType"]) {
+    if (ct === "NOVEL") return BookOpenText;
+    if (ct === "ANIME") return FilmSlate;
+    return ImageSquare;
+  }
 
   type SourceEntry = { id: string; displayName: string };
 
@@ -21,9 +27,11 @@
 
   let { base, primary, variants, expanded, working, anims, sources, libraryCount, onToggle, onMutate, onLibrary }: Props = $props();
 
-  const clickable = $derived(primary.isInstalled);
+  const clickable = $derived(primary.installed);
 
   const hasVariants = $derived(variants.length > 0);
+
+  const CtIcon = $derived(contentTypeIcon(primary.contentType));
 </script>
 
 <div class="group">
@@ -31,42 +39,40 @@
     this={clickable ? "button" : "div"}
     class="row"
     class:row-clickable={clickable}
-    onclick={clickable ? () => onLibrary(primary.pkgName, base, primary.iconUrl) : undefined}
+    onclick={clickable ? () => onLibrary(primary.packageName, base, primary.iconUrl ?? '') : undefined}
   >
-    <Thumbnail
-      src={primary.iconUrl}
-      alt={primary.name}
-      class="icon"
-      onerror={(e) => ((e.target as HTMLImageElement).style.display = "none")}
-    />
+    <ExtensionIcon src={primary.iconUrl} alt={primary.name} class="icon" />
     <div class="info">
       <span class="name">{base}</span>
       <span class="meta">
+        <span class="type-tag" title={primary.contentType}>
+          <CtIcon size={10} weight="regular" />
+        </span>
         <span class="lang-tag">{primary.lang.toUpperCase()}</span>
-        {#if primary.isInstalled}
+        {#if primary.installed}
           <span class="lib-badge" class:lib-badge-empty={libraryCount === 0}>
             <Books size={10} weight={libraryCount > 0 ? "fill" : "regular"} />
             {libraryCount > 0 ? libraryCount : 0}
             
           </span>
         {/if}
-        v{primary.versionName}
+        v{primary.version}
       </span>
     </div>
 
-    {#if working.has(primary.pkgName)}
+    {#if working.has(primary.packageName)}
       <CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" />
-    {:else if primary.hasUpdate}
+    {:else if primary.needsUpdate}
       <div class="row-actions">
-        <button class="action-btn"     onclick={(e) => { e.stopPropagation(); onMutate(primary.pkgName, "update"); }}>Update</button>
-        <button class="action-btn-dim" onclick={(e) => { e.stopPropagation(); onMutate(primary.pkgName, "uninstall"); }}>Remove</button>
+        <button class="action-btn"     onclick={(e) => { e.stopPropagation(); onMutate(primary.packageName, "update"); }}>Update</button>
+        <button class="action-btn-dim" onclick={(e) => { e.stopPropagation(); onMutate(primary.packageName, "uninstall"); }}>Remove</button>
       </div>
-    {:else if primary.isInstalled}
+    {:else if primary.installed}
       <div class="row-actions">
-        <button class="action-btn-dim" onclick={(e) => { e.stopPropagation(); onMutate(primary.pkgName, "uninstall"); }}>Remove</button>
+        <button class="action-btn-dim" onclick={(e) => { e.stopPropagation(); onMutate(primary.packageName, "uninstall"); }}>Remove</button>
       </div>
     {:else}
-      <button class="action-btn" onclick={() => onMutate(primary.pkgName, "install")}>Install</button>
+      <button class="action-btn" onclick={() => onMutate(primary.packageName, "install")}>Install</button>
     {/if}
 
     {#if hasVariants}
@@ -83,17 +89,17 @@
         <div class="variant-row">
           <span class="lang-tag">{v.lang.toUpperCase()}</span>
           <span class="variant-name">{v.name}</span>
-          <span class="variant-version">v{v.versionName}</span>
-          {#if v.hasUpdate}<span class="update-badge-small">↑</span>{/if}
+          <span class="variant-version">v{v.version}</span>
+          {#if v.needsUpdate}<span class="update-badge-small">↑</span>{/if}
           <div class="variant-actions">
-            {#if working.has(v.pkgName)}
+            {#if working.has(v.packageName)}
               <CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" />
-            {:else if v.hasUpdate}
-              <button class="action-btn" onclick={() => onMutate(v.pkgName, "update")}>Update</button>
-            {:else if v.isInstalled}
-              <button class="action-btn-dim" onclick={() => onMutate(v.pkgName, "uninstall")}>Remove</button>
+            {:else if v.needsUpdate}
+              <button class="action-btn" onclick={() => onMutate(v.packageName, "update")}>Update</button>
+            {:else if v.installed}
+              <button class="action-btn-dim" onclick={() => onMutate(v.packageName, "uninstall")}>Remove</button>
             {:else}
-              <button class="action-btn" onclick={() => onMutate(v.pkgName, "install")}>Install</button>
+              <button class="action-btn" onclick={() => onMutate(v.packageName, "install")}>Install</button>
             {/if}
           </div>
         </div>
@@ -112,6 +118,7 @@
   .name { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta { display: flex; align-items: center; gap: var(--sp-2); font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
   .lang-tag { background: var(--bg-overlay); border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 1px 5px; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-muted); letter-spacing: var(--tracking-wider); }
+  .type-tag { display: inline-flex; align-items: center; justify-content: center; background: var(--bg-overlay); border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 2px 4px; color: var(--text-faint); flex-shrink: 0; }
   .lib-badge { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); padding: 2px 7px; border-radius: var(--radius-sm); border: 1px solid var(--accent-dim); background: var(--accent-muted); color: var(--accent-fg); flex-shrink: 0; }
   .lib-badge-empty { border-color: var(--border-dim); background: var(--bg-overlay); color: var(--text-faint); }
   .update-badge-small { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--accent-fg); flex-shrink: 0; }

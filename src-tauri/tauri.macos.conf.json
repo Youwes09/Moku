@@ -10,11 +10,10 @@
   },
   "bundle": {
     "targets": ["dmg"],
-    "externalBin": [
-      "binaries/suwayomi-server"
-    ],
+    "externalBin": [],
     "resources": {
-      "binaries/suwayomi-bundle": "suwayomi-bundle"
+      "resources/tsunagu": "tsunagu",
+      "resources/sandbox": "sandbox"
     },
     "macOS": {
       "minimumSystemVersion": "11.0",

@@ -1,3 +1,5 @@
+import type { ContentType } from '$lib/server-adapters/types'
+
 export interface Source {
   id:              string
   name:            string
@@ -7,7 +9,8 @@ export interface Source {
   isNsfw:          boolean
   isConfigurable:  boolean
   supportsLatest:  boolean
-  extension?:      { pkgName: string }
+  contentType:     ContentType
+  extension?: { packageName: string }
 }
 
 export interface Extension {

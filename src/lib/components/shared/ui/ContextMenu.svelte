@@ -1,4 +1,4 @@
-<script lang="ts">
+<script module lang="ts">
   export interface MenuItem {
     label:      string;
     icon?:      any;
@@ -10,7 +10,9 @@
   }
   export interface MenuSeparator { separator: true }
   export type MenuEntry = MenuItem | MenuSeparator;
+</script>
 
+<script lang="ts">
   interface Props {
     x:       number;
     y:       number;

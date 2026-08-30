@@ -1,6 +1,6 @@
 import type {
   PlatformAdapter, PlatformFeature, Platform,
-  ServerLaunchConfig, DiscordPresence,
+  DiscordPresence,
   AppUpdateInfo, StorageInfo, ReleaseInfo,
   UpdateProgress, MigrateProgress,
 } from '$lib/platform-adapters/types'
@@ -82,6 +82,12 @@ export class CapacitorAdapter implements PlatformAdapter {
     })
   }
 
+  async fetchImage(url: string, headers: Record<string, string>): Promise<Blob> {
+    const res = await fetch(url, { method: 'GET', headers })
+    if (!res.ok) throw new Error(`${res.status}`)
+    return res.blob()
+  }
+
   async pickFolder(): Promise<string | null> { return null }
   async checkPathExists(_path: string): Promise<boolean> { return false }
   async createDirectory(_path: string): Promise<void> {}
@@ -93,9 +99,7 @@ export class CapacitorAdapter implements PlatformAdapter {
   async migrateDownloads(_src: string, _dst: string): Promise<void> {}
   async getAutoBackupDir(): Promise<string> { return '' }
 
-  async launchServer(_config: ServerLaunchConfig): Promise<void> {}
-  async stopServer(): Promise<void> {}
-  async getServerStatus(): Promise<'running' | 'stopped' | 'error'> { return 'stopped' }
+
 
   async setTitle(_title: string): Promise<void> {}
   async minimize(): Promise<void> {}
@@ -124,8 +128,6 @@ export class CapacitorAdapter implements PlatformAdapter {
   async listReleases(): Promise<ReleaseInfo[]> { return [] }
 
   async clearMokuCache(): Promise<void> {}
-  async clearSuwayomiCache(): Promise<void> {}
-  async resetSuwayomiData(): Promise<void> {}
 
   async onUpdateProgress(_cb: (p: UpdateProgress) => void): Promise<() => void> { return () => {} }
   async onUpdateLaunching(_cb: () => void): Promise<() => void> { return () => {} }

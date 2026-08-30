@@ -12,21 +12,10 @@ export async function loadSettingsIntoState(raw: unknown) {
     Object.assign(settingsState.settings, raw)
   }
   settingsState.loaded = true
-  if (typeof document !== 'undefined') {
-    document.documentElement.style.zoom = String(settingsState.settings.uiZoom ?? 1.0)
-  }
 }
 
 export function updateSettings(patch: Partial<Settings>) {
   Object.assign(settingsState.settings, patch)
   void saveSettings({ storeVersion: 2, settings: settingsState.settings })
-  if (typeof document !== 'undefined' && patch.uiZoom !== undefined) {
-    document.documentElement.style.zoom = String(patch.uiZoom)
-  }
 }
 
-export function resetSettings() {
-  settingsState.settings = { ...DEFAULT_SETTINGS }
-  settingsState.loaded   = true
-  void saveSettings({ storeVersion: 2, settings: settingsState.settings })
-}

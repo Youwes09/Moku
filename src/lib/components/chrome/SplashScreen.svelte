@@ -54,20 +54,27 @@
     pinLen?:         number
     pinCorrect?:     string
     windowsHelloEnabled?: boolean
+    errorMessage?:   string
+    errorLog?:       string
     onReady?:        () => void
     onUnlock?:       () => void
     onRetry?:        () => void
     onBypass?:       () => void
     onSkip?:         () => void
     onDismiss?:      () => void
+    onCopyLog?:      () => void
+    onOpenDataDir?:  () => void
   }
 
   let {
     mode = 'loading', ringFull = false, failed = false,
     notConfigured = false, authRequired = false, showCards = true, showFps = false, showDevOverlay = false,
     pinLen = 4, pinCorrect = '', windowsHelloEnabled = false,
-    onReady, onUnlock, onRetry, onBypass, onSkip, onDismiss,
+    errorMessage = '', errorLog = '',
+    onReady, onUnlock, onRetry, onBypass, onSkip, onDismiss, onCopyLog, onOpenDataDir,
   }: Props = $props()
+
+  let logCopied = $state(false)
 
   let fpsEl    = $state<HTMLSpanElement | undefined>(undefined)
   let dots     = $state('')
@@ -562,9 +569,18 @@
     <div class="bottom-area" style="z-index:1">
       {#if failed || notConfigured}
         <div class="error-box anim-fade-up">
-          <p class="error-label">{failed ? 'Could not reach server' : 'Server not configured'}</p>
+          <p class="error-label">{failed ? (errorMessage || 'Could not reach server') : 'Server not configured'}</p>
+          {#if errorLog}
+            <pre class="error-log">{errorLog.split('\n').slice(-12).join('\n')}</pre>
+          {/if}
           <div class="error-actions">
             <button class="err-btn" onclick={() => onRetry?.()}>Retry</button>
+            {#if errorLog && onCopyLog}
+              <button class="err-btn" onclick={() => { onCopyLog?.(); logCopied = true; setTimeout(() => (logCopied = false), 1500) }}>{logCopied ? 'Copied' : 'Copy log'}</button>
+            {/if}
+            {#if onOpenDataDir}
+              <button class="err-btn" onclick={() => onOpenDataDir?.()}>Data folder</button>
+            {/if}
             <button class="err-btn err-btn--primary" onclick={() => onBypass?.()}>Enter app</button>
           </div>
         </div>
@@ -619,9 +635,10 @@
   .status-text { font-family:var(--font-ui); font-size:10px; color:var(--text-faint); letter-spacing:0.12em; margin:0; min-width:160px; text-align:center; }
   .loading-ring { transition:opacity 0.5s ease; }
 
-  .error-box     { display:flex; flex-direction:column; align-items:center; gap:12px; padding:16px 20px; border-radius:var(--radius-lg); background:var(--bg-surface); border:1px solid var(--border-base); min-width:200px; text-align:center; }
+  .error-box     { display:flex; flex-direction:column; align-items:center; gap:12px; padding:16px 20px; border-radius:var(--radius-lg); background:var(--bg-surface); border:1px solid var(--border-base); max-width:min(520px,calc(100vw - 48px)); text-align:center; }
   .error-label   { font-family:var(--font-ui); font-size:11px; font-weight:500; color:var(--text-muted); letter-spacing:0.06em; margin:0; }
-  .error-actions { display:flex; gap:6px; }
+  .error-log     { font-family:var(--font-mono,monospace); font-size:10px; line-height:1.45; color:var(--text-faint); background:var(--bg-void); border:1px solid var(--border-dim); border-radius:var(--radius-md); padding:8px 10px; margin:0; max-height:160px; max-width:100%; overflow:auto; white-space:pre-wrap; text-align:left; }
+  .error-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
   .err-btn       { padding:5px 14px; border-radius:var(--radius-md); border:1px solid var(--border-base); background:transparent; color:var(--text-muted); cursor:pointer; font-family:var(--font-ui); font-size:11px; letter-spacing:0.04em; transition:border-color 0.15s, color 0.15s; }
   .err-btn:hover { border-color:var(--border-strong); color:var(--text-secondary); }
   .err-btn--primary       { border-color:var(--accent-dim); color:var(--accent-fg); background:var(--accent-muted); }

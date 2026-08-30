@@ -11,8 +11,8 @@
     groups:               UpdateGroup[]
     updatesSearch:        string
     totalCount:           number
-    openingId:            number | null
-    enqueueing:           Set<number>
+    openingId:            string | null
+    enqueueing:           Set<string>
     updaterRunning:       boolean
     lastUpdatedLabel:     string | null
     updaterProgressLabel: string | null
@@ -30,7 +30,7 @@
 
   let expandedBundles: Record<string, boolean> = $state({})
 
-  function bundleKey(dayLabel: string, mangaId: number) {
+  function bundleKey(dayLabel: string, mangaId: string) {
     return `${dayLabel}::${mangaId}`
   }
 
@@ -39,7 +39,7 @@
   }
 
   type SingleRow = { kind: 'single'; item: RecentUpdate }
-  type BundleRow = { kind: 'bundle'; mangaId: number; items: RecentUpdate[]; key: string }
+  type BundleRow = { kind: 'bundle'; mangaId: string; items: RecentUpdate[]; key: string }
   type Row       = SingleRow | BundleRow
 
   function bundleRows(dayLabel: string, items: RecentUpdate[]): Row[] {
@@ -202,7 +202,7 @@
                     <div class="row-end">
                       {#if enqueueing.has(item.id)}
                         <CircleNotch size={14} weight="light" class="anim-spin" />
-                      {:else if item.isDownloaded}
+                      {:else if item.downloaded}
                         <button class="dl-btn dl-btn-delete" onclick={(e) => { e.stopPropagation(); onDeleteDownload(item) }} title="Delete download">
                           <Trash size={13} weight="light" />
                         </button>
@@ -226,7 +226,6 @@
                 {@const first    = bundle.items[0]}
                 {@const hasUnread = bundle.items.some(i => !i.isRead)}
                 <div class="bundle" class:expanded>
-                  <!-- collapsed header -->
                   <div class="bundle-header" class:read={!hasUnread}>
                     <button class="thumb-btn" onclick={() => onOpenSeries(first)} title="View series">
                       <Thumbnail
@@ -256,7 +255,6 @@
                     </button>
                   </div>
 
-                  <!-- expanded chapter list -->
                   {#if expanded}
                     <div class="bundle-items">
                       {#each bundle.items as item (item.id)}
@@ -278,7 +276,7 @@
                             <div class="row-end">
                               {#if enqueueing.has(item.id)}
                                 <CircleNotch size={14} weight="light" class="anim-spin" />
-                              {:else if item.isDownloaded}
+                              {:else if item.downloaded}
                                 <button class="dl-btn dl-btn-delete" onclick={(e) => { e.stopPropagation(); onDeleteDownload(item) }} title="Delete download">
                                   <Trash size={13} weight="light" />
                                 </button>
@@ -420,7 +418,6 @@
   .dl-btn-delete { color: var(--color-error); }
   .dl-btn-delete:hover { background: var(--color-error-bg); }
 
-  /* ── Bundle styles ── */
   .bundle {
     border-radius: var(--radius-md);
     border: 1px solid var(--border-dim);

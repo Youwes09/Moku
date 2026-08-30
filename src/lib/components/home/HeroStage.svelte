@@ -1,7 +1,8 @@
 <script lang="ts">
   import { Play, ArrowRight, ArrowLeft, BookOpen, Clock, ListBullets, PushPin, X as XIcon } from 'phosphor-svelte'
   import { goto } from '$app/navigation'
-  import { timeAgo } from '$lib/components/home/lib/homeHelpers'
+  import { seriesHref } from '$lib/state/series.svelte'
+  import { timeAgo } from '$lib/core/util'
   import Thumbnail from '$lib/components/shared/manga/Thumbnail.svelte'
   import type { Manga } from '$lib/types'
   import type { Chapter } from '$lib/types'
@@ -23,7 +24,7 @@
     heroEntry,
     heroMangaId,
     heroChapters,
-    heroNewChapter,
+    heroUnread,
     loadingHeroChapters,
     resuming,
     onresume,
@@ -42,9 +43,9 @@
     heroTitle:           string
     heroManga:           Manga | null | undefined
     heroEntry:           ReadSession | null
-    heroMangaId:         number | null
+    heroMangaId:         string | null
     heroChapters:        Chapter[]
-    heroNewChapter:      Chapter | null
+    heroUnread:          number
     loadingHeroChapters: boolean
     resuming:            boolean
     onresume:            () => void
@@ -60,6 +61,15 @@
 
   const activeSlot  = $derived(resolvedSlots[activeIdx])
   const TOTAL_SLOTS = 4
+
+  function fmtChapterDate(v: string | number | null | undefined): string {
+    if (v == null || v === '') return ''
+    const isEpoch = /^\d+$/.test(String(v))
+    const d = isEpoch
+      ? new Date(Number(v) > 1e10 ? Number(v) : Number(v) * 1000)
+      : new Date(v as string)
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
 </script>
 
 <div class="hero-stage">
@@ -108,8 +118,8 @@
         {:else}
           <span class="hero-tag hero-tag-pinned"><PushPin size={8} weight="fill" /> Pinned</span>
         {/if}
-        {#if heroNewChapter && !heroNewChapter.isRead}
-          <span class="hero-tag hero-tag-new">New ch.{Math.floor(heroNewChapter.chapterNumber)}</span>
+        {#if heroUnread > 0}
+          <span class="hero-tag hero-tag-new">{heroUnread} unread</span>
         {/if}
         {#each (heroManga?.genre ?? []).slice(0, 3) as g}
           <button
@@ -141,7 +151,7 @@
             <Play size={11} weight="fill" />{resuming ? 'Loading…' : 'Resume'}
           </button>
         {:else if heroManga}
-          <button class="hero-cta" onclick={() => goto(`/series/${heroManga!.id}`)}>
+          <button class="hero-cta" onclick={() => goto(seriesHref(heroManga!))}>
             <BookOpen size={11} weight="light" /> View manga
           </button>
         {/if}
@@ -202,25 +212,22 @@
       <p class="hero-chapters-empty">No chapters available</p>
     {:else}
       {#each heroChapters as ch (ch.id)}
-        {@const isCurrent = heroEntry?.chapterId === ch.id}
+        {@const isCurrent = heroEntry?.endChapterId === ch.id}
         <button
           class="chapter-row"
           class:chapter-row-current={isCurrent}
-          class:chapter-row-read={ch.isRead && !isCurrent}
+          class:chapter-row-read={ch.read && !isCurrent}
           onclick={() => onopenchapter(ch)}
         >
-          <span class="ch-num">Ch.{ch.chapterNumber % 1 === 0 ? Math.floor(ch.chapterNumber) : ch.chapterNumber}</span>
+          <span class="ch-num">{ch.chapterNumber < 0 ? '–' : `Ch.${ch.chapterNumber % 1 === 0 ? Math.floor(ch.chapterNumber) : ch.chapterNumber}`}</span>
           <div class="ch-info">
             <span class="ch-name">{ch.name}</span>
-            {#if isCurrent && heroEntry && heroEntry.pageNumber > 1}
-              <span class="ch-meta">p.{heroEntry.pageNumber} · in progress</span>
-            {:else if ch.isRead}
+            {#if isCurrent && heroEntry && heroEntry.endPage > 1}
+              <span class="ch-meta">p.{heroEntry.endPage} · in progress</span>
+            {:else if ch.read}
               <span class="ch-meta ch-read">Read</span>
-            {:else if ch.uploadDate}
-              <span class="ch-meta">
-                {new Date(Number(ch.uploadDate) > 1e10 ? Number(ch.uploadDate) : Number(ch.uploadDate) * 1000)
-                  .toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </span>
+            {:else if fmtChapterDate(ch.uploadDate)}
+              <span class="ch-meta">{fmtChapterDate(ch.uploadDate)}</span>
             {/if}
           </div>
           {#if isCurrent}<Play size={10} weight="fill" class="ch-play-icon" />{/if}
@@ -322,7 +329,7 @@
   .hero-title {
     font-size: var(--text-xl); font-weight: var(--weight-semibold);
     color: #fff; line-height: var(--leading-tight); margin: 0; flex-shrink: 0;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     text-shadow: 0 2px 12px rgba(0,0,0,0.55); letter-spacing: -0.01em;
   }
   .hero-author {
@@ -338,7 +345,7 @@
   .hero-prog-time { margin-left: auto; color: rgba(255,255,255,0.3); }
   .hero-desc {
     font-size: var(--text-xs); color: rgba(255,255,255,0.38); line-height: 1.6;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; flex-shrink: 0;
+    display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; flex-shrink: 0;
   }
   .hero-empty-title { font-size: var(--text-base); font-weight: var(--weight-medium); color: rgba(255,255,255,0.48); flex-shrink: 0; }
   .hero-empty-sub {

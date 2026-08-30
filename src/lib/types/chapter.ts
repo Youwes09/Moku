@@ -1,5 +1,5 @@
 export interface Chapter {
-  id:            number
+  id:            string
   name:          string
   chapterNumber: number
   sourceOrder:   number
@@ -7,7 +7,8 @@ export interface Chapter {
   downloaded:    boolean
   bookmarked:    boolean
   pageCount:     number
-  mangaId:       number
+  pages?:        string[]
+  mangaId:       string
   fetchedAt?:    string
   uploadDate?:   string | null
   realUrl?:      string | null
@@ -15,7 +16,7 @@ export interface Chapter {
   lastReadAt?:   string
   scanlator?:    string | null
   manga?: {
-    id:           number
+    id:           string
     title:        string
     thumbnailUrl: string
     inLibrary:    boolean

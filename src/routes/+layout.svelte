@@ -1,388 +1,346 @@
 <script lang="ts">
-  import { onMount }                                                    from 'svelte'
-  import { page }                                                       from '$app/stores'
-  import { appState, app, type AppStatus, checkForChangelog }         from '$lib/state/app.svelte'
-  import { boot }                                                        from '$lib/state/boot.svelte'
-  import { notifications }                                              from '$lib/state/notifications.svelte'
-  import { settingsState, loadSettingsIntoState, updateSettings }       from '$lib/state/settings.svelte'
-  import { applyTheme, mountSystemThemeSync }                           from '$lib/core/theme'
-  import { platformService }                                            from '$lib/platform-service'
-  import * as discord                                                   from '$lib/core/discord'
-  import SplashScreen                                                   from '$lib/components/chrome/SplashScreen.svelte'
-  import AuthGate                                                       from '$lib/components/chrome/AuthGate.svelte'
-  import Onboarding                                                     from '$lib/components/onboarding/Onboarding.svelte'
-  import TourOverlay                                                    from '$lib/components/onboarding/TourOverlay.svelte'
-  import TourFinish                                                     from '$lib/components/onboarding/TourFinish.svelte'
-  import ChangelogModal                                                 from '$lib/components/chrome/ChangelogModal.svelte'
-  import { maybeStartOnboarding }                                       from '$lib/state/onboarding.svelte'
-  import Sidebar                                                        from '$lib/components/chrome/Sidebar.svelte'
-  import TitleBar                                                       from '$lib/components/chrome/TitleBar.svelte'
-  import Toaster                                                        from '$lib/components/chrome/Toaster.svelte'
-  import Settings                                                       from '$lib/components/settings/Settings.svelte'
-  import ThemeEditor                                                    from '$lib/components/settings/ThemeEditor.svelte'
-  import { downloadStore }                                              from '$lib/state/downloads.svelte'
-  import { seriesState }                                                from '$lib/state/series.svelte'
-  import MangaPreview                                                   from '$lib/components/shared/manga/MangaPreview.svelte'
-  import { authVerifiedState } from '$lib/state/auth.svelte'
-  import '../app.css'
+	import { onMount } from 'svelte'
+	import { page } from '$app/stores'
+	import { appState, app, type AppStatus, checkForChangelog } from '$lib/state/app.svelte'
+	import { boot, registerPlatformAdapter, initApp, startProbe, retryBoot, bypassBoot, subscribeBackend, openBackendDataDir } from '$lib/state/boot.svelte'
+	import { notifications } from '$lib/state/notifications.svelte'
+	import { settingsState, loadSettingsIntoState, updateSettings } from '$lib/state/settings.svelte'
+	import { applyTheme, mountSystemThemeSync } from '$lib/core/theme'
+	import { platformService } from '$lib/platform-service'
+	import * as discord from '$lib/core/discord'
+	import SplashScreen from '$lib/components/chrome/SplashScreen.svelte'
+	import Onboarding from '$lib/components/onboarding/Onboarding.svelte'
+	import TourOverlay from '$lib/components/onboarding/TourOverlay.svelte'
+	import TourFinish from '$lib/components/onboarding/TourFinish.svelte'
+	import ChangelogModal from '$lib/components/chrome/ChangelogModal.svelte'
+	import { maybeStartOnboarding } from '$lib/state/onboarding.svelte'
+	import Sidebar from '$lib/components/chrome/Sidebar.svelte'
+	import TitleBar from '$lib/components/chrome/TitleBar.svelte'
+	import Toaster from '$lib/components/chrome/Toaster.svelte'
+	import Settings from '$lib/components/settings/Settings.svelte'
+	import ThemeEditor from '$lib/components/settings/ThemeEditor.svelte'
+	import { downloadStore } from '$lib/state/downloads.svelte'
+	import { seriesState } from '$lib/state/series.svelte'
+	import MangaPreview from '$lib/components/shared/manga/MangaPreview.svelte'
+	import { loadSettings, loadLibrary } from '$lib/core/persistence/persist'
+	import '../app.css'
 
-  let { children } = $props()
+	let { children } = $props()
 
-  const POLL_MS = 1500
-  let pollTimer: ReturnType<typeof setTimeout> | null = null
-  let polling = false
+	const POLL_MS = 1500
+	let pollTimer: ReturnType<typeof setTimeout> | null = null
+	let polling = false
 
-  async function pollLoop() {
-    if (!polling) return
-    await downloadStore.poll()
-    if (polling) pollTimer = setTimeout(pollLoop, POLL_MS)
-  }
+	async function pollLoop() {
+		if (!polling) return
+		await downloadStore.tickStatus()
+		if (polling) pollTimer = setTimeout(pollLoop, POLL_MS)
+	}
 
-  const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+	const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
-  appState.status = 'booting' as AppStatus
+	registerPlatformAdapter()
 
-  let splashDismissed  = $state(false)
-  let settingsLoaded   = $state(false)
-  let themeEditorOpen  = $state(false)
-  let themeEditorId    = $state<string | null>(null)
+	appState.status = 'booting' as AppStatus
 
-  const splashVisible = $derived(
-    appState.status === 'booting' ||
-    appState.status === 'locked'  ||
-    appState.status === 'error'   ||
-    (appState.status === 'ready' && !splashDismissed)
-  )
+	let splashDismissed = $state(false)
+	let settingsLoaded = $state(false)
+	let themeEditorOpen = $state(false)
+	let themeEditorId = $state<string | null>(null)
 
-  const splashMode = $derived(
-    appState.status === 'locked' && settingsLoaded ? 'locked' : 'loading'
-  )
+	const splashVisible = $derived(
+		appState.status === 'booting' ||
+			appState.status === 'locked' ||
+			appState.status === 'error' ||
+			(appState.status === 'ready' && !splashDismissed)
+	)
 
-  const ringFull = $derived(appState.status === 'ready')
-  const showApp  = $derived(!splashVisible)
+	const splashMode = $derived(appState.status === 'locked' && settingsLoaded ? 'locked' : 'loading')
+	const ringFull = $derived(appState.status === 'ready')
+	const showApp = $derived(!splashVisible)
 
-  function onSplashReady()  { if (!appState.authRequired || authVerifiedState.value) splashDismissed = true }
-  function onSplashUnlock() { appState.status = 'ready'; splashDismissed = true }
-  function onSplashBypass() {
-    import('$lib/state/boot.svelte').then(({ bypassBoot }) => {
-      bypassBoot(appState.authMode ?? 'NONE', appState.authUser ?? '', appState.authPass ?? '')
-    })
-    splashDismissed = true
-  }
+	function onSplashReady() {
+		splashDismissed = true
+	}
+	function onSplashUnlock() {
+		appState.status = 'ready'
+		splashDismissed = true
+	}
+	function onSplashBypass() {
+		bypassBoot()
+		splashDismissed = true
+	}
+	function onSplashRetry() {
+		retryBoot()
+	}
 
-  const isReaderRoute       = $derived($page.url.pathname.startsWith('/reader'))
-  const readerContainerized = $derived(settingsState.settings.readerContainerized ?? false)
-  const strippedLayout      = $derived(isReaderRoute && !readerContainerized)
-  const showTitleBar        = $derived(isTauri && (settingsState.settings.windowControls ?? true))
+	const isMediaRoute = $derived($page.url.pathname.startsWith('/media'))
+	const readerContainerized = $derived(settingsState.settings.readerContainerized ?? false)
+	const strippedLayout = $derived(isMediaRoute && !readerContainerized)
+	const showTitleBar = $derived(isTauri && (settingsState.settings.windowControls ?? true))
 
-  onMount(() => {
-    async function init() {
-      const { detectAdapter }       = await import('$lib/platform-adapters')
-      const { initPlatformService } = await import('$lib/platform-service')
-      const { loadSettings, loadLibrary } = await import('$lib/core/persistence/persist')
-      const { startProbe }          = await import('$lib/state/boot.svelte')
+	onMount(() => {
+		async function init() {
+			try {
+				await initApp()
 
-      const adapter = detectAdapter()
-      initPlatformService(adapter)
-      await adapter.init()
-      appState.platform = adapter.platform
-      appState.version  = await platformService.getVersion().catch(() => '')
-      appState.appDir   = await platformService.getAppDir().catch(() => '')
+				void subscribeBackend()
 
-      const [persistedSettings, persistedLibrary] = await Promise.all([loadSettings(), loadLibrary()])
+				const [persistedSettings, persistedLibrary] = await Promise.all([loadSettings(), loadLibrary()])
+				const raw = persistedSettings?.settings ?? persistedSettings ?? null
+				await loadSettingsIntoState(raw)
 
-      const raw = persistedSettings?.settings ?? persistedSettings ?? null
-      await loadSettingsIntoState(raw)
+				const { historyState } = await import('$lib/state/history.svelte')
+				const { seriesState: s } = await import('$lib/state/series.svelte')
 
-      const { historyState }              = await import('$lib/state/history.svelte')
-      const { seriesState: _seriesState } = await import('$lib/state/series.svelte')
-      const { readerState }               = await import('$lib/state/reader.svelte')
+				historyState.load(persistedLibrary.sessions, persistedLibrary.dailyReadCounts)
+				s.bookmarks = persistedLibrary.bookmarks
 
-      historyState.load(persistedLibrary.sessions, persistedLibrary.dailyReadCounts)
-      _seriesState.bookmarks = persistedLibrary.bookmarks
-      readerState.markers    = persistedLibrary.markers
+				settingsLoaded = true
+				checkForChangelog()
 
-      const s              = (raw ?? {}) as Record<string, unknown>
-      const rawAuthMode    = (s.serverAuthMode as string) ?? 'NONE'
-      appState.serverUrl   = (s.serverUrl as string) ?? ''
-      appState.authMode    = rawAuthMode === 'SIMPLE_LOGIN' ? 'UI_LOGIN' : (rawAuthMode as 'NONE' | 'BASIC_AUTH' | 'UI_LOGIN')
-      appState.authUser    = (s.serverAuthUser as string) ?? ''
-      appState.authPass    = (s.serverAuthPass as string) ?? ''
+				applyTheme(settingsState.settings.theme ?? 'dark', settingsState.settings.customThemes ?? [])
 
-      settingsLoaded = true
+				await startProbe(100)
 
-      checkForChangelog()
+				polling = true
+				pollLoop()
+			} catch (e) {
+				appState.error = e instanceof Error ? e.message : String(e)
+				appState.status = 'error'
+			}
+		}
 
-      applyTheme(
-        settingsState.settings.theme        ?? 'dark',
-        settingsState.settings.customThemes ?? [],
-      )
+		init()
 
-      if (isTauri && settingsState.settings.autoStartServer) {
-        platformService.launchServer({
-          binary:       settingsState.settings.serverBinary,
-          binaryArgs:   settingsState.settings.serverBinaryArgs,
-          webUiEnabled: settingsState.settings.suwayomiWebUI,
-        }).catch((e) => {
-          notifications.addToast({
-            kind:  'error',
-            title: 'Failed to start Suwayomi server',
-            body:  e instanceof Error ? e.message : String(e),
-          })
-        })
-      }
+		return () => {
+			polling = false
+			if (pollTimer !== null) {
+				clearTimeout(pollTimer)
+				pollTimer = null
+			}
+			discord.destroyRpc()
+			platformService.destroy()
+		}
+	})
 
-      if (
-        isTauri &&
-        settingsState.settings.flareSolverrEnabled &&
-        settingsState.settings.flareSolverrAutoStart
-      ) {
-        if (!settingsState.settings.flareSolverrBinary?.trim()) {
-          notifications.addToast({
-            kind:  'error',
-            title: 'FlareSolverr binary not configured',
-            body:  'Set a binary path in Settings → Security, or switch to external mode.',
-          })
-        } else {
-          platformService.launchFlaresolverr({
-            binary:     settingsState.settings.flareSolverrBinary,
-            binaryArgs: settingsState.settings.flareSolverrBinaryArgs,
-          }).catch((e) => {
-            notifications.addToast({
-              kind:  'error',
-              title: 'Failed to start FlareSolverr',
-              body:  e instanceof Error ? e.message : String(e),
-            })
-          })
-        }
-      }
+	let vw = $state(1440)
+	let vh = $state(820)
+	$effect(() => {
+		const measure = () => { vw = window.innerWidth; vh = window.innerHeight }
+		measure()
+		window.addEventListener('resize', measure)
+		return () => window.removeEventListener('resize', measure)
+	})
+	const uiZoomFactor = $derived(
+		Math.max(0.6, Math.min(
+			4,
+			Math.max(0.8, Math.min(vw / 1440, vh / 820)) * (settingsState.settings.uiZoom ?? 1.0),
+		)),
+	)
+	$effect(() => {
+		document.documentElement.style.zoom = String(uiZoomFactor)
+		document.documentElement.style.setProperty('--ui-zoom-factor', String(uiZoomFactor))
+	})
 
-      startProbe(
-        appState.authMode ?? 'NONE',
-        appState.authUser ?? '',
-        appState.authPass ?? '',
-        isTauri && settingsState.settings.autoStartServer ? 2000 : 100,
-      )
+	$effect(() => {
+		applyTheme(settingsState.settings.theme ?? 'dark', settingsState.settings.customThemes ?? [])
+	})
 
-      polling = true
-      pollLoop()
-    }
+	$effect(() => {
+		mountSystemThemeSync(
+			settingsState.settings.systemThemeSync ?? false,
+			settingsState.settings.systemThemeDark ?? 'dark',
+			settingsState.settings.systemThemeLight ?? 'light',
+			(id) => updateSettings({ theme: id })
+		)
+	})
 
-    init()
+	$effect(() => {
+		if (appState.status === 'ready' && settingsLoaded) maybeStartOnboarding()
+	})
 
-    return () => {
-      polling = false
-      if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null }
-      discord.destroyRpc()
-      platformService.destroy()
-    }
-  })
+	$effect(() => {
+		if (appState.status === 'booting') splashDismissed = false
+	})
 
-  $effect(() => {
-    document.documentElement.style.zoom = String(settingsState.settings.uiZoom ?? 1.0)
-  })
+	$effect(() => {
+		if (settingsState.settings.discordRpc) {
+			discord
+				.initRpc()
+				.then(() => discord.setIdle())
+				.catch(() => {})
+		} else {
+			discord.destroyRpc().catch(() => {})
+		}
+	})
 
-  $effect(() => {
-    applyTheme(settingsState.settings.theme ?? 'dark', settingsState.settings.customThemes ?? [])
-  })
+	$effect(() => {
+		if (!isMediaRoute) discord.setIdle().catch(() => {})
+	})
 
-  $effect(() => {
-    mountSystemThemeSync(
-      settingsState.settings.systemThemeSync  ?? false,
-      settingsState.settings.systemThemeDark  ?? 'dark',
-      settingsState.settings.systemThemeLight ?? 'light',
-      (id) => updateSettings({ theme: id }),
-    )
-  })
+	$effect(() => {
+		if (appState.idleSplash || appState.devSplash) discord.setAway().catch(() => {})
+		else discord.clearAway().catch(() => {})
+	})
 
-  $effect(() => {
-    if (appState.status === 'ready' && settingsLoaded) maybeStartOnboarding()
-  })
+	let idleTimer: ReturnType<typeof setTimeout> | null = null
+	let idleDismissLock = false
 
-  $effect(() => {
-    if (appState.status === 'booting') splashDismissed = false
-  })
+	function onIdleDismiss() {
+		if (idleDismissLock) return
+		idleDismissLock = true
+		appState.idleSplash = false
+		setTimeout(() => {
+			idleDismissLock = false
+		}, 400)
+	}
 
-  $effect(() => {
-    if (settingsState.settings.discordRpc) {
-      discord.initRpc().then(() => discord.setIdle()).catch(() => {})
-    } else {
-      discord.destroyRpc().catch(() => {})
-    }
-  })
+	function armIdleTimer() {
+		if (idleTimer !== null) clearTimeout(idleTimer)
+		const mins = settingsState.settings.idleTimeoutMin ?? 5
+		if (mins <= 0) return
+		idleTimer = setTimeout(() => {
+			if (appState.status === 'ready' && !appState.idleSplash) appState.idleSplash = true
+		}, mins * 60_000)
+	}
 
-  $effect(() => {
-    if (!isReaderRoute) discord.setIdle().catch(() => {})
-  })
+	$effect(() => {
+		if (appState.status !== 'ready') return
 
-  $effect(() => {
-    if (appState.idleSplash || appState.devSplash) discord.setAway().catch(() => {})
-    else discord.clearAway().catch(() => {})
-  })
+		const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'touchmove', 'wheel', 'click'] as const
+		for (const e of events) document.addEventListener(e, armIdleTimer, { capture: true, passive: true })
+		armIdleTimer()
 
-  let idleTimer:       ReturnType<typeof setTimeout> | null = null
-  let idleDismissLock = false
+		return () => {
+			if (idleTimer !== null) {
+				clearTimeout(idleTimer)
+				idleTimer = null
+			}
+			for (const e of events) document.removeEventListener(e, armIdleTimer, { capture: true })
+		}
+	})
 
-  function onIdleDismiss() {
-    if (idleDismissLock) return
-    idleDismissLock = true
-    appState.idleSplash = false
-    setTimeout(() => { idleDismissLock = false }, 400)
-  }
-
-  function armIdleTimer() {
-    if (idleTimer !== null) clearTimeout(idleTimer)
-    const mins = settingsState.settings.idleTimeoutMin ?? 5
-    if (mins <= 0) return
-    idleTimer = setTimeout(() => {
-      if (appState.status === 'ready' && !appState.idleSplash) appState.idleSplash = true
-    }, mins * 60_000)
-  }
-
-  $effect(() => {
-    if (appState.status !== 'ready') return
-
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'touchmove', 'wheel', 'click'] as const
-    for (const e of events) document.addEventListener(e, armIdleTimer, { capture: true, passive: true })
-    armIdleTimer()
-
-    return () => {
-      if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null }
-      for (const e of events) document.removeEventListener(e, armIdleTimer, { capture: true })
-    }
-  })
-
-  function onSplashRetry() {
-    import('$lib/state/boot.svelte').then(({ retryBoot }) => {
-      retryBoot(appState.authMode ?? 'NONE', appState.authUser ?? '', appState.authPass ?? '')
-    })
-  }
-
-  function openThemeEditor(id?: string | null) {
-    themeEditorId   = id ?? null
-    themeEditorOpen = true
-  }
+	function openThemeEditor(id?: string | null) {
+		themeEditorId = id ?? null
+		themeEditorOpen = true
+	}
 </script>
 
 {#if splashVisible}
-  <SplashScreen
-    mode={splashMode}
-    {ringFull}
-    failed={appState.status === 'error'}
-    notConfigured={boot.notConfigured}
-    authRequired={appState.authRequired && !authVerifiedState.value}
-    pinLen={settingsState.settings.appLockPin?.length ?? 0}
-    pinCorrect={settingsState.settings.appLockPin ?? ''}
-    windowsHelloEnabled={settingsState.settings.appLockWindowsHello ?? false}
-    onReady={onSplashReady}
-    onUnlock={onSplashUnlock}
-    onBypass={onSplashBypass}
-    onSkip={onSplashBypass}
-    onRetry={onSplashRetry}
-  />
+	<SplashScreen
+		mode={splashMode}
+		{ringFull}
+		failed={appState.status === 'error'}
+		pinLen={settingsState.settings.appLockPin?.length ?? 0}
+		pinCorrect={settingsState.settings.appLockPin ?? ''}
+		windowsHelloEnabled={settingsState.settings.appLockWindowsHello ?? false}
+		errorMessage={boot.errorMessage}
+		errorLog={boot.errorLog}
+		onReady={onSplashReady}
+		onUnlock={onSplashUnlock}
+		onBypass={onSplashBypass}
+		onSkip={onSplashBypass}
+		onRetry={onSplashRetry}
+		onCopyLog={() => navigator.clipboard.writeText(boot.errorLog).catch(() => {})}
+		onOpenDataDir={openBackendDataDir}
+	/>
 {/if}
 
 {#if appState.idleSplash}
-  <SplashScreen mode="idle" showCards={settingsState.settings.splashCards ?? true} onDismiss={onIdleDismiss} />
+	<SplashScreen mode="idle" showCards={settingsState.settings.splashCards ?? true} onDismiss={onIdleDismiss} />
 {/if}
 
 {#if appState.devSplash}
-  <SplashScreen mode="idle" showDevOverlay onDismiss={() => appState.devSplash = false} />
+	<SplashScreen mode="idle" showDevOverlay onDismiss={() => (appState.devSplash = false)} />
 {/if}
 
 {#if showApp}
-  {#if strippedLayout}
-    {@render children()}
-  {:else}
-    <div class="frame">
-      {#if showTitleBar}
-        <TitleBar onClose={() => platformService.close()} />
-      {/if}
-      <div class="padding" class:padding-web={!showTitleBar}>
-        <div class="shell">
-          <div class="body">
-            <Sidebar />
-            <main class="main">
-              {@render children()}
-            </main>
-          </div>
-        </div>
-      </div>
-    </div>
-  {/if}
+	{#if strippedLayout}
+		{@render children()}
+	{:else}
+		<div class="frame">
+			{#if showTitleBar}
+				<TitleBar onClose={() => platformService.close()} />
+			{/if}
+			<div class="padding" class:padding-web={!showTitleBar}>
+				<div class="shell">
+					<div class="body">
+						<Sidebar />
+						<main class="main">
+							{@render children()}
+						</main>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
 {/if}
 
 {#if app.settingsOpen}
-  <Settings
-    onclose={() => app.setSettingsOpen(false)}
-    onOpenThemeEditor={openThemeEditor}
-  />
+	<Settings onclose={() => app.setSettingsOpen(false)} onOpenThemeEditor={openThemeEditor} />
 {/if}
 
 {#if themeEditorOpen}
-  <ThemeEditor
-    editingId={themeEditorId}
-    onClose={() => themeEditorOpen = false}
-  />
+	<ThemeEditor editingId={themeEditorId} onClose={() => (themeEditorOpen = false)} />
 {/if}
 
-<AuthGate />
 <Onboarding />
 <TourOverlay />
 <TourFinish />
 <ChangelogModal />
 <Toaster toasts={notifications.toasts} />
 {#if seriesState.previewManga}
-  <MangaPreview />
+	<MangaPreview />
 {/if}
 
 <style>
-  .frame {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    height: 100%;
-    box-sizing: border-box;
-    overflow: hidden;
-  }
+	.frame {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		height: 100%;
+		box-sizing: border-box;
+		overflow: hidden;
+	}
 
-  .padding {
-    display: flex;
-    flex: 1;
-    padding: 0 15px 15px;
-    min-height: 0;
-    min-width: 0;
-  }
+	.padding {
+		display: flex;
+		flex: 1;
+		padding: 0 15px 15px;
+		min-height: 0;
+		min-width: 0;
+	}
 
-  .padding-web {
-    padding-top: 15px;
-  }
+	.padding-web {
+		padding-top: 15px;
+	}
 
-  .shell {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    border-radius: var(--radius-2xl);
-    overflow: hidden;
-    border: 1px solid var(--border-dim);
-    background: var(--bg-base);
-    min-height: 0;
-    min-width: 0;
-  }
+	.shell {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		border-radius: var(--radius-2xl);
+		overflow: hidden;
+		border: 1px solid var(--border-dim);
+		background: var(--bg-base);
+		min-height: 0;
+		min-width: 0;
+	}
 
-  .body {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    min-width: 0;
-  }
+	.body {
+		display: flex;
+		flex: 1;
+		min-height: 0;
+		min-width: 0;
+	}
 
-  .main {
-    flex: 1;
-    overflow: hidden;
-    background: var(--bg-surface);
-    transform: translateZ(0);
-    contain: layout style;
-    min-width: 0;
-  }
+	.main {
+		flex: 1;
+		overflow: hidden;
+		background: var(--bg-surface);
+		transform: translateZ(0);
+		contain: layout style;
+		min-width: 0;
+	}
 </style>

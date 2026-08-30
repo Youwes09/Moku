@@ -1,5 +1,5 @@
 import { saveLibrary }        from '$lib/core/persistence/persist'
-import type { ReadSession, ReadingStats } from '$lib/types/history'
+import type { ReadSession, ReadingStats, MediaKind } from '$lib/types/history'
 import { DEFAULT_READING_STATS }          from '$lib/types/history'
 
 const MAX_SESSIONS    = 1000
@@ -7,18 +7,19 @@ const SESSION_GAP_MS  = 60 * 60 * 1_000
 
 export interface ActiveSession {
   id:               string
-  mangaId:          number
+  mangaId:          string
   mangaTitle:       string
   thumbnailUrl:     string
-  startChapterId:   number
+  startChapterId:   string
   startChapterName: string
-  endChapterId:     number
+  endChapterId:     string
   endChapterName:   string
   startPage:        number
   endPage:          number
   startedAt:        number
   lastTickAt:       number
-  seenChapterIds:   Set<number>
+  seenChapterIds:   Set<string>
+  contentType:      MediaKind
 }
 
 function dateKey(ms: number): string {
@@ -28,8 +29,8 @@ function dateKey(ms: number): string {
 function computeStats(sessions: ReadSession[]): ReadingStats {
   if (!sessions.length) return { ...DEFAULT_READING_STATS }
 
-  const chapterIds = new Set<number>()
-  const mangaIds   = new Set<number>()
+  const chapterIds = new Set<string>()
+  const mangaIds   = new Set<string>()
   const days       = new Set<string>()
   let totalMs      = 0
   let firstReadAt  = Infinity
@@ -91,15 +92,27 @@ class HistoryStore {
   }
 
   openSession(
-    mangaId:      number,
+    mangaId:      string,
     mangaTitle:   string,
     thumbnailUrl: string,
-    chapterId:    number,
+    chapterId:    string,
     chapterName:  string,
     page:         number,
+    contentType:  MediaKind = 'MANGA',
   ) {
-    if (this.active) this._commit(Date.now())
+    const a = this.active
+    if (a && a.mangaId === mangaId && Date.now() - a.lastTickAt <= SESSION_GAP_MS) {
+      this.tickSession(chapterId, chapterName, page)
+      return
+    }
+    if (a) this._commit(Date.now())
+    this._start(mangaId, mangaTitle, thumbnailUrl, chapterId, chapterName, page, contentType)
+  }
 
+  private _start(
+    mangaId: string, mangaTitle: string, thumbnailUrl: string,
+    chapterId: string, chapterName: string, page: number, contentType: MediaKind,
+  ) {
     this.active = {
       id:               crypto.randomUUID(),
       mangaId,
@@ -114,31 +127,26 @@ class HistoryStore {
       startedAt:        Date.now(),
       lastTickAt:       Date.now(),
       seenChapterIds:   new Set([chapterId]),
+      contentType,
     }
   }
 
-  tickSession(chapterId: number, chapterName: string, page: number) {
-    if (!this.active) return
+  tickSession(chapterId: string, chapterName: string, page: number) {
+    const a = this.active
+    if (!a) return
     const now = Date.now()
 
-    if (now - this.active.lastTickAt > SESSION_GAP_MS) {
-      this._commit(this.active.lastTickAt)
-      this.openSession(
-        this.active.mangaId,
-        this.active.mangaTitle,
-        this.active.thumbnailUrl,
-        chapterId,
-        chapterName,
-        page,
-      )
+    if (now - a.lastTickAt > SESSION_GAP_MS) {
+      this._commit(a.lastTickAt)
+      this._start(a.mangaId, a.mangaTitle, a.thumbnailUrl, chapterId, chapterName, page, a.contentType)
       return
     }
 
-    this.active.lastTickAt    = now
-    this.active.endPage       = page
-    this.active.endChapterId  = chapterId
-    this.active.endChapterName = chapterName
-    this.active.seenChapterIds.add(chapterId)
+    a.lastTickAt     = now
+    a.endPage        = page
+    a.endChapterId   = chapterId
+    a.endChapterName = chapterName
+    a.seenChapterIds.add(chapterId)
   }
 
   closeSession() {
@@ -154,7 +162,7 @@ class HistoryStore {
     void this._persist()
   }
 
-  clearMangaHistory(mangaId: number) {
+  clearMangaHistory(mangaId: string) {
     this.sessions = this.sessions.filter(s => s.mangaId !== mangaId)
     this.stats    = computeStats(this.sessions)
     void this._persist()
@@ -182,6 +190,7 @@ class HistoryStore {
       endedAt,
       durationMs,
       chaptersSpanned:  a.seenChapterIds.size,
+      contentType:      a.contentType,
     }
 
     const day = dateKey(endedAt)
@@ -195,11 +204,9 @@ class HistoryStore {
 
   private async _persist() {
     const bookmarks = (await import('$lib/state/series.svelte')).seriesState.bookmarks
-    const markers   = (await import('$lib/state/reader.svelte')).readerState.markers
     await saveLibrary({
       sessions:        this.sessions,
       bookmarks,
-      markers,
       dailyReadCounts: this.dailyReadCounts,
     })
   }

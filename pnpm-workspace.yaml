@@ -1,2 +1,4 @@
+allowBuilds:
+  lfa-ponyfill: false
 onlyBuiltDependencies:
   - esbuild

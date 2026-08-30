@@ -1,17 +1,18 @@
 <script lang="ts">
-  import { CheckSquare, Trash, Folder, FolderPlus, FolderMinus } from 'phosphor-svelte'
+  import { CheckSquare, Trash, Folder, FolderPlus, FolderMinus, ImageSquare, BookOpenText, FilmSlate } from 'phosphor-svelte'
   import Thumbnail from '$lib/components/shared/manga/Thumbnail.svelte'
   import { settingsState } from '$lib/state/settings.svelte'
-  import type { Manga, Category } from '$lib/types'
+  import type { Manga } from '$lib/types'
+  import type { Folder as FolderType } from '$lib/server-adapters/types'
   import type { LibraryViewMode } from '$lib/state/library.svelte'
 
   interface Props {
     items:                  Manga[]
     loading:                boolean
     selectMode:             boolean
-    selected:               Set<number>
+    selected:               Set<string>
     tab:                    string
-    visibleCategories:      Category[]
+    visibleFolders:         FolderType[]
     bulkWorking:            boolean
     viewMode:               LibraryViewMode
     onCardClick:            (e: MouseEvent, m: Manga) => void
@@ -20,14 +21,15 @@
     onExitSelect:           () => void
     onBulkRemove:           () => void
     onBulkRemoveFromFolder: () => void
-    onBulkMove:             (cat: Category) => void
+    onBulkMove:             (folder: FolderType) => void
+    onViewModeChange:       (mode: LibraryViewMode) => void
   }
 
   let {
     items, loading, selectMode, selected, tab,
-    visibleCategories, bulkWorking, viewMode,
+    visibleFolders, bulkWorking, viewMode,
     onCardClick, onCardContextMenu, onSelectAll, onExitSelect,
-    onBulkRemove, onBulkRemoveFromFolder, onBulkMove,
+    onBulkRemove, onBulkRemoveFromFolder, onBulkMove, onViewModeChange,
   }: Props = $props()
 
   const isFolderTab = $derived(tab !== 'library' && tab !== 'downloaded')
@@ -36,6 +38,10 @@
 
   const statsAlways = $derived(settingsState.settings.libraryStatsAlways ?? false)
   const cropCovers  = $derived(settingsState.settings.libraryCropCovers  ?? true)
+
+  const showTypeTag = $derived(
+    !settingsState.settings.contentTypeFilter || settingsState.settings.contentTypeFilter === 'all',
+  )
 
   const PAGE = 48
   let visibleCount = $state(PAGE)
@@ -77,7 +83,7 @@
     <span class="sel-count">{selected.size} selected</span>
     <button class="sel-text-btn" onclick={onSelectAll}>Select all</button>
     <div class="sel-right">
-      {#if visibleCategories.length > 0}
+      {#if visibleFolders.length > 0}
         <div class="move-wrap">
           <button
             class="sel-icon-btn"
@@ -89,7 +95,7 @@
           </button>
           {#if movePanelOpen}
             <div class="move-panel" role="menu">
-              {#each visibleCategories as cat}
+              {#each visibleFolders as cat}
                 <button
                   class="move-item"
                   role="menuitem"
@@ -211,6 +217,13 @@
         >
           <div class="cover-wrap" class:completed={isCompleted} class:cover-contain={!cropCovers}>
             <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" id={m.id} />
+            {#if showTypeTag && m.contentType}
+              <span class="type-tag" title={m.contentType}>
+                {#if m.contentType === 'ANIME'}<FilmSlate size={12} weight="fill" />
+                {:else if m.contentType === 'NOVEL'}<BookOpenText size={12} weight="fill" />
+                {:else}<ImageSquare size={12} weight="fill" />{/if}
+              </span>
+            {/if}
             <div class="overlay">
               <div class="badges">
                 {#if isCompleted}
@@ -362,6 +375,15 @@
   }
   .cover-wrap.completed { box-shadow: inset 0 -2px 0 0 var(--accent); }
 
+  .type-tag {
+    position: absolute; top: 5px; left: 5px; z-index: 2;
+    display: flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: var(--radius-sm);
+    color: #fff; background: color-mix(in srgb, var(--bg-void) 62%, transparent);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    border: 1px solid color-mix(in srgb, #fff 12%, transparent);
+  }
+
   :global(.cover) { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cover-contain :global(.cover) { object-fit: contain; }
 
@@ -401,7 +423,7 @@
   .title {
     margin-top: var(--sp-2); font-size: var(--text-sm);
     color: var(--text-secondary); line-height: var(--leading-snug);
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden; height: 2lh;
     transition: color var(--t-base);
   }

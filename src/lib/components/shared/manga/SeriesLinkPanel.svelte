@@ -24,7 +24,7 @@
     return intersection / new Set([...wa, ...wb]).size;
   }
 
-  function linkManga(idA: number, idB: number) {
+  function linkManga(idA: string, idB: string) {
     if (idA === idB) return;
     const links = { ...settingsState.settings.mangaLinks };
     links[idA] = [...new Set([...(links[idA] ?? []), idB])];
@@ -32,7 +32,7 @@
     updateSettings({ mangaLinks: links });
   }
 
-  function unlinkManga(idA: number, idB: number) {
+  function unlinkManga(idA: string, idB: string) {
     const links = { ...settingsState.settings.mangaLinks };
     links[idA] = (links[idA] ?? []).filter(id => id !== idB);
     links[idB] = (links[idB] ?? []).filter(id => id !== idA);
@@ -94,13 +94,13 @@
         {#if searchResults.length === 0}
           <p class="empty">No results</p>
         {:else}
-          {#each searchResults as m (m.id)}
+          {#each searchResults as m (`${m.extensionId}-${m.sourceEntryId}`)}
             {@const isLinked = linkedIds.includes(m.id)}
             <button class="row" class:row-linked={isLinked} onclick={() => toggle(m)}>
               <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb" />
               <div class="info">
                 <span class="manga-title">{m.title}</span>
-                {#if m.source?.displayName}<span class="source">{m.source.displayName}</span>{/if}
+                {#if m.sourceName || m.source?.displayName}<span class="source">{m.sourceName ?? m.source?.displayName}</span>{/if}
               </div>
               <span class="row-icon">{#if isLinked}<LinkBreak size={14} />{:else}<LinkSimple size={14} />{/if}</span>
             </button>
@@ -115,7 +115,7 @@
               <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb" />
               <div class="info">
                 <span class="manga-title">{m.title}</span>
-                {#if m.source?.displayName}<span class="source">{m.source.displayName}</span>{/if}
+                {#if m.sourceName || m.source?.displayName}<span class="source">{m.sourceName ?? m.source?.displayName}</span>{/if}
               </div>
               <span class="row-icon"><LinkBreak size={14} /></span>
             </button>
@@ -132,7 +132,7 @@
               <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb" />
               <div class="info">
                 <span class="manga-title">{m.title}</span>
-                {#if m.source?.displayName}<span class="source">{m.source.displayName}</span>{/if}
+                {#if m.sourceName || m.source?.displayName}<span class="source">{m.sourceName ?? m.source?.displayName}</span>{/if}
               </div>
               <span class="sim-bar">
                 <span class="sim-fill" style="width:{Math.round(score * 100)}%"></span>

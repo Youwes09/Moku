@@ -1,13 +1,14 @@
 <script lang="ts">
   import { untrack }             from "svelte";
-  import { getAdapter }          from "$lib/request-manager";
+  import { tsunagu }             from "$lib/server-adapters/tsunagu";
   import { settingsState }       from "$lib/state/settings.svelte";
   import { setPreviewManga }     from "$lib/state/series.svelte";
   import { dedupeMangaById, shouldHideNsfw } from "$lib/core/util";
   import Thumbnail               from "$lib/components/shared/manga/Thumbnail.svelte";
   import ContextMenu             from "$lib/components/shared/ui/ContextMenu.svelte";
-  import { ArrowLeftIcon, BookmarkSimpleIcon, FolderSimplePlusIcon, FolderIcon, CircleNotchIcon } from "phosphor-svelte";
-  import type { Manga, Source, Category } from "$lib/types";
+  import { ArrowLeftIcon, BookmarkSimpleIcon, CircleNotchIcon } from "phosphor-svelte";
+  import type { Manga, Source }  from "$lib/types";
+  import { toBrowseManga, toSource } from "$lib/components/browse/lib/searchFilter";
   import {
     PAGE_SIZE, INITIAL_PAGES, MAX_SOURCES,
     parseTags, tagsLabel, matchesAllTags, runConcurrent,
@@ -41,8 +42,6 @@
   let loadingMore            = $state(false);
   let visibleCount           = $state(PAGE_SIZE);
   let ctx: { x: number; y: number; manga: Manga } | null = $state(null);
-  let categories: Category[] = $state([]);
-  let catsLoaded             = false;
 
   const nextPageMap = new Map<string, number>();
   let sources: Source[]                  = $state([]);
@@ -74,28 +73,39 @@
     const t  = parseTags(filter);
     const pt = t[0] ?? "";
 
-    getAdapter().getMangaList({}).then((result: { items: Manga[] }) => {
-      if (!ctrl.signal.aborted) libraryManga = result.items;
+    tsunagu.library().then((entries) => {
+      if (ctrl.signal.aborted) return;
+      libraryManga = entries.map((e) => ({
+        id:            e.id,
+        title:         e.title,
+        thumbnailUrl:  e.thumbnailUrl ?? "",
+        inLibrary:     true,
+        unreadCount:   e.unreadCount,
+        downloadCount: e.downloadCount,
+        genre:         e.genres,
+        status:        e.status,
+        source:        e.source ? { id: e.source.id, name: e.source.name, displayName: e.source.displayName, isNsfw: e.source.isNsfw } : null,
+      }));
     }).catch(() => {});
 
-    getAdapter().getSources().then(async (allSources: Source[]) => {
+    tsunagu.installedExtensions().then(async (exts) => {
       if (ctrl.signal.aborted) return;
-      const srcs = allSources.filter((s: Source) => s.id !== "0").slice(0, MAX_SOURCES);
+      const srcs = exts.filter((e) => e.installed).map(toSource).slice(0, MAX_SOURCES);
       sources    = srcs;
       for (const src of srcs) nextPageMap.set(src.id, -1);
 
-      await runConcurrent(srcs, async (src: Source) => {
+      await runConcurrent(srcs, async (src) => {
         if (ctrl.signal.aborted) return;
         const pageItems: Manga[] = [];
         for (let page = 1; page <= INITIAL_PAGES; page++) {
           if (ctrl.signal.aborted) return;
-          let result: { items: Manga[]; hasNextPage: boolean } | null = null;
+          let result: Awaited<ReturnType<typeof tsunagu.search>> | null = null;
           try {
-            result = await getAdapter().searchSource(src.id, pt, page, ctrl.signal);
+            result = await tsunagu.search(src.id, pt, page, undefined, ctrl.signal);
           } catch { break; }
           if (!result || ctrl.signal.aborted) break;
-          const matching = t.length > 1 ? result.items.filter((m) => matchesAllTags(m, t)) : result.items;
-          pageItems.push(...matching);
+          const mapped = result.results.map((r) => toBrowseManga(r, src.id));
+          pageItems.push(...mapped);
           if (!result.hasNextPage) { nextPageMap.set(src.id, -1); break; }
           else if (page === INITIAL_PAGES) nextPageMap.set(src.id, INITIAL_PAGES + 1);
         }
@@ -119,17 +129,17 @@
     const ctrl = new AbortController();
     abortCtrl  = ctrl;
     try {
-      await runConcurrent(srcs, async (src: Source) => {
+      await runConcurrent(srcs, async (src) => {
         const page = nextPageMap.get(src.id)!;
         if (ctrl.signal.aborted) return;
-        let result: { items: Manga[]; hasNextPage: boolean } | null = null;
+        let result: Awaited<ReturnType<typeof tsunagu.search>> | null = null;
         try {
-          result = await getAdapter().searchSource(src.id, primaryTag, page, ctrl.signal);
+          result = await tsunagu.search(src.id, primaryTag, page, undefined, ctrl.signal);
         } catch { nextPageMap.set(src.id, -1); return; }
         if (!result || ctrl.signal.aborted) return;
         nextPageMap.set(src.id, result.hasNextPage ? page + 1 : -1);
-        const matching = tags.length > 1 ? result.items.filter((m) => matchesAllTags(m, tags)) : result.items;
-        if (matching.length > 0) sourceManga = dedupeMangaById([...sourceManga, ...matching]);
+        const mapped = result.results.map((r) => toBrowseManga(r, src.id));
+        if (mapped.length > 0) sourceManga = dedupeMangaById([...sourceManga, ...mapped]);
       }, ctrl.signal);
     } finally {
       if (!ctrl.signal.aborted) { visibleCount += PAGE_SIZE; loadingMore = false; }
@@ -139,12 +149,6 @@
   function openCtx(e: MouseEvent, m: Manga) {
     e.preventDefault();
     ctx = { x: e.clientX, y: e.clientY, manga: m };
-    if (!catsLoaded) {
-      catsLoaded = true;
-      getAdapter().getCategories()
-        .then((cats: Category[]) => { categories = cats.filter((c: Category) => c.id !== 0); })
-        .catch(console.error);
-    }
   }
 
   function buildCtxItems(m: Manga): MenuEntry[] {
@@ -153,31 +157,9 @@
         label: m.inLibrary ? "In Library" : "Add to library",
         icon: BookmarkSimpleIcon,
         disabled: m.inLibrary,
-        onClick: () => getAdapter().addToLibrary(String(m.id))
+        onClick: () => tsunagu.addToLibrary(m.id)
           .then(() => { sourceManga = sourceManga.map((x) => x.id === m.id ? { ...x, inLibrary: true } : x); })
           .catch(console.error),
-      },
-      ...(categories.length > 0 ? [
-        { separator: true } as MenuEntry,
-        ...categories.map((cat): MenuEntry => ({
-          label: (cat.mangas ?? []).some((x: Manga) => x.id === m.id) ? `✓ ${cat.name}` : cat.name,
-          icon: FolderIcon,
-          onClick: () => getAdapter().updateMangaCategories(String(m.id), [cat.id], []).catch(console.error),
-        })),
-      ] : []),
-      { separator: true },
-      {
-        label: "New folder & add",
-        icon: FolderSimplePlusIcon,
-        onClick: async () => {
-          const name = prompt("Folder name:");
-          if (!name?.trim()) return;
-          const cat = await getAdapter().createCategory(name.trim()).catch(console.error);
-          if (cat) {
-            categories = [...categories, cat];
-            await getAdapter().updateMangaCategories(String(m.id), [cat.id], []).catch(console.error);
-          }
-        },
       },
     ];
   }
@@ -212,7 +194,7 @@
     <div class="empty">No manga found for "{label}".</div>
   {:else}
     <div class="grid">
-      {#each visibleItems as m, i (m.id)}
+      {#each visibleItems as m, i (`${m.extensionId}-${m.sourceEntryId}`)}
         <button class="card" onclick={() => setPreviewManga(m)} oncontextmenu={(e) => { e.stopPropagation(); openCtx(e, m); }}>
           <div class="cover-wrap">
             <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} />

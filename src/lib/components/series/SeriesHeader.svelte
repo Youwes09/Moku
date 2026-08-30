@@ -1,15 +1,17 @@
 <script lang="ts">
   import {
     ArrowLeft, BookmarkSimple, ArrowSquareOut, Play, CaretDown,
-    ArrowsClockwise, LinkSimpleHorizontalBreak, ChartLineUp,
-    MapPin, Gear, Trash, Image,
+    ArrowsClockwise, LinkSimpleHorizontalBreak,
+    Gear, Trash, Image, Broadcast,
   } from 'phosphor-svelte'
   import { goto }          from '$app/navigation'
   import { page }          from '$app/stores'
   import { get }           from 'svelte/store'
   import Thumbnail         from '$lib/components/shared/manga/Thumbnail.svelte'
+  import ExtensionIcon     from '$lib/components/extensions/ExtensionIcon.svelte'
   import { resolvedCover } from '$lib/core/cover/coverResolver'
-  import type { Manga, Chapter, Category } from '$lib/types'
+  import type { Manga, Chapter } from '$lib/types'
+  import type { Folder } from '$lib/server-adapters/types'
 
   import { seriesState }                                        from '$lib/state/series.svelte'
   import { setPreviewManga }                                    from '$lib/state/series.svelte'
@@ -30,32 +32,32 @@
     deletingAll:      boolean
     continueChapter:  ContinueChapter | null
     hasAnyAutomation: boolean
-    markersOpen:      boolean
-    linkedIds:        number[]
+    linkedIds:        string[]
     allMangaForLink:  Manga[]
     loadingLinkList:  boolean
-    mangaCategories:  Category[]
+    mangaFolders:     Folder[]
     togglingLibrary:  boolean
+    trackLinkCount?:  number
     onRead:           (ch: ContinueChapter) => void
     onToggleLibrary:  () => void
     onDeleteAll:      () => void
     onMigrateOpen:    () => void
-    onTrackingOpen:   () => void
     onAutoOpen:       () => void
-    onMarkersToggle:  () => void
+    onTrackerOpen:    () => void
     onLinkPickerOpen: () => void
     onCoverPickerOpen:() => void
     onGenreClick:     (genre: string) => void
+    isLocal?:         boolean
   }
 
   let {
     manga, loadingManga, totalCount, readCount, progressPct,
     downloadedCount, deletingAll, continueChapter, hasAnyAutomation,
-    markersOpen, linkedIds, allMangaForLink, loadingLinkList,
-    mangaCategories, togglingLibrary,
+    linkedIds, allMangaForLink, loadingLinkList,
+    mangaFolders, togglingLibrary, trackLinkCount = 0,
     onRead, onToggleLibrary, onDeleteAll, onMigrateOpen,
-    onTrackingOpen, onAutoOpen, onMarkersToggle, onLinkPickerOpen, onCoverPickerOpen,
-    onGenreClick,
+    onAutoOpen, onTrackerOpen, onLinkPickerOpen, onCoverPickerOpen,
+    onGenreClick, isLocal = false,
   }: Props = $props()
 
   let manageOpen:     boolean = $state(false)
@@ -67,12 +69,12 @@
     manga?.status ? manga.status.charAt(0) + manga.status.slice(1).toLowerCase() : null
   )
 
-  const markerCount = $derived(
-    seriesState.activeManga ? seriesState.getMarkersForManga(seriesState.activeManga.id).length : 0
+  const sourceLabel = $derived(
+    manga?.sourceName || manga?.source?.displayName || manga?.source?.name || null
   )
 
   const hasCoverOverride = $derived(
-    !!seriesState.settings.mangaPrefs?.[seriesState.activeManga?.id ?? -1]?.coverUrl
+    !!seriesState.settings.mangaPrefs?.[seriesState.activeManga?.id ?? ""]?.coverUrl
   )
 
   const altTitles = $derived(
@@ -95,7 +97,7 @@
 
   <div class="cover-wrap">
     <button class="cover-btn" onclick={() => manga && setPreviewManga(manga)} title="Quick preview" disabled={!manga}>
-      <Thumbnail src={resolvedCover(manga?.id ?? seriesState.activeManga?.id ?? 0, manga?.thumbnailUrl ?? seriesState.activeManga?.thumbnailUrl ?? "")} alt={manga?.title ?? seriesState.activeManga?.title ?? ""} class="cover" id={manga?.id ?? seriesState.activeManga?.id} />
+      <Thumbnail src={resolvedCover(manga?.id ?? seriesState.activeManga?.id ?? "", manga?.thumbnailUrl ?? seriesState.activeManga?.thumbnailUrl ?? "")} alt={manga?.title ?? seriesState.activeManga?.title ?? ""} class="cover" id={manga?.id ?? seriesState.activeManga?.id} />
     </button>
   </div>
 
@@ -116,8 +118,11 @@
         {#if statusLabel}
           <span class="badge" class:badge-ongoing={manga?.status === 'ONGOING'} class:badge-ended={manga?.status !== 'ONGOING'}>{statusLabel}</span>
         {/if}
-        {#if manga?.source?.displayName ?? (manga as any)?.source?.name}
-          <span class="badge badge-source">{manga?.source?.displayName ?? (manga as any)?.source?.name}</span>
+        {#if sourceLabel}
+          <span class="badge badge-source">
+            {#if manga?.source?.iconUrl}<ExtensionIcon src={manga.source.iconUrl} alt="" size={12} class="badge-source-icon" />{/if}
+            {sourceLabel}
+          </span>
         {/if}
       </div>
 
@@ -159,11 +164,16 @@
 
   <div class="cta-section">
     {#if continueChapter}
+      {@const isAnime = manga?.contentType === 'ANIME'}
+      {@const unit    = isAnime ? 'Ep.' : 'Ch.'}
+      {@const ref     = continueChapter.chapter.chapterNumber >= 0
+        ? `${unit}${continueChapter.chapter.chapterNumber}`
+        : (continueChapter.chapter.name || 'chapter')}
       <button class="read-btn" onclick={() => onRead(continueChapter!)}>
         <Play size={12} weight="fill" />
-        {continueChapter.type === 'reread' ? 'Read again'
-          : continueChapter.type === 'start' ? 'Start reading'
-          : `Continue · Ch.${continueChapter.chapter.chapterNumber}`}
+        {continueChapter.type === 'reread' ? (isAnime ? 'Watch again' : 'Read again')
+          : continueChapter.type === 'start' ? (isAnime ? 'Start watching' : 'Start reading')
+          : `Continue · ${ref}`}
       </button>
     {/if}
     <div class="actions">
@@ -198,9 +208,11 @@
       {#if manageOpen}
         <div class="details-body">
           <div class="detail-actions">
-            <button class="detail-action-btn" onclick={onMigrateOpen}>
-              <ArrowsClockwise size={12} weight="light" /> Switch Source
-            </button>
+            {#if !isLocal}
+              <button class="detail-action-btn" onclick={onMigrateOpen}>
+                <ArrowsClockwise size={12} weight="light" /> Switch Source
+              </button>
+            {/if}
             <button class="detail-action-btn" class:detail-action-active={linkedIds.length > 0} onclick={onLinkPickerOpen}>
               <LinkSimpleHorizontalBreak size={12} weight={linkedIds.length > 0 ? 'fill' : 'light'} />
               Series Link{linkedIds.length > 0 ? ` (${linkedIds.length})` : ''}
@@ -208,19 +220,16 @@
             <button class="detail-action-btn" class:detail-action-active={hasCoverOverride} onclick={onCoverPickerOpen}>
               <Image size={12} weight={hasCoverOverride ? 'fill' : 'light'} /> Cover Image
             </button>
-            <button class="detail-action-btn" onclick={onTrackingOpen}>
-              <ChartLineUp size={12} weight="light" /> Tracking
-            </button>
-            <button class="detail-action-btn" class:detail-action-active={markersOpen} onclick={onMarkersToggle}>
-              <MapPin size={12} weight={markersOpen ? 'fill' : 'light'} />
-              Markers{markerCount > 0 ? ` (${markerCount})` : ''}
-            </button>
-            {#if manga?.inLibrary}
+            {#if manga?.inLibrary && !isLocal}
               <button class="detail-action-btn" class:detail-action-active={hasAnyAutomation} onclick={onAutoOpen}>
                 <Gear size={12} weight={hasAnyAutomation ? 'fill' : 'light'} /> Automation
               </button>
+              <button class="detail-action-btn" class:detail-action-active={trackLinkCount > 0} onclick={onTrackerOpen}>
+                <Broadcast size={12} weight={trackLinkCount > 0 ? 'fill' : 'light'} />
+                Tracking{trackLinkCount > 0 ? ` (${trackLinkCount})` : ''}
+              </button>
             {/if}
-            {#if downloadedCount > 0}
+            {#if downloadedCount > 0 && !isLocal}
               <button class="detail-action-btn detail-action-danger" onclick={onDeleteAll} disabled={deletingAll}>
                 <Trash size={12} weight="light" /> {deletingAll ? 'Deleting…' : `Delete Downloads (${downloadedCount})`}
               </button>
@@ -295,9 +304,11 @@
   .badge-ongoing { background: var(--accent-muted); color: var(--accent-fg); border: 1px solid var(--accent-dim); }
   .badge-ended   { background: var(--bg-raised); color: var(--text-faint); border: 1px solid var(--border-dim); }
   .badge-source  {
+    display: inline-flex; align-items: center; gap: 4px;
     background: var(--bg-raised); color: var(--text-faint); border: 1px solid var(--border-dim);
     text-transform: none; letter-spacing: var(--tracking-normal);
   }
+  :global(.badge-source-icon) { width: 12px; height: 12px; border-radius: 2px; object-fit: cover; }
 
   .alttitles-section { display: flex; flex-direction: column; gap: var(--sp-1); }
   .row-toggle {
@@ -332,9 +343,9 @@
   .desc-wrap { display: flex; flex-direction: column; gap: var(--sp-1); }
   .desc {
     font-size: var(--text-xs); color: var(--text-muted); line-height: var(--leading-base);
-    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
   }
-  .desc.desc-open { display: block; -webkit-line-clamp: unset; overflow: visible; }
+  .desc.desc-open { display: block; -webkit-line-clamp: unset; line-clamp: unset; overflow: visible; }
   .expand-toggle {
     font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint);
     letter-spacing: var(--tracking-wide); align-self: flex-start; transition: color var(--t-base);

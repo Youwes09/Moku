@@ -1,11 +1,18 @@
 {
-  description = "Moku — manga reader frontend for Suwayomi";
+  description = "Moku — manga/novel/anime reader frontend for Tsunagu";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    # The backend. `nix run .#moku` launches this via the TSUNAGU_BIN env var
+    # (see nix/moku.nix + src-tauri/src/backend.rs) instead of a bundled sidecar.
+    # Tracks the default branch; `nix flake update tsunagu` pulls the latest commit.
+    tsunagu = {
+      url = "github:moku-project/Tsunagu";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -36,10 +43,25 @@
             ];
           };
 
-          runtimeLibs = with pkgs; [
+          # WebKitGTK plays <video>/<audio> through GStreamer 1.0 — without
+          # these plugins it fails silently ("GStreamer element appsink not
+          # found", grey video). libav covers h264/aac (mp4); good/bad/ugly
+          # cover demuxers, sinks (autoaudiosink) and misc codecs.
+          gstPlugins = with pkgs.gst_all_1; [
+            gstreamer
+            gst-plugins-base
+            gst-plugins-good
+            gst-plugins-bad
+            gst-plugins-ugly
+            gst-libav
+          ];
+
+          runtimeLibs = (with pkgs; [
             webkitgtk_4_1
             gtk3
             glib
+            glib-networking   # GIO TLS backend — without it the webview can't
+                              # fetch external https:// resources (AniList covers)
             cairo
             pango
             atk
@@ -49,7 +71,9 @@
             dbus
             libappindicator-gtk3
             gsettings-desktop-schemas
-          ];
+          ]) ++ gstPlugins;
+
+          gstPluginPath = pkgs.lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins;
 
           src = lib.cleanSourceWith {
             src = ./.;
@@ -76,10 +100,11 @@
               || base == "tauri.conf.json";
           };
 
-          suwayomiServer = pkgs.callPackage ./nix/server.nix { inherit versions; };
+
+          tsunaguBin = "${inputs.tsunagu.packages.${system}.default}/bin/tsunagu";
 
           moku = pkgs.callPackage ./nix/moku.nix {
-            inherit lib pkgs rustToolchain runtimeLibs suwayomiServer version src versions;
+            inherit lib pkgs rustToolchain runtimeLibs version src versions gstPluginPath tsunaguBin;
             appIcon = ./src/lib/assets/moku-icon.svg;
           };
 
@@ -88,7 +113,7 @@
         in
         {
           packages = {
-            inherit moku suwayomiServer;
+            inherit moku;
             default = moku;
           };
 
@@ -96,8 +121,6 @@
             default = { type = "app"; program = "${moku}/bin/moku"; };
             moku    = { type = "app"; program = "${moku}/bin/moku"; };
             bump    = { type = "app"; program = "${scripts.bump}/bin/moku-bump"; };
-            update  = { type = "app"; program = "${scripts.update}/bin/moku-update"; };
-            flatpak = { type = "app"; program = "${scripts.flatpak}/bin/moku-flatpak"; };
             tunnel  = { type = "app"; program = "${scripts.tunnel}/bin/moku-tunnel"; };
           };
 
@@ -109,7 +132,6 @@
               wrapGAppsHook3
               nodejs_22
               pnpm
-              suwayomiServer
               cloudflared
               xdg-utils
               (python3.withPackages (ps: [
@@ -122,13 +144,12 @@
               export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
               export XDG_DATA_DIRS="${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
               export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath runtimeLibs}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+              export GST_PLUGIN_SYSTEM_PATH_1_0="${gstPluginPath}''${GST_PLUGIN_SYSTEM_PATH_1_0:+:$GST_PLUGIN_SYSTEM_PATH_1_0}"
+              export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules''${GIO_EXTRA_MODULES:+:$GIO_EXTRA_MODULES}"
 
               echo "Moku dev shell — pnpm install && pnpm tauri:dev"
               echo ""
               echo "  nix run .#bump   -- <ver>   bump version + rebuild frontend"
-              echo "  git commit && git tag && git push"
-              echo "  nix run .#update -- <ver>   fetch hashes + patch all configs"
-              echo "  nix run .#flatpak           build flatpak bundle"
               echo "  nix run .#tunnel -- [port]  expose local server via cloudflare"
             '';
           };

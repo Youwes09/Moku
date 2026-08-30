@@ -1,12 +1,12 @@
 export interface ChapterRef {
-  id: number
+  id: string
   chapterNumber: number
   uploadDate?: string
   lastPageRead?: number
 }
 
 export interface Category {
-  id:                number
+  id:                string
   name:              string
   order:             number
   default:           boolean
@@ -16,7 +16,7 @@ export interface Category {
 }
 
 export interface Manga {
-  id:           number
+  id:           string
   title:        string
   thumbnailUrl: string
   inLibrary:    boolean
@@ -25,6 +25,7 @@ export interface Manga {
   unreadCount?:   number
   bookmarkCount?: number
 
+  contentType?: 'NOVEL' | 'MANGA' | 'ANIME'
   description?: string | null
   status?:      string | null
   author?:      string | null
@@ -33,6 +34,11 @@ export interface Manga {
   tags?:        string[]
   realUrl?:     string | null
   sourceId?:    string
+  sourceEntryId?:  string
+  extensionId?:    string
+  libraryEntryId?: string | null
+  prefsKey?:       string
+  mediaId?: string
 
   inLibraryAt?:             string | null
   lastFetchedAt?:           string | null
@@ -49,8 +55,8 @@ export interface Manga {
   firstUnreadChapter?:    ChapterRef | null
   highestNumberedChapter?: ChapterRef | null
 
-  source?: { id: string; name: string; displayName: string; isNsfw?: boolean } | null
+  source?: { id: string; name: string; displayName: string; isNsfw?: boolean; iconUrl?: string | null } | null
+  sourceName?: string | null
   chapters?: { totalCount: number }
 }
 
-export type MangaDetail = Manga

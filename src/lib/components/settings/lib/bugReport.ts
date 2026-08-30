@@ -25,7 +25,7 @@ export const SETTINGS_GROUPS: { label: string; keys: (keyof Settings)[] }[] = [
   },
   {
     label: 'Server',
-    keys: ['serverUrl', 'autoStartServer', 'suwayomiWebUI', 'serverAuthMode'],
+    keys: ['serverUrl'],
   },
   {
     label: 'Appearance',
@@ -37,7 +37,7 @@ export const SETTINGS_GROUPS: { label: string; keys: (keyof Settings)[] }[] = [
   },
   {
     label: 'Content & Extensions',
-    keys: ['contentLevel', 'sourceOverridesEnabled', 'preferredExtensionLang', 'flareSolverrEnabled', 'socksProxyEnabled'],
+    keys: ['contentLevel', 'sourceOverridesEnabled', 'preferredExtensionLang'],
   },
   {
     label: 'Automation',
@@ -55,7 +55,6 @@ export const SETTINGS_GROUPS: { label: string; keys: (keyof Settings)[] }[] = [
 
 const REDACTED = new Set<keyof Settings>([
   'serverAuthUser', 'serverAuthPass', 'appLockPin',
-  'socksProxyUsername', 'socksProxyPassword',
   'keybinds', 'customThemes', 'heroSlots', 'mangaLinks', 'mangaPrefs',
   'libraryTabSort', 'libraryTabStatus', 'libraryTabFilters',
   'nsfwAllowedSourceIds', 'nsfwBlockedSourceIds',
@@ -83,14 +82,13 @@ export function buildEnvironmentBlock(serverVersion?: string): string {
   const s = settingsState.settings
   const host = (() => { try { return new URL(s.serverUrl || '').host } catch { return s.serverUrl || 'unknown' } })()
   const serverLine = serverVersion
-    ? `- Server: Suwayomi ${serverVersion} (${host})`
-    : `- Server: Suwayomi (${host})`
+    ? `- Server: Tsunagu ${serverVersion} (${host})`
+    : `- Server: Tsunagu (${host})`
   return [
     `- Moku Version: ${appState.version || 'unknown'}`,
     `- Platform: ${appState.platform}`,
     `- OS: ${detectOs()}`,
     serverLine,
-    `- Auth Mode: ${s.serverAuthMode}`,
   ].join('\n')
 }
 

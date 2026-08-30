@@ -1,6 +1,6 @@
 import type {
   PlatformAdapter, PlatformFeature, Platform,
-  ServerLaunchConfig, DiscordPresence,
+  DiscordPresence,
   AppUpdateInfo, StorageInfo, ReleaseInfo,
   UpdateProgress, MigrateProgress,
 } from '$lib/platform-adapters/types'
@@ -67,9 +67,7 @@ export class WebAdapter implements PlatformAdapter {
     return res.blob()
   }
 
-  async launchServer(_config: ServerLaunchConfig): Promise<void> {}
-  async stopServer(): Promise<void> {}
-  async getServerStatus(): Promise<'running' | 'stopped' | 'error'> { return 'stopped' }
+
 
   async setTitle(title: string): Promise<void> { document.title = title }
   async minimize(): Promise<void> {}
@@ -97,8 +95,6 @@ export class WebAdapter implements PlatformAdapter {
   async listReleases(): Promise<ReleaseInfo[]> { return [] }
 
   async clearMokuCache(): Promise<void> {}
-  async clearSuwayomiCache(): Promise<void> {}
-  async resetSuwayomiData(): Promise<void> {}
 
   async onUpdateProgress(_cb: (p: UpdateProgress) => void): Promise<() => void> { return () => {} }
   async onUpdateLaunching(_cb: () => void): Promise<() => void> { return () => {} }

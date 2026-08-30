@@ -1,28 +1,28 @@
 <script lang="ts">
-  import { FolderSimple, Plus, Trash, Star, Eye, EyeSlash, ArrowsClockwise, ArrowsCounterClockwise, DownloadSimple, DotsSixVertical, BookmarkSimple, Lock, CheckSquare } from 'phosphor-svelte'
-  import { getAdapter } from '$lib/request-manager'
+  import { FolderSimple, Plus, Trash, Star, Eye, EyeSlash, ArrowsClockwise, ArrowsCounterClockwise, DownloadSimple, DotsSixVertical, CheckSquare, Lock } from 'phosphor-svelte'
+  import { tsunagu } from '$lib/server-adapters/tsunagu'
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
   import { libraryState } from '$lib/state/library.svelte'
-  import type { Category } from '$lib/types'
+  import type { Folder } from '$lib/server-adapters/types'
 
-  let categories    = $state<Category[]>([])
-  let catsLoading   = $state(false)
-  let catsError     = $state<string | null>(null)
-  let newFolderName = $state('')
-  let editingId     = $state<number | null>(null)
-  let editingName   = $state('')
+  let folders       = $state<Folder[]>([])
+  let foldersLoading = $state(false)
+  let foldersError   = $state<string | null>(null)
+  let newFolderName  = $state('')
+  let editingId      = $state<string | null>(null)
+  let editingName    = $state('')
 
-  let dragStrId     = $state<string | null>(null)
-  let dragOverStrId = $state<string | null>(null)
-  let dropPosition  = $state<'above' | 'below' | null>(null)
+  let dragId       = $state<string | null>(null)
+  let dragOverId   = $state<string | null>(null)
+  let dropPosition = $state<'above' | 'below' | null>(null)
 
-  const completedCat  = $derived(categories.find(c => c.name === 'Completed' && c.id !== 0) ?? null)
-  const completedId   = $derived(completedCat ? String(completedCat.id) : null)
-  const sortedCatIds  = $derived(categories.filter(c => c.id !== 0).map(c => String(c.id)))
+  const completedFolder = $derived(folders.find(f => f.systemKey === 'completed') ?? null)
+  const customFolders   = $derived(folders.filter(f => f.kind === 'custom'))
+  const sortedFolderIds = $derived(folders.filter(f => f.kind !== 'reading_status' || f.systemKey === 'completed').map(f => f.id))
 
   const orderedAllIds = $derived.by(() => {
     const order  = settingsState.settings.libraryPinnedTabOrder ?? []
-    const allIds = ['library', 'downloaded', ...sortedCatIds]
+    const allIds = ['library', 'downloaded', ...sortedFolderIds]
     const known  = new Set(allIds)
     return [...new Set([...order.filter(id => known.has(id)), ...allIds])]
   })
@@ -36,132 +36,116 @@
     updateSettings({ hiddenLibraryTabs: current.includes(id) ? current.filter(x => x !== id) : [...current, id] })
   }
 
-  async function loadCategories() {
-    catsLoading = true; catsError = null
+  async function loadFolders() {
+    foldersLoading = true; foldersError = null
     try {
-      const fresh  = await getAdapter().getCategories()
-      const zeroCat = categories.filter(c => c.id === 0)
-      const merged  = fresh.filter((c: Category) => c.id !== 0).map((f: Category) => {
-        const existing = categories.find(c => c.id === f.id)
-        return existing ? { ...existing, ...f } : f
-      })
-      categories = [...zeroCat, ...merged]
+      folders = await tsunagu.folders()
     } catch (e: any) {
-      catsError = e?.message ?? 'Failed to load folders'
-    } finally { catsLoading = false }
+      foldersError = e?.message ?? 'Failed to load folders'
+    } finally { foldersLoading = false }
   }
 
   async function createFolder() {
     const name = newFolderName.trim()
     if (!name) return
     try {
-      const cat = await getAdapter().createCategory(name)
-      categories = [...categories, cat]
+      const f = await tsunagu.createFolder(name)
+      folders = [...folders, f]
       newFolderName = ''
-    } catch (e: any) { catsError = e?.message ?? 'Failed to create folder' }
+    } catch (e: any) { foldersError = e?.message ?? 'Failed to create folder' }
   }
 
-  function startEdit(id: number, name: string) { editingId = id; editingName = name }
+  function startEdit(f: Folder) {
+    if (f.kind !== 'custom') return
+    editingId = f.id; editingName = f.name
+  }
 
   async function commitEdit() {
     if (editingId !== null && editingName.trim()) {
       try {
-        await (getAdapter() as any).updateCategory(editingId, { name: editingName.trim() })
-        categories = categories.map(c => c.id === editingId ? { ...c, name: editingName.trim() } : c)
-      } catch (e: any) { catsError = e?.message ?? 'Failed to rename' }
+        const updated = await tsunagu.renameFolder(editingId, editingName.trim())
+        folders = folders.map(f => f.id === editingId ? updated : f)
+      } catch (e: any) { foldersError = e?.message ?? 'Failed to rename' }
     }
     editingId = null; editingName = ''
   }
 
-  async function deleteFolder(id: number) {
+  async function deleteFolder(f: Folder) {
+    if (f.kind !== 'custom') return
     try {
-      await getAdapter().deleteCategory(id)
-      categories = categories.filter(c => c.id !== id)
-    } catch (e: any) { catsError = e?.message ?? 'Failed to delete folder' }
+      await tsunagu.deleteFolder(f.id)
+      folders = folders.filter(x => x.id !== f.id)
+    } catch (e: any) { foldersError = e?.message ?? 'Failed to delete folder' }
   }
 
-  async function toggleCategoryFlag(id: number, flag: 'includeInUpdate' | 'includeInDownload') {
-    const cat = categories.find(c => c.id === id)
-    if (!cat) return
-    const next = !cat[flag]
-    categories = categories.map(c => c.id === id ? { ...c, [flag]: next } : c)
+  async function toggleFolderFlag(f: Folder, flag: 'includeInUpdate' | 'includeInDownload') {
+    const next = !f[flag]
+    folders = folders.map(x => x.id === f.id ? { ...x, [flag]: next } : x)
     try {
-      await (getAdapter() as any).updateCategories([id], { [flag]: next ? 'INCLUDE' : 'EXCLUDE' })
+      await tsunagu.updateFolderFlags(f.id, { [flag]: next })
     } catch (e: any) {
-      categories = categories.map(c => c.id === id ? { ...c, [flag]: !next } : c)
-      catsError = e?.message ?? 'Failed to update folder'
+      folders = folders.map(x => x.id === f.id ? { ...x, [flag]: !next } : x)
+      foldersError = e?.message ?? 'Failed to update folder'
     }
   }
 
-  function applyReorder(fromStrId: string, toStrId: string) {
-    const catIds = categories.filter(c => c.id !== 0).map(c => String(c.id))
-    const allIds = ['library', 'downloaded', ...catIds]
+  function applyReorder(fromId: string, toId: string) {
+    const allIds  = ['library', 'downloaded', ...sortedFolderIds]
     const current = settingsState.settings.libraryPinnedTabOrder ?? []
     const base    = [...new Set([...current.filter(id => allIds.includes(id)), ...allIds])]
-    const fromIdx = base.indexOf(fromStrId)
-    const toIdx   = base.indexOf(toStrId)
+    const fromIdx = base.indexOf(fromId)
+    const toIdx   = base.indexOf(toId)
     if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return
     base.splice(fromIdx, 1)
-    base.splice(toIdx, 0, fromStrId)
+    base.splice(toIdx, 0, fromId)
     updateSettings({ libraryPinnedTabOrder: base })
 
-    const fromNumId = Number(fromStrId)
-    if (!isNaN(fromNumId) && fromStrId !== 'library' && fromStrId !== 'downloaded') {
-      const zeroCat  = categories.filter(c => c.id === 0)
-      const sortable = categories.filter(c => c.id !== 0).sort((a, b) => a.order - b.order)
-      const sFromIdx = sortable.findIndex(c => c.id === fromNumId)
-      const sToIdx   = sortable.findIndex(c => String(c.id) === toStrId)
+    if (fromId !== 'library' && fromId !== 'downloaded') {
+      const sortable = folders.filter(f => sortedFolderIds.includes(f.id)).sort((a, b) => a.sortOrder - b.sortOrder)
+      const sFromIdx = sortable.findIndex(f => f.id === fromId)
+      const sToIdx   = sortable.findIndex(f => f.id === toId)
       if (sFromIdx >= 0 && sToIdx >= 0 && sFromIdx !== sToIdx) {
         const reordered = [...sortable]
         const [moved]   = reordered.splice(sFromIdx, 1)
         reordered.splice(sToIdx, 0, moved)
-        const optimistic = [...zeroCat, ...reordered.map((c, i) => ({ ...c, order: i + 1 }))]
-        categories = optimistic
+        const optimistic = reordered.map((f, i) => ({ ...f, sortOrder: i + 1 }))
+        folders = folders.map(f => optimistic.find(o => o.id === f.id) ?? f)
         const serverPosition = sToIdx + 1
-        getAdapter().updateCategoryOrder(fromNumId, serverPosition)
-          .then((updated: Category[]) => {
-            categories = [
-              ...zeroCat,
-              ...updated.sort((a: Category, b: Category) => a.order - b.order).map((fresh: Category) => {
-                const local = optimistic.find(c => c.id === fresh.id)
-                return local ? { ...fresh, mangas: local.mangas } : fresh
-              }),
-            ]
-          })
+        tsunagu.reorderFolder(fromId, serverPosition)
           .catch(async (e: any) => {
-            catsError = e?.message ?? 'Failed to reorder'
-            await loadCategories()
+            foldersError = e?.message ?? 'Failed to reorder'
+            await loadFolders()
           })
       }
     }
   }
 
   function onDragStart(e: DragEvent, id: string) {
-    dragStrId = id
+    dragId = id
     if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id) }
   }
 
   function onDragOver(e: DragEvent, id: string) {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-    if (dragStrId === id) return
-    dragOverStrId = id
+    if (dragId === id) return
+    dragOverId = id
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     dropPosition = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below'
   }
 
   function onDrop(e: DragEvent, id: string) {
     e.preventDefault()
-    if (dragStrId !== null && dragStrId !== id) applyReorder(dragStrId, id)
-    dragStrId = null; dragOverStrId = null; dropPosition = null
+    if (dragId !== null && dragId !== id) applyReorder(dragId, id)
+    dragId = null; dragOverId = null; dropPosition = null
   }
 
-  function onDragEnd() { dragStrId = null; dragOverStrId = null; dropPosition = null }
+  function onDragEnd() { dragId = null; dragOverId = null; dropPosition = null }
 
   function focusInput(node: HTMLElement) { node.focus() }
 
   $effect(() => {
-    if (!categories.length && !catsLoading) loadCategories()
+    if (!folders.length && !foldersLoading) loadFolders()
   })
 </script>
 
@@ -170,55 +154,55 @@
     <p class="s-section-title">Manage Folders</p>
     <div class="s-section-body">
       <div class="s-row">
-        <span class="s-desc">Folders are stored as Suwayomi categories. Changes sync across all clients.</span>
+        <span class="s-desc">Folders sync across all clients connected to this server.</span>
       </div>
 
-      {#if catsError}
-        <div class="s-banner s-banner-error">{catsError}</div>
+      {#if foldersError}
+        <div class="s-banner s-banner-error">{foldersError}</div>
       {/if}
 
-      {#if catsLoading}
+      {#if foldersLoading}
         <p class="s-empty">Loading folders…</p>
       {:else}
-        <div class="s-folder-list" class:is-dragging={dragStrId !== null}>
+        <div class="s-folder-list" class:is-dragging={dragId !== null}>
           {#each orderedAllIds as id}
             {@const isBuiltin   = id === 'library' || id === 'downloaded'}
-            {@const isCompleted = id === completedId}
-            {@const cat         = isBuiltin ? null : (categories.find(c => String(c.id) === id) ?? null)}
+            {@const f           = isBuiltin ? null : (folders.find(x => x.id === id) ?? null)}
+            {@const isCompleted = f?.systemKey === 'completed'}
             {@const hidden      = isHidden(id)}
 
-            {#if isBuiltin || cat}
+            {#if isBuiltin || f}
               <div
                 class="s-folder-row"
                 role="listitem"
-                class:dragging={dragStrId === id}
-                class:drop-above={dragOverStrId === id && dragStrId !== id && dropPosition === 'above'}
-                class:drop-below={dragOverStrId === id && dragStrId !== id && dropPosition === 'below'}
+                class:dragging={dragId === id}
+                class:drop-above={dragOverId === id && dragId !== id && dropPosition === 'above'}
+                class:drop-below={dragOverId === id && dragId !== id && dropPosition === 'below'}
                 draggable="true"
                 ondragstart={(e) => onDragStart(e, id)}
                 ondragover={(e) => onDragOver(e, id)}
-                ondragleave={() => { if (dragOverStrId === id) { dragOverStrId = null; dropPosition = null } }}
+                ondragleave={() => { if (dragOverId === id) { dragOverId = null; dropPosition = null } }}
                 ondrop={(e) => onDrop(e, id)}
                 ondragend={onDragEnd}
               >
-                {#if isCompleted}
+                {#if isCompleted && f}
                   <span class="s-folder-icon">
                     <CheckSquare size={14} weight="light" />
                     <DotsSixVertical size={14} weight="bold" />
                   </span>
-                  <span class="s-folder-name">{cat?.name ?? 'Completed'}</span>
-                  <span class="s-folder-count">{libraryState.counts[String(cat?.id)] ?? 0} manga</span>
+                  <span class="s-folder-name">{f.name}</span>
+                  <span class="s-folder-count">{libraryState.counts[f.id] ?? 0} manga</span>
                   <span class="s-folder-badge">built-in</span>
                   <div class="s-folder-actions">
                     <button class="s-btn-icon" class:muted={hidden} onclick={() => toggleHidden(id)} title={hidden ? 'Show tab in library' : 'Hide tab from library'}>
                       {#if hidden}<EyeSlash size={13} weight="light" />{:else}<Eye size={13} weight="light" />{/if}
                     </button>
-                    <button class="s-btn-icon s-btn-icon-lock" disabled title="Built-in tab — cannot be deleted"><Lock size={12} weight="light" /></button>
+                    <button class="s-btn-icon s-btn-icon-lock" disabled title="Built-in folder, cannot be deleted"><Lock size={12} weight="light" /></button>
                   </div>
 
                 {:else if isBuiltin}
                   <span class="s-folder-icon">
-                    {#if id === 'library'}<BookmarkSimple size={14} weight="light" />{:else}<DownloadSimple size={14} weight="light" />{/if}
+                    {#if id === 'library'}<Star size={14} weight="light" />{:else}<DownloadSimple size={14} weight="light" />{/if}
                     <DotsSixVertical size={14} weight="bold" />
                   </span>
                   <span class="s-folder-name">{id === 'library' ? 'Saved' : 'Downloaded'}</span>
@@ -227,11 +211,11 @@
                     <button class="s-btn-icon" class:muted={hidden} onclick={() => toggleHidden(id)} title={hidden ? 'Show tab in library' : 'Hide tab from library'}>
                       {#if hidden}<EyeSlash size={13} weight="light" />{:else}<Eye size={13} weight="light" />{/if}
                     </button>
-                    <button class="s-btn-icon s-btn-icon-lock" disabled title="Built-in tab — cannot be deleted"><Lock size={12} weight="light" /></button>
+                    <button class="s-btn-icon s-btn-icon-lock" disabled title="Built-in folder, cannot be deleted"><Lock size={12} weight="light" /></button>
                   </div>
 
-                {:else if cat}
-                  {#if editingId === cat.id}
+                {:else if f}
+                  {#if editingId === f.id}
                     <input class="s-input full" bind:value={editingName}
                       onkeydown={(e) => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') { editingId = null } }}
                       onblur={commitEdit} use:focusInput />
@@ -240,39 +224,30 @@
                     <div class="s-folder-identity" role="button" tabindex="0" draggable="true"
                       ondragstart={(e) => onDragStart(e, id)}
                       ondragend={onDragEnd}
-                      onkeydown={(e) => e.key === 'Enter' && startEdit(cat.id, cat.name)}>
+                      onkeydown={(e) => e.key === 'Enter' && startEdit(f)}>
                       <span class="s-folder-icon">
                         <FolderSimple size={14} weight="light" />
                         <DotsSixVertical size={14} weight="bold" />
                       </span>
-                      <button class="s-folder-name" onclick={(e) => { e.stopPropagation(); startEdit(cat.id, cat.name) }} title="Click to rename">{cat.name}</button>
+                      <button class="s-folder-name" onclick={(e) => { e.stopPropagation(); startEdit(f) }} title="Click to rename">{f.name}</button>
                     </div>
-                    <span class="s-folder-count">{libraryState.counts[String(cat.id)] ?? 0} manga</span>
+                    <span class="s-folder-count">{libraryState.counts[f.id] ?? 0} manga</span>
                     <div class="s-folder-actions">
                       <button class="s-btn-icon"
-                        class:active={(settingsState.settings.defaultLibraryCategoryId ?? null) === cat.id}
-                        onclick={() => updateSettings({ defaultLibraryCategoryId: (settingsState.settings.defaultLibraryCategoryId ?? null) === cat.id ? null : cat.id })}
-                        title={(settingsState.settings.defaultLibraryCategoryId ?? null) === cat.id ? 'Remove as default folder' : 'Set as default folder'}>
-                        <Star size={13} weight={(settingsState.settings.defaultLibraryCategoryId ?? null) === cat.id ? 'fill' : 'light'} />
-                      </button>
-                      <button class="s-btn-icon" class:muted={hidden} onclick={() => toggleHidden(id)} title={hidden ? 'Show in library' : 'Hide from library'}>
-                        {#if hidden}<EyeSlash size={13} weight="light" />{:else}<Eye size={13} weight="light" />{/if}
+                        class:active={f.includeInUpdate !== false}
+                        class:inactive={f.includeInUpdate === false}
+                        onclick={() => toggleFolderFlag(f, 'includeInUpdate')}
+                        title={f.includeInUpdate !== false ? 'Included in updates, click to exclude' : 'Excluded from updates, click to include'}>
+                        {#if f.includeInUpdate !== false}<ArrowsClockwise size={13} weight="bold" />{:else}<ArrowsCounterClockwise size={13} weight="light" />{/if}
                       </button>
                       <button class="s-btn-icon"
-                        class:active={cat.includeInUpdate !== false}
-                        class:inactive={cat.includeInUpdate === false}
-                        onclick={() => toggleCategoryFlag(cat.id, 'includeInUpdate')}
-                        title={cat.includeInUpdate !== false ? 'Included in updates — click to exclude' : 'Excluded from updates — click to include'}>
-                        {#if cat.includeInUpdate !== false}<ArrowsClockwise size={13} weight="bold" />{:else}<ArrowsCounterClockwise size={13} weight="light" />{/if}
+                        class:active={f.includeInDownload !== false}
+                        class:inactive={f.includeInDownload === false}
+                        onclick={() => toggleFolderFlag(f, 'includeInDownload')}
+                        title={f.includeInDownload !== false ? 'Included in auto-downloads, click to exclude' : 'Excluded from auto-downloads, click to include'}>
+                        <DownloadSimple size={13} weight={f.includeInDownload !== false ? 'bold' : 'light'} />
                       </button>
-                      <button class="s-btn-icon"
-                        class:active={cat.includeInDownload !== false}
-                        class:inactive={cat.includeInDownload === false}
-                        onclick={() => toggleCategoryFlag(cat.id, 'includeInDownload')}
-                        title={cat.includeInDownload !== false ? 'Included in auto-downloads — click to exclude' : 'Excluded from auto-downloads — click to include'}>
-                        <DownloadSimple size={13} weight={cat.includeInDownload !== false ? 'bold' : 'light'} />
-                      </button>
-                      <button class="s-btn-icon danger" onclick={() => deleteFolder(cat.id)} title="Delete folder">
+                      <button class="s-btn-icon danger" onclick={() => deleteFolder(f)} title="Delete folder">
                         <Trash size={12} weight="light" />
                       </button>
                     </div>
@@ -283,7 +258,7 @@
           {/each}
         </div>
 
-        {#if categories.filter(c => c.id !== 0 && c.name !== 'Completed').length === 0}
+        {#if customFolders.length === 0}
           <p class="s-empty">No custom folders yet. Create one below.</p>
         {/if}
       {/if}

@@ -1,10 +1,7 @@
 <script lang="ts">
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
-  import { extensionsState } from '$lib/state/extensions.svelte'
   import { addToast } from '$lib/state/notifications.svelte'
   import { platformService } from '$lib/platform-service'
-
-  const isTauri = platformService.platform === 'tauri'
 
   import { selectPortal as _defaultPortal } from '$lib/core/ui/selectPortal'
   import type { Action } from 'svelte/action'
@@ -22,10 +19,7 @@
 
   let triggerIdleTimeout = $state<HTMLButtonElement>(null!)
   $effect(() => { if (triggerIdleTimeout) registerTrigger('idle-timeout', triggerIdleTimeout) })
-  let serverAdvancedOpen = $state(false)
 
-  // Known Tachiyomi/Mihon extension language codes — used as a stable validation
-  // baseline independent of which sources happen to be installed/loaded right now.
   const CANONICAL_LANGS = [
     'en','ja','ko','zh','zh-hans','zh-hant','es','es-419','pt','pt-br','fr','de','it','ru',
     'id','vi','th','ar','tr','pl','nl','uk','ro','hu','cs','sv','fi','da','no','nb','el','he',
@@ -34,13 +28,7 @@
     'am','ku','ha','ig','yo','zu','xh'
   ]
 
-  const availableLangs = $derived(
-    [...new Set(extensionsState.sources.map((s) => s.lang))].sort()
-  )
-
-  const knownLangs = $derived(
-    [...new Set([...CANONICAL_LANGS, ...availableLangs])]
-  )
+  const knownLangs = CANONICAL_LANGS
 
   let langDraft   = $state(settingsState.settings.preferredExtensionLang ?? '')
   let langInvalid = $state(false)
@@ -109,17 +97,14 @@
     })
   }
 
-  async function pickServerBinary() {
-    const path = await platformService.pickFolder()
-    if (path) updateSettings({ serverBinary: path })
-  }
 </script>
 
 <div class="s-panel">
 
   <div class="s-section">
-    <p class="s-section-title">Interface Scale</p>
+    <p class="s-section-title">Interface scale</p>
     <div class="s-section-body">
+      <p class="s-desc" style="padding:var(--sp-2) var(--sp-4) 0">Fits your screen automatically. 100% is the default; adjust to taste. The reader has its own zoom.</p>
       <div class="s-slider-row">
         <input type="range" min={50} max={200} step={5}
           value={Math.round((settingsState.settings.uiZoom ?? 1.0) * 100)}
@@ -147,63 +132,13 @@
       <div class="s-row">
         <div class="s-row-info">
           <span class="s-label">Server URL</span>
-          <span class="s-desc">Base URL of your Suwayomi instance</span>
+          <span class="s-desc">Base URL of your Tsunagu instance</span>
         </div>
-        <div class="srv-url-group">
-          <input class="s-input" value={settingsState.settings.serverUrl ?? 'http://localhost:4567'}
-            oninput={(e) => updateSettings({ serverUrl: e.currentTarget.value })}
-            placeholder="http://localhost:4567" spellcheck="false" />
-          <button class="srv-adv-btn" class:open={serverAdvancedOpen}
-            onclick={() => serverAdvancedOpen = !serverAdvancedOpen}
-            title="Server launch options" aria-expanded={serverAdvancedOpen}>
-            <svg width="10" height="6" viewBox="0 0 10 6" fill="none">
-              <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-        </div>
+        <input class="s-input" value={settingsState.settings.serverUrl ?? 'http://localhost:6007'}
+          oninput={(e) => updateSettings({ serverUrl: e.currentTarget.value })}
+          placeholder="http://localhost:6007" spellcheck="false" />
       </div>
 
-      {#if isTauri}
-      <label class="s-row">
-        <div class="s-row-info"><span class="s-label">Auto-start server</span><span class="s-desc">Launch tachidesk-server when Moku opens</span></div>
-        <button role="switch" aria-checked={settingsState.settings.autoStartServer} aria-label="Auto-start server"
-          class="s-toggle" class:on={settingsState.settings.autoStartServer}
-          onclick={() => updateSettings({ autoStartServer: !settingsState.settings.autoStartServer })}>
-          <span class="s-toggle-thumb"></span>
-        </button>
-      </label>
-
-      <label class="s-row">
-        <div class="s-row-info"><span class="s-label">Suwayomi Web UI</span><span class="s-desc">Enable the built-in Suwayomi web interface alongside Moku</span></div>
-        <button role="switch" aria-checked={settingsState.settings.suwayomiWebUI ?? false} aria-label="Suwayomi Web UI"
-          class="s-toggle" class:on={settingsState.settings.suwayomiWebUI ?? false}
-          onclick={() => updateSettings({ suwayomiWebUI: !(settingsState.settings.suwayomiWebUI ?? false) })}>
-          <span class="s-toggle-thumb"></span>
-        </button>
-      </label>
-      {/if}
-
-      {#if serverAdvancedOpen}
-        <div class="srv-adv-panel">
-          <div class="srv-adv-row">
-            <div class="s-row-info">
-              <span class="s-label">Server binary</span>
-              <span class="s-desc">Path to server executable — leave blank to use bundled</span>
-            </div>
-            <div class="srv-file-group">
-              <input class="s-input srv-path-input" value={settingsState.settings.serverBinary ?? ''}
-                oninput={(e) => updateSettings({ serverBinary: e.currentTarget.value })}
-                placeholder="auto-detect" spellcheck="false" />
-              <button class="srv-file-btn" onclick={pickServerBinary} title="Browse">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M1.5 4.5h11v7a1 1 0 01-1 1h-9a1 1 0 01-1-1v-7z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-                  <path d="M1.5 4.5l1.8-2.5h3.4l1.3 2.5" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      {/if}
     </div>
   </div>
 
@@ -299,17 +234,5 @@
   .s-seg-btn:not(:last-child) { border-right: 1px solid var(--border-strong); }
   .s-seg-btn.active { background: var(--accent-muted); color: var(--accent-fg); }
   .s-seg-btn:not(.active):hover { background: var(--bg-raised); color: var(--text-secondary); }
-  .srv-url-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-  .srv-adv-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-surface); color: var(--text-faint); cursor: pointer; transition: background var(--t-base), color var(--t-base), border-color var(--t-base); }
-  .srv-adv-btn:hover { background: var(--bg-overlay); color: var(--text-muted); border-color: var(--border-strong); }
-  .srv-adv-btn.open { background: var(--bg-overlay); color: var(--text-secondary); border-color: var(--border-strong); }
-  .srv-adv-btn svg { transition: transform var(--t-base); }
-  .srv-adv-btn.open svg { transform: rotate(180deg); }
-  .srv-adv-panel { border-top: 1px solid var(--border-dim); background: var(--bg-base); }
-  .srv-adv-row { display: flex; align-items: center; justify-content: space-between; padding: 10px var(--sp-4); gap: var(--sp-4); }
-  .srv-file-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-  .srv-path-input { width: 160px; }
-  .srv-file-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-surface); color: var(--text-faint); cursor: pointer; transition: background var(--t-base), color var(--t-base), border-color var(--t-base); }
-  .srv-file-btn:hover { background: var(--bg-overlay); color: var(--text-muted); border-color: var(--border-strong); }
   .s-input-invalid { border-color: var(--color-error, #c47a7a) !important; color: var(--color-error, #c47a7a); }
 </style>

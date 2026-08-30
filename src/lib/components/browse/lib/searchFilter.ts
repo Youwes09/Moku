@@ -1,4 +1,7 @@
 import type { Settings } from "$lib/types/settings";
+import type { Manga } from "$lib/types";
+import type { SearchResult, Extension } from "$lib/server-adapters/types";
+import type { Source } from "$lib/types";
 import { shouldHideNsfw } from "$lib/core/util";
 
 export { shouldHideNsfw };
@@ -40,7 +43,7 @@ export async function runConcurrent<T>(
 export type TagMode = "AND" | "OR";
 
 export interface CachedManga {
-  id:            number;
+  id:            string;
   title:         string;
   thumbnailUrl:  string;
   inLibrary:     boolean;
@@ -91,7 +94,7 @@ export function buildTagFilter(
 }
 
 export function filterSourceCache(
-  sourceCache: Map<number, CachedManga>,
+  sourceCache: Map<string, CachedManga>,
   tags:        string[],
   mode:        TagMode,
   statuses:    string[],
@@ -115,19 +118,123 @@ export function filterSourceCache(
 }
 
 export function toCachedManga(
-  m:     { id: number; title: string; thumbnailUrl: string; inLibrary: boolean; genre?: string[]; status?: string },
+  m:     { id: string; title: string; thumbnailUrl: string | null; inLibrary: boolean; genres?: string[]; status?: string | null },
   srcId: string,
 ): CachedManga {
-  const genre = m.genre ?? [];
+  const genre = m.genres ?? [];
   return {
     id:            m.id,
     title:         m.title,
-    thumbnailUrl:  m.thumbnailUrl,
+    thumbnailUrl:  m.thumbnailUrl ?? "",
     inLibrary:     m.inLibrary,
     status:        m.status ?? "UNKNOWN",
     genre,
     lowerGenres:   genre.map((g) => g.toLowerCase()),
     sourceId:      srcId,
     genreEnriched: genre.length > 0,
+  };
+}
+
+export function toBrowseManga(r: SearchResult, extensionId: string, sourceId?: string): Manga {
+  return {
+    id:             r.id ?? `${extensionId}-${r.externalId}`,
+    title:          r.title,
+    thumbnailUrl:   r.thumbnailUrl ?? "",
+    inLibrary:      r.inLibrary,
+    status:         r.status ?? undefined,
+    genre:          r.genres,
+    sourceId:       sourceId ?? extensionId,
+    sourceEntryId:  r.externalId,
+    extensionId,
+    libraryEntryId: r.inLibrary ? r.id : null,
+  };
+}
+
+export async function resolveMangaDetail(
+  m: Manga,
+  tsunagu: {
+    libraryEntry: (id: string) => Promise<any>;
+    sourceDetails: (extensionId: string, sourceEntryId: string) => Promise<any>;
+    mangaInfo: (extensionId: string, sourceEntryId: string, includeChapters: boolean) => Promise<any>;
+  },
+): Promise<{ manga: Manga; entry?: any; info?: any } | null> {
+  const libraryId = m.libraryEntryId ?? (m.inLibrary ? m.id : null);
+
+  if (libraryId) {
+    const entry = await tsunagu.libraryEntry(libraryId);
+    if (!entry) return null;
+    return {
+      manga: {
+        id:             entry.id,
+        title:          entry.title,
+        thumbnailUrl:   entry.thumbnailUrl ?? "",
+        inLibrary:      true,
+        description:    entry.description,
+        status:         entry.status,
+        author:         entry.author,
+        artist:         entry.artist,
+        genre:          entry.genres,
+        tags:           entry.tags,
+        unreadCount:    entry.unreadCount,
+        downloadCount:  entry.downloadCount,
+        sourceId:       m.sourceId,
+        extensionId:    m.extensionId,
+        sourceEntryId:  m.sourceEntryId,
+        libraryEntryId: entry.id,
+        sourceName:     entry.sourceName ?? m.sourceName ?? null,
+        source:         entry.source
+          ? { id: entry.source.id, name: entry.source.name, displayName: entry.source.displayName, isNsfw: entry.source.isNsfw, iconUrl: entry.source.iconUrl }
+          : null,
+      },
+      entry,
+    };
+  }
+
+  if (m.extensionId && m.sourceEntryId) {
+    const info = await tsunagu.mangaInfo(m.extensionId, m.sourceEntryId, true);
+    if (!info) return null;
+    return {
+      manga: {
+        id:             info.id ?? `${m.extensionId}:${m.sourceEntryId}`,
+        title:          info.title,
+        thumbnailUrl:   info.thumbnailUrl ?? m.thumbnailUrl,
+        inLibrary:      info.inLibrary,
+        description:    info.description,
+        status:         info.status,
+        author:         info.author,
+        artist:         info.artist,
+        genre:          info.genres,
+        tags:           info.tags,
+        unreadCount:    info.unreadCount,
+        downloadCount:  info.downloadCount,
+        sourceId:       m.sourceId,
+        sourceEntryId:  m.sourceEntryId,
+        extensionId:    m.extensionId,
+        libraryEntryId: info.inLibrary ? info.id : null,
+        sourceName:     info.sourceName ?? m.sourceName ?? null,
+        source:         info.source
+          ? { id: info.source.id, name: info.source.displayName, displayName: info.source.displayName, iconUrl: info.source.iconUrl }
+          : null,
+      },
+      info,
+    };
+  }
+
+  return null;
+}
+
+export function toSource(e: Extension): Source {
+  return {
+    id:             e.id,
+    name:           e.name,
+    lang:           e.lang,
+    displayName:    e.displayName,
+    iconUrl:        e.iconUrl ?? "",
+    isNsfw:         e.isNsfw,
+    isConfigurable: false,
+
+    supportsLatest: e.supportsLatest,
+    contentType:    e.contentType,
+    extension: { packageName: e.packageName },
   };
 }

@@ -9,7 +9,7 @@
   import type { Manga }       from "$lib/types";
 
   let { mangaId, manga: mangaProp = null, onClose }: {
-    mangaId:  number;
+    mangaId:  string;
     manga?:   Manga | null;
     onClose:  () => void;
   } = $props();

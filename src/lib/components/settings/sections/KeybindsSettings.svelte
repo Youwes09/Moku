@@ -8,7 +8,7 @@
     updateSettings({ keybinds: { ...DEFAULT_KEYBINDS } })
   }
 
-  let listeningKey: keyof Keybinds | null = $state(null)
+  let { listeningKey = $bindable(null) }: { listeningKey: keyof Keybinds | null } = $props()
 
   function startListen(key: keyof Keybinds) {
     listeningKey = listeningKey === key ? null : key

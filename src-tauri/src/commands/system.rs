@@ -1,7 +1,14 @@
-#[cfg(target_os = "windows")]
-use crate::server::resolve::strip_unc;
-use std::path::PathBuf;
 use tauri::Manager;
+
+#[cfg(target_os = "windows")]
+use std::path::PathBuf;
+
+#[cfg(target_os = "windows")]
+fn strip_unc(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    let stripped = s.strip_prefix(r"\\?\").unwrap_or(&s);
+    PathBuf::from(stripped)
+}
 
 #[tauri::command]
 pub fn get_platform_ui_scale(window: tauri::Window) -> f64 {
@@ -53,73 +60,13 @@ pub async fn pick_downloads_folder(app: tauri::AppHandle) -> Option<String> {
 }
 
 #[tauri::command]
-pub async fn pick_server_binary(app: tauri::AppHandle) -> Option<String> {
-    use tauri_plugin_dialog::DialogExt;
-
-    #[cfg(target_os = "windows")]
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Choose Server Binary")
-        .add_filter("Executable", &["exe", "jar", "bat", "cmd"]);
-
-    #[cfg(target_os = "macos")]
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Choose Server Binary")
-        .add_filter("Executable or JAR", &["jar", "command", "sh", "app"]);
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Choose Server Binary")
-        .add_filter("Executable or JAR", &["jar", "sh"]);
-
-    dialog.blocking_pick_file().map(|p| p.to_string())
-}
-
-#[tauri::command]
-pub async fn pick_flaresolverr_binary(app: tauri::AppHandle) -> Option<String> {
-    use tauri_plugin_dialog::DialogExt;
-
-    #[cfg(target_os = "windows")]
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Choose FlareSolverr Executable")
-        .add_filter("Executable", &["exe"]);
-
-    #[cfg(target_os = "macos")]
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Choose FlareSolverr Executable")
-        .add_filter("Executable", &["command", "sh", "app"]);
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Choose FlareSolverr Executable")
-        .add_filter("Executable", &["sh", ""]);
-
-    dialog.blocking_pick_file().map(|p| p.to_string())
-}
-
-#[tauri::command]
 pub fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
 fn remove_dir_best_effort(path: &std::path::Path) {
     if path.is_file() {
-        if let Err(e) = std::fs::remove_file(path) {
-            if e.raw_os_error() == Some(32) {
-                return;
-            }
-        }
+        let _ = std::fs::remove_file(path);
     } else if path.is_dir() {
         if let Ok(entries) = std::fs::read_dir(path) {
             for entry in entries.flatten() {
@@ -169,52 +116,5 @@ pub async fn clear_moku_cache(app: tauri::AppHandle) -> Result<(), String> {
         std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
     }
 
-    Ok(())
-}
-
-#[tauri::command]
-pub fn clear_suwayomi_cache() -> Result<(), String> {
-    use crate::server::resolve::suwayomi_data_dir;
-    let data_dir = suwayomi_data_dir();
-    for dir in &["cache/kcef", "logs"] {
-        let p = data_dir.join(dir);
-        if p.exists() {
-            remove_dir_best_effort(&p);
-        }
-    }
-    for dir in &["downloads/thumbnails"] {
-        let p = data_dir.join(dir);
-        if p.exists() {
-            remove_dir_best_effort(&p);
-            let _ = std::fs::create_dir_all(&p);
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn reset_suwayomi_data(app: tauri::AppHandle) -> Result<(), String> {
-    use crate::server::resolve::suwayomi_data_dir;
-
-    crate::server::kill_tachidesk(&app);
-
-    let data_dir = suwayomi_data_dir();
-    let targets = ["database.mv.db", "extensions", "settings", "logs", "local"];
-
-    for entry_name in &targets {
-        let p = data_dir.join(entry_name);
-        if p.exists() {
-            wait_until_deletable(&p, 10);
-        }
-    }
-
-    for entry_name in &targets {
-        let p = data_dir.join(entry_name);
-        if p.is_dir() {
-            std::fs::remove_dir_all(&p).map_err(|e| format!("{entry_name}: {e}"))?;
-        } else if p.exists() {
-            std::fs::remove_file(&p).map_err(|e| format!("{entry_name}: {e}"))?;
-        }
-    }
     Ok(())
 }

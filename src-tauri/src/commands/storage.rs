@@ -2,12 +2,9 @@ use serde::Serialize;
 use std::path::PathBuf;
 use sysinfo::Disks;
 use tauri::Emitter;
+use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 use walkdir::WalkDir;
-
-use crate::server::resolve::suwayomi_data_dir;
-
-// ── Key-value store (used by the frontend via platformService) ────────────────
 
 #[tauri::command]
 pub fn load_store(app: tauri::AppHandle, key: String) -> Result<Option<String>, String> {
@@ -23,19 +20,14 @@ pub fn save_store(app: tauri::AppHandle, key: String, value: String) -> Result<(
     let store = app
         .store(format!("{}.json", key))
         .map_err(|e| e.to_string())?;
-    let parsed: serde_json::Value =
-        serde_json::from_str(&value).map_err(|e| e.to_string())?;
+    let parsed: serde_json::Value = serde_json::from_str(&value).map_err(|e| e.to_string())?;
     store.set(key, parsed);
     store.save().map_err(|e| e.to_string())
 }
 
-// ── Credential store (PIN-encrypted vault, auth tokens) ──────────────────────
-
 #[tauri::command]
 pub fn store_credential(app: tauri::AppHandle, key: String, value: String) -> Result<(), String> {
-    let store = app
-        .store("credentials.json")
-        .map_err(|e| e.to_string())?;
+    let store = app.store("credentials.json").map_err(|e| e.to_string())?;
     if value.is_empty() {
         store.delete(&key);
     } else {
@@ -46,13 +38,11 @@ pub fn store_credential(app: tauri::AppHandle, key: String, value: String) -> Re
 
 #[tauri::command]
 pub fn get_credential(app: tauri::AppHandle, key: String) -> Result<Option<String>, String> {
-    let store = app
-        .store("credentials.json")
-        .map_err(|e| e.to_string())?;
-    Ok(store.get(&key).and_then(|v| v.as_str().map(|s| s.to_owned())))
+    let store = app.store("credentials.json").map_err(|e| e.to_string())?;
+    Ok(store
+        .get(&key)
+        .and_then(|v| v.as_str().map(|s| s.to_owned())))
 }
-
-// ── Disk / downloads storage ─────────────────────────────────────────────────
 
 #[derive(Serialize)]
 pub struct StorageInfo {
@@ -62,16 +52,25 @@ pub struct StorageInfo {
     pub path: String,
 }
 
-fn resolve_downloads_path(downloads_path: &str) -> PathBuf {
+fn moku_data_dir(app: &tauri::AppHandle) -> PathBuf {
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn resolve_downloads_path(app: &tauri::AppHandle, downloads_path: &str) -> PathBuf {
     if !downloads_path.trim().is_empty() {
         return PathBuf::from(downloads_path.trim());
     }
-    suwayomi_data_dir().join("downloads")
+    moku_data_dir(app).join("downloads")
 }
 
 #[tauri::command]
-pub fn get_storage_info(downloads_path: String) -> Result<StorageInfo, String> {
-    let path = resolve_downloads_path(&downloads_path);
+pub fn get_storage_info(
+    app: tauri::AppHandle,
+    downloads_path: String,
+) -> Result<StorageInfo, String> {
+    let path = resolve_downloads_path(&app, &downloads_path);
 
     let manga_bytes = if path.exists() {
         WalkDir::new(&path)
@@ -107,8 +106,10 @@ pub fn get_storage_info(downloads_path: String) -> Result<StorageInfo, String> {
 }
 
 #[tauri::command]
-pub fn get_default_downloads_path() -> String {
-    resolve_downloads_path("").to_string_lossy().into_owned()
+pub fn get_default_downloads_path(app: tauri::AppHandle) -> String {
+    resolve_downloads_path(&app, "")
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[tauri::command]

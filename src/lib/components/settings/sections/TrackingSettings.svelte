@@ -1,207 +1,163 @@
 <script lang="ts">
-  import Thumbnail from '$lib/components/shared/manga/Thumbnail.svelte';
-  import { settingsState, updateSettings } from "$lib/state/settings.svelte";
-  import { addToast as toast } from "$lib/state/notifications.svelte";
-  import { getAdapter } from "$lib/request-manager";
+  import { onMount, onDestroy } from "svelte";
+  import { ArrowSquareOut, CheckCircle, CircleNotch, LinkBreak, ArrowClockwise, Copy } from "phosphor-svelte";
   import { platformService } from "$lib/platform-service";
-  import { syncBackFromTracker } from "$lib/components/tracking/lib/trackingSync";
-  import { trackingState } from "$lib/state/tracking.svelte";
-  import type { Tracker, TrackRecord } from "$lib/types/index";
-  import type { ChapterDisplayPrefs } from "$lib/components/series/lib/chapterList";
+  import { addToast } from "$lib/state/notifications.svelte";
+  import { trackerState } from "$lib/state/trackers.svelte";
+  import { tsunagu } from "$lib/server-adapters/tsunagu";
+  import TrackerLogo from "$lib/components/tracking/TrackerLogo.svelte";
 
-  let trackers        = $state<Tracker[]>([]);
-  let trackersLoading = $state(false);
-  let trackersError   = $state<string | null>(null);
-  let oauthTrackerId  = $state<number | null>(null);
-  let oauthCallbackInput = $state("");
-  let oauthSubmitting = $state(false);
-  let oauthError      = $state<string | null>(null);
-  let credsTrackerId  = $state<number | null>(null);
-  let credsUsername   = $state("");
-  let credsPassword   = $state("");
-  let credsSubmitting = $state(false);
-  let credsError      = $state<string | null>(null);
-  let loggingOut      = $state<number | null>(null);
-  let syncing         = $state(false);
+  let drafts  = $state<Record<string, string>>({});
+  let busy    = $state<Record<string, boolean>>({});
+  let polling = $state<Record<string, boolean>>({});
 
-  const settings = $derived(settingsState.settings);
+  let alive = true;
+  onMount(() => { trackerState.load(); });
+  onDestroy(() => { alive = false; });
 
-  $effect(() => {
-    if (trackers.length === 0 && !trackersLoading) loadTrackers();
-  });
+  function setDraft(key: string, v: string) { drafts = { ...drafts, [key]: v }; }
+  function setBusy(key: string, v: boolean) { busy = { ...busy, [key]: v }; }
 
-  async function loadTrackers() {
-    trackersLoading = true; trackersError = null;
+  async function openAuth(url: string) {
     try {
-      trackers = await getAdapter().getTrackers();
+      await platformService.openExternal(url);
+    } catch {
+      try { window.open(url, "_blank", "noopener"); } catch { }
+    }
+  }
+
+  async function copyAuth(url: string) {
+    try { await navigator.clipboard.writeText(url); addToast({ kind: "success", title: "Link copied" }); }
+    catch { }
+  }
+
+  async function submitToken(key: string) {
+    const raw = (drafts[key] ?? "").trim();
+    if (!raw) return;
+    setBusy(key, true);
+    try {
+      const updated = await tsunagu.trackerLogin(key, raw);
+      trackerState.patch(updated);
+      setDraft(key, "");
+      addToast({ kind: "success", title: `${updated.name} connected`, body: updated.username ?? "" });
     } catch (e: any) {
-      trackersError = e?.message ?? "Failed to load trackers";
-    } finally { trackersLoading = false; }
+      addToast({ kind: "error", title: "Couldn't connect", body: e?.message ?? String(e) });
+    } finally {
+      setBusy(key, false);
+    }
   }
 
-  async function startOAuth(tracker: Tracker) {
-    if (!tracker.authUrl) return;
-    oauthTrackerId = tracker.id; oauthCallbackInput = "";
-    await platformService.openExternal(tracker.authUrl);
-  }
-
-  async function submitOAuth() {
-    if (!oauthTrackerId || !oauthCallbackInput.trim()) return;
-    oauthSubmitting = true; oauthError = null;
-    try {
-      await getAdapter().loginTrackerOAuth(oauthTrackerId, oauthCallbackInput.trim());
-      await loadTrackers();
-      oauthTrackerId = null; oauthCallbackInput = "";
-    } catch (e: any) {
-      oauthError = e?.message ?? "Login failed";
-    } finally { oauthSubmitting = false; }
-  }
-
-  function cancelOAuth() { oauthTrackerId = null; oauthCallbackInput = ""; oauthError = null; }
-
-  function startCredentials(tracker: Tracker) { credsTrackerId = tracker.id; credsUsername = ""; credsPassword = ""; }
-
-  async function submitCredentials() {
-    if (!credsTrackerId || !credsUsername.trim() || !credsPassword.trim()) return;
-    credsSubmitting = true; credsError = null;
-    try {
-      await getAdapter().loginTrackerCredentials(credsTrackerId, credsUsername.trim(), credsPassword.trim());
-      await loadTrackers();
-      credsTrackerId = null; credsUsername = ""; credsPassword = "";
-    } catch (e: any) {
-      credsError = e?.message ?? "Login failed";
-    } finally { credsSubmitting = false; }
-  }
-
-  function cancelCredentials() { credsTrackerId = null; credsUsername = ""; credsPassword = ""; credsError = null; }
-
-  async function logoutTracker(trackerId: number) {
-    loggingOut = trackerId;
-    try {
-      await getAdapter().logoutTracker(trackerId);
-      await loadTrackers();
-    } catch (e: any) {
-      trackersError = e?.message ?? "Logout failed";
-    } finally { loggingOut = null; }
-  }
-
-  function focusEl(node: HTMLElement) { setTimeout(() => node.focus(), 0); }
-
-  async function runSyncAll() {
-    syncing = true;
-    try {
-      const adapter = getAdapter();
-
-      if (trackingState.allTrackers.length === 0) await trackingState.loadAll();
-      const loggedIn = trackingState.allTrackers.filter((t) => t.isLoggedIn);
-
-      let totalMarked = 0;
-
-      for (const tracker of loggedIn) {
-        for (const record of tracker.trackRecords.nodes as TrackRecord[]) {
-          if (!record.manga?.id) continue;
-          const mangaId  = record.manga.id;
-          const chapters = await adapter.getChapters(String(mangaId));
-          const prefs    = (settings.mangaPrefs?.[mangaId] ?? {}) as ChapterDisplayPrefs;
-
-          const markedIds = await syncBackFromTracker(
-            [record],
-            chapters,
-            {
-              threshold:              settings.trackerSyncBackThreshold ?? null,
-              respectScanlatorFilter: settings.trackerRespectScanlatorFilter ?? true,
-              chapterPrefs:           prefs,
-            },
-            adapter.markChaptersRead.bind(adapter),
-          );
-          totalMarked += markedIds.length;
-        }
+  async function authorize(key: string, url: string) {
+    await openAuth(url);
+    polling = { ...polling, [key]: true };
+    const until = Date.now() + 120_000;
+    while (alive && polling[key] && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 2500));
+      if (!alive || !polling[key]) break;
+      await trackerState.load(true);
+      if (trackerState.byKey(key)?.isLoggedIn) {
+        addToast({ kind: "success", title: `${trackerState.byKey(key)?.name ?? "Tracker"} connected` });
+        break;
       }
+    }
+    polling = { ...polling, [key]: false };
+  }
 
-      toast({ kind: "success", message: "Sync complete", detail: `${totalMarked} chapter${totalMarked !== 1 ? "s" : ""} marked read` });
+  async function disconnect(key: string) {
+    setBusy(key, true);
+    try {
+      await tsunagu.trackerLogout(key);
+      await trackerState.load(true);
     } catch (e: any) {
-      toast({ kind: "error", message: "Sync failed", detail: e?.message });
-    } finally { syncing = false; }
+      addToast({ kind: "error", title: "Couldn't disconnect", body: e?.message ?? String(e) });
+    } finally {
+      setBusy(key, false);
+    }
   }
 </script>
 
 <div class="s-panel">
-
   <div class="s-section">
-    <p class="s-section-title">Connected Trackers</p>
+    <div class="s-section-title">
+      <span>Tracking services</span>
+      <button class="trk-reload" title="Reload" onclick={() => trackerState.load(true)} aria-label="Reload">
+        <ArrowClockwise size={13} weight="regular" class={trackerState.loading ? "anim-spin" : ""} />
+      </button>
+    </div>
+
     <div class="s-section-body">
-      {#if trackersError}
-        <div class="s-banner s-banner-error s-banner-dismissible" onclick={() => trackersError = null} role="button" tabindex="0" onkeydown={(e) => e.key === "Enter" && (trackersError = null)}>{trackersError}</div>
-      {/if}
-      {#if trackersLoading}
-        <p class="s-empty">Loading trackers…</p>
+      {#if trackerState.loading && trackerState.list.length === 0}
+        <p class="s-empty"><CircleNotch size={14} weight="light" class="anim-spin" /> Loading…</p>
+      {:else if trackerState.error}
+        <p class="s-empty" style="color:var(--color-error)">{trackerState.error}</p>
+      {:else if trackerState.list.length === 0}
+        <p class="s-empty">No tracking services available on this server.</p>
       {:else}
-        {#each trackers as tracker}
-          <div class="s-tracker-row" class:expanded={oauthTrackerId === tracker.id || credsTrackerId === tracker.id}>
-            <div class="s-tracker-identity">
-              <Thumbnail src={tracker.icon} alt={tracker.name} class="s-tracker-logo" />
-              <div class="s-row-info">
-                <span class="s-label">{tracker.name}</span>
-                <div class="s-tracker-status-row">
-                  <span class="s-pill" class:on={tracker.isLoggedIn && !tracker.isTokenExpired}>
-                    {tracker.isLoggedIn ? "Connected" : "Not connected"}
-                  </span>
-                  {#if tracker.isLoggedIn && tracker.isTokenExpired}
-                    <span class="s-pill s-pill-warn">Token expired — reconnect</span>
-                  {/if}
-                </div>
+        {#each trackerState.list as t (t.key)}
+          {@const isMal = t.key === "mal" || t.key === "myanimelist"}
+          <div class="trk">
+            <div class="trk-top">
+              <TrackerLogo trackerKey={t.key} iconUrl={t.iconUrl} size={22} />
+              <div class="trk-id">
+                <span class="trk-name">{t.name}</span>
+                {#if !isMal && t.isLoggedIn && t.username}
+                  <span class="trk-user">Signed in as {t.username}</span>
+                {/if}
               </div>
-            </div>
-            <div class="s-tracker-action">
-              {#if tracker.isLoggedIn && tracker.isTokenExpired}
-                <button class="s-btn s-btn-accent" onclick={() => tracker.authUrl ? startOAuth(tracker) : startCredentials(tracker)}>
-                  Reconnect
-                </button>
-                <button class="s-btn s-btn-danger" onclick={() => logoutTracker(tracker.id)} disabled={loggingOut === tracker.id}>
-                  {loggingOut === tracker.id ? "Disconnecting…" : "Disconnect"}
-                </button>
-              {:else if tracker.isLoggedIn}
-                <button class="s-btn s-btn-danger" onclick={() => logoutTracker(tracker.id)} disabled={loggingOut === tracker.id}>
-                  {loggingOut === tracker.id ? "Disconnecting…" : "Disconnect"}
-                </button>
-              {:else if oauthTrackerId !== tracker.id && credsTrackerId !== tracker.id}
-                <button class="s-btn" onclick={() => tracker.authUrl ? startOAuth(tracker) : startCredentials(tracker)}>
-                  {tracker.authUrl ? "Connect via browser →" : "Connect"}
-                </button>
+              {#if isMal}
+                <span class="trk-badge trk-badge-off">Coming soon</span>
+              {:else if !t.configured}
+                <span class="trk-badge trk-badge-off">Not configured</span>
+              {:else if t.isLoggedIn}
+                <span class="trk-badge trk-badge-on"><CheckCircle size={11} weight="fill" /> Connected</span>
+              {:else}
+                <span class="trk-badge">Not connected</span>
               {/if}
             </div>
-            {#if oauthTrackerId === tracker.id}
-              <div class="s-tracker-expand">
-                {#if oauthError}
-                  <div class="s-banner s-banner-error s-banner-dismissible" onclick={() => oauthError = null} role="button" tabindex="0" onkeydown={(e) => e.key === "Enter" && (oauthError = null)}>{oauthError}</div>
-                {/if}
-                <p class="s-oauth-hint">Browser opened {tracker.name} login — authorise then paste the callback URL below.</p>
-                <input class="s-input full" placeholder="https://suwayomi.org/tracker-oauth#access_token=…"
-                  bind:value={oauthCallbackInput}
-                  onkeydown={(e) => { if (e.key === "Enter") submitOAuth(); if (e.key === "Escape") cancelOAuth(); }}
-                  use:focusEl />
-                <div class="s-oauth-btns">
-                  <button class="s-btn s-btn-accent" onclick={submitOAuth} disabled={oauthSubmitting || !oauthCallbackInput.trim()}>
-                    {oauthSubmitting ? "Connecting…" : "Connect"}
-                  </button>
-                  <button class="s-btn" onclick={cancelOAuth}>Cancel</button>
-                </div>
+
+            {#if isMal}
+              <p class="s-desc">MyAnimeList sync is not available yet.</p>
+
+            {:else if !t.configured}
+              <p class="s-desc">No OAuth client for {t.name}. An operator sets <code>TSUNAGU_ANILIST_CLIENT_ID</code> and restarts Tsunagu.</p>
+
+            {:else if t.isLoggedIn}
+              <div class="trk-actions">
+                <button class="s-btn s-btn-danger" disabled={busy[t.key]} onclick={() => disconnect(t.key)}>
+                  <LinkBreak size={12} weight="light" /> Disconnect
+                </button>
               </div>
-            {/if}
-            {#if credsTrackerId === tracker.id}
-              <div class="s-tracker-expand">
-                {#if credsError}
-                  <div class="s-banner s-banner-error s-banner-dismissible" onclick={() => credsError = null} role="button" tabindex="0" onkeydown={(e) => e.key === "Enter" && (credsError = null)}>{credsError}</div>
-                {/if}
-                <input class="s-input full" placeholder="Username / Email" bind:value={credsUsername}
-                  onkeydown={(e) => e.key === "Escape" && cancelCredentials()} use:focusEl />
-                <input class="s-input full" type="password" placeholder="Password" bind:value={credsPassword}
-                  onkeydown={(e) => { if (e.key === "Enter") submitCredentials(); if (e.key === "Escape") cancelCredentials(); }} />
-                <div class="s-oauth-btns">
-                  <button class="s-btn s-btn-accent" onclick={submitCredentials} disabled={credsSubmitting || !credsUsername.trim() || !credsPassword.trim()}>
-                    {credsSubmitting ? "Connecting…" : "Connect"}
+
+            {:else}
+              <p class="s-desc">Open the authorization page and approve access. If it does not finish on its own, paste the token or redirected URL below.</p>
+              <div class="trk-connect">
+                <div class="trk-row">
+                  {#if polling[t.key]}
+                    <button class="s-btn s-btn-accent" onclick={() => (polling = { ...polling, [t.key]: false })}>
+                      <CircleNotch size={12} weight="light" class="anim-spin" /> Waiting… cancel
+                    </button>
+                  {:else}
+                    <button class="s-btn s-btn-accent" onclick={() => t.authUrl && authorize(t.key, t.authUrl)} disabled={!t.authUrl}>
+                      <ArrowSquareOut size={12} weight="light" /> Authorize {t.name}
+                    </button>
+                  {/if}
+                  {#if t.authUrl}
+                    <button class="s-btn trk-icon-btn" title="Copy link" onclick={() => copyAuth(t.authUrl!)} aria-label="Copy authorization link">
+                      <Copy size={12} weight="light" />
+                    </button>
+                  {/if}
+                </div>
+                <div class="trk-row">
+                  <input
+                    class="s-input full mono"
+                    placeholder="Paste token or redirect URL"
+                    value={drafts[t.key] ?? ""}
+                    oninput={(e) => setDraft(t.key, (e.currentTarget as HTMLInputElement).value)}
+                    onkeydown={(e) => { if (e.key === "Enter") submitToken(t.key); }}
+                  />
+                  <button class="s-btn s-btn-accent" disabled={busy[t.key] || !(drafts[t.key] ?? "").trim()} onclick={() => submitToken(t.key)}>
+                    {busy[t.key] ? "…" : "Connect"}
                   </button>
-                  <button class="s-btn" onclick={cancelCredentials}>Cancel</button>
                 </div>
               </div>
             {/if}
@@ -210,73 +166,50 @@
       {/if}
     </div>
   </div>
-
-  <div class="s-section">
-    <p class="s-section-title">Sync back from tracker</p>
-    <div class="s-row">
-      <div class="s-row-info">
-        <span class="s-label">Enable sync back</span>
-        <span class="s-desc">Mark chapters read locally based on tracker progress</span>
-      </div>
-      <button class="s-toggle" class:on={settings.trackerSyncBack}
-        onclick={() => updateSettings({ trackerSyncBack: !settings.trackerSyncBack })}
-        role="switch" aria-checked={settings.trackerSyncBack} aria-label="Enable sync back">
-        <span class="s-toggle-thumb"></span>
-      </button>
-    </div>
-
-    {#if settings.trackerSyncBack}
-      <label class="s-row">
-        <div class="s-row-info">
-          <span class="s-label">Chapter number tolerance</span>
-          <span class="s-desc">Allow source and tracker chapter numbers to differ by up to the set amount. When off, the tracker number is used as-is with no range check.</span>
-        </div>
-        <button role="switch" aria-checked={settings.trackerSyncBackThreshold !== null} aria-label="Chapter number tolerance" class="s-toggle" class:on={settings.trackerSyncBackThreshold !== null}
-          onclick={() => updateSettings({ trackerSyncBackThreshold: settings.trackerSyncBackThreshold !== null ? null : 20 })}>
-          <span class="s-toggle-thumb"></span>
-        </button>
-      </label>
-      {#if settings.trackerSyncBackThreshold !== null}
-        <div class="s-row">
-          <div class="s-row-info"><span class="s-label">Tolerance</span><span class="s-desc">Max chapter number difference allowed (1–20)</span></div>
-          <div class="s-stepper">
-            <button class="s-step-btn" onclick={() => updateSettings({ trackerSyncBackThreshold: Math.max(1, (settings.trackerSyncBackThreshold ?? 20) - 1) })}>−</button>
-            <span class="s-step-val">{settings.trackerSyncBackThreshold}</span>
-            <button class="s-step-btn" onclick={() => updateSettings({ trackerSyncBackThreshold: Math.min(20, (settings.trackerSyncBackThreshold ?? 20) + 1) })}>+</button>
-          </div>
-        </div>
-      {/if}
-
-      <div class="s-row">
-        <div class="s-row-info">
-          <span class="s-label">Respect scanlator filter</span>
-          <span class="s-desc">Only mark chapters matching the series' active scanlator filter</span>
-        </div>
-        <button class="s-toggle" class:on={settings.trackerRespectScanlatorFilter}
-          onclick={() => updateSettings({ trackerRespectScanlatorFilter: !settings.trackerRespectScanlatorFilter })}
-          role="switch" aria-checked={settings.trackerRespectScanlatorFilter} aria-label="Respect scanlator filter">
-          <span class="s-toggle-thumb"></span>
-        </button>
-      </div>
-
-      <div class="s-row">
-        <div class="s-row-info">
-          <span class="s-label">Sync now</span>
-          <span class="s-desc">Apply tracker progress to all linked manga in your library</span>
-        </div>
-        <button class="s-btn" onclick={runSyncAll} disabled={syncing}>
-          {syncing ? "Syncing…" : "Sync all"}
-        </button>
-      </div>
-    {/if}
-  </div>
-
 </div>
 
 <style>
-  .s-tracker-status-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .s-tracker-status-row .s-pill { border-radius: 4px; }
-  .s-pill-warn { background: color-mix(in srgb, var(--color-warn, #c97c2b) 15%, transparent); color: var(--color-warn, #c97c2b); border-color: color-mix(in srgb, var(--color-warn, #c97c2b) 35%, transparent); }
-  .s-banner-dismissible { cursor: pointer; max-height: 8rem; overflow-y: auto; }
-  .s-banner-dismissible:hover { opacity: 0.85; }
+  .trk-reload {
+    display: flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; margin: -4px 0; border-radius: var(--radius-sm);
+    border: none; background: none; color: var(--text-faint); cursor: pointer;
+    transition: color var(--t-fast), background var(--t-fast);
+  }
+  .trk-reload:hover { color: var(--text-primary); background: var(--bg-surface); }
+
+  .trk {
+    display: flex; flex-direction: column; gap: var(--sp-3);
+    padding: var(--sp-4);
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .trk:last-child { border-bottom: none; }
+
+  .trk-top { display: flex; align-items: center; gap: var(--sp-3); }
+  .trk-id  { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+  .trk-name { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); }
+  .trk-user {
+    font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint);
+    letter-spacing: var(--tracking-wide);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .trk-badge {
+    display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+    font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide);
+    padding: 3px 8px; border-radius: var(--radius-full);
+    background: var(--bg-surface); color: var(--text-faint); border: 1px solid var(--border-dim);
+  }
+  .trk-badge-on  { color: var(--accent-fg); background: var(--accent-muted); border-color: var(--accent-dim); }
+  .trk-badge-off { color: var(--text-faint); }
+
+  .trk-connect { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .trk-row     { display: flex; align-items: center; gap: var(--sp-2); }
+  .trk-actions { display: flex; }
+  .trk-icon-btn { padding: 5px 10px; }
+
+  .s-desc code {
+    font-family: var(--font-mono, monospace); font-size: 0.9em;
+    background: var(--bg-surface); border: 1px solid var(--border-dim);
+    border-radius: 3px; padding: 0 3px;
+  }
 </style>

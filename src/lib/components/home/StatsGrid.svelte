@@ -1,15 +1,15 @@
 <script lang="ts">
-  import { Fire, BookOpen, Clock, TrendUp, Bell, CalendarBlank } from 'phosphor-svelte'
-  import { formatReadTime } from '$lib/components/home/lib/homeHelpers'
+  import { Fire, BookOpen, Clock, TrendUp, CalendarBlank, CalendarCheck } from 'phosphor-svelte'
+  import { formatReadTime } from '$lib/core/util'
   import type { ReadingStats } from '$lib/types/history'
 
-  let {
-    stats,
-    updateCount,
-  }: {
-    stats:       ReadingStats
-    updateCount: number
-  } = $props()
+  let { stats }: { stats: ReadingStats } = $props()
+
+  const firstReadLabel = $derived(
+    stats.firstReadAt
+      ? new Date(stats.firstReadAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+      : '—'
+  )
 </script>
 
 <div class="col">
@@ -46,10 +46,10 @@
       </div>
     </div>
     <div class="card">
-      <div class="icon-wrap green"><Bell size={15} weight="light" /></div>
+      <div class="icon-wrap green"><CalendarCheck size={15} weight="light" /></div>
       <div class="body">
-        <span class="val">{updateCount}</span>
-        <span class="label">New updates</span>
+        <span class="val">{firstReadLabel}</span>
+        <span class="label">Reading since</span>
       </div>
     </div>
     <div class="card">

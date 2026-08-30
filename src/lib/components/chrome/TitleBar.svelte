@@ -38,12 +38,6 @@
   })
 
   async function doQuit() {
-    if (settingsState.settings.autoStartServer) {
-      await Promise.race([
-        invoke('kill_server').catch(() => {}),
-        new Promise(res => setTimeout(res, 2000)),
-      ])
-    }
     await invoke('exit_app')
   }
 

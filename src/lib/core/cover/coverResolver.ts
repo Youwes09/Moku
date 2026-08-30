@@ -3,10 +3,10 @@ import { seriesState }   from '$lib/state/series.svelte'
 import { searchWithScore } from '$lib/core/algorithms/search'
 import { getHash, areDuplicates } from '$lib/core/cover/coverHash'
 
-type CoverManga = { id: number; thumbnailUrl: string; source?: { displayName: string } | null }
+type CoverManga = { id: string; thumbnailUrl: string; source?: { displayName: string } | null }
 
 export type CoverCandidate = {
-  mangaId: number
+  mangaId: string
   url: string
   label: string
   isActive: boolean
@@ -24,15 +24,15 @@ function normalizeUrl(url: string): string {
   }
 }
 
-export function resolvedCover(mangaId: number, ownUrl: string): string {
+export function resolvedCover(mangaId: string, ownUrl: string): string {
   return settingsState.settings.mangaPrefs?.[mangaId]?.coverUrl ?? ownUrl
 }
 
 function fuzzyMatchIds(
-  mangaId: number,
+  mangaId: string,
   title: string,
-  mangaById: Map<number, CoverManga & { title: string }>,
-): number[] {
+  mangaById: Map<string, CoverManga & { title: string }>,
+): string[] {
   return searchWithScore(
     [...mangaById.values()].filter(m => m.id !== mangaId),
     title,
@@ -43,17 +43,17 @@ function fuzzyMatchIds(
 }
 
 export function coverCandidatesSync(
-  mangaId: number,
+  mangaId: string,
   title: string,
   ownUrl: string,
-  mangaById: Map<number, CoverManga & { title: string }>,
+  mangaById: Map<string, CoverManga & { title: string }>,
 ): CoverCandidate[] {
   const linkedIds = seriesState.settings.mangaLinks?.[mangaId] ?? []
   const fuzzyIds  = fuzzyMatchIds(mangaId, title, mangaById)
   const current   = settingsState.settings.mangaPrefs?.[mangaId]?.coverUrl ?? ownUrl
   const allIds    = Array.from(new Set([...linkedIds, ...fuzzyIds]))
 
-  const raw: { mangaId: number; url: string; label: string }[] = [
+  const raw: { mangaId: string; url: string; label: string }[] = [
     { mangaId, url: ownUrl, label: 'This source' },
     ...allIds.flatMap(id => {
       const m = mangaById.get(id)

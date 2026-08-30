@@ -1,240 +1,283 @@
-import type { DownloadStatus } from '$lib/types/api'
-import type { Manga, Chapter, Extension, Source, Tracker, TrackRecord, Category } from '$lib/types'
 
-export interface ServerConfig {
-  baseUrl: string
-  credentials?: { username: string; password: string }
+export type ContentType = 'NOVEL' | 'MANGA' | 'ANIME'
+
+export interface Repository {
+	id: string
+	indexUrl: string
+	name: string | null
+	contentType: ContentType
+	addedAt: string
+	lastSyncedAt: string | null
 }
 
-export type ServerStatus = 'connected' | 'disconnected' | 'error'
-
-export interface MangaFilters {
-  inLibrary?: boolean
-  status?: MangaStatus
-  tags?: string[]
-  unread?: boolean
-  sourceId?: string
+export interface Extension {
+	id: string
+	repositoryId: string
+	packageName: string
+	name: string
+	displayName: string
+	version: string
+	contentType: ContentType
+	lang: string
+	iconUrl: string | null
+	isNsfw: boolean
+	supportsLatest: boolean
+	apkUrl: string | null
+	jarUrl: string | null
+	jarPath: string | null
+	installed: boolean
+	enabled: boolean
+	discoveredAt: string
+	installedAt: string | null
+	installedVersion: string | null
+	needsUpdate: boolean | null
 }
 
-export type MangaStatus =
-  | 'ONGOING'
-  | 'COMPLETED'
-  | 'LICENSED'
-  | 'PUBLISHING_FINISHED'
-  | 'CANCELLED'
-  | 'ON_HIATUS'
-
-export interface PaginatedResult<T> {
-  items: T[]
-  hasNextPage: boolean
-  total?: number
+export interface LibraryEntry {
+	id: string
+	extensionId: string | null
+	extensionName: string
+	externalId: string
+	contentType: ContentType
+	title: string
+	thumbnailUrl: string | null
+	inLibrary: boolean
+	description: string | null
+	status: string | null
+	author: string | null
+	artist: string | null
+	extensionRemovedAt: string | null
+	addedAt: string
+	unreadCount: number
+	downloadCount: number
+	chapterCount?: number
+	latestChapter?: { number: number | null; uploadedAt: string | null } | null
+	sourceName?: string
+	source: Extension | null
+	chapters: Chapter[]
+	readingProgress: ReadingProgress[]
+	tags: string[]
+	genres: string[]
+	folders: Folder[]
+	trackLinks?: TrackLink[]
 }
 
-export interface MangaMeta {
-  customTitle?: string
-  customCover?: string
-  notes?: string
-  [key: string]: unknown
+export interface Chapter {
+	id: string
+	mediaId: string | null
+	externalId: string
+	title: string | null
+	number: number | null
+	scanlator: string | null
+	sourceOrder: number | null
+	uploadedAt: string | null
+	completed: boolean
+	downloaded: boolean
+	readingProgress: ReadingProgress | null
+	download: Download | null
+	pages: string[] | null
+	pageCount: number | null
+	videoUrl: string | null
 }
 
-export interface Page {
-  index: number
-  url: string
-  imageData?: string
+export type DownloadStatus = 'QUEUED' | 'DOWNLOADING' | 'DONE' | 'FAILED'
+
+export interface Download {
+	id: string
+	mediaId: string
+	chapterId: string
+	chapter: Chapter
+	status: DownloadStatus
+	progress: number
+	downloadedBytes: number | null
+	bytesPerSec: number | null
+	finalSizeBytes: number | null
+	error: string | null
+	createdAt: string
+	completedAt: string | null
+}
+
+export interface DownloaderStatus {
+	isRunning: boolean
+	queuedCount: number
+	downloadingCount: number
+	failedCount: number
+}
+
+export interface ReadingProgress {
+	id: string
+	mediaId: string
+	chapterId: string
+	progress: number
+	completed: boolean
+	positionSeconds: number | null
+	durationSeconds: number | null
+	updatedAt: string
+}
+
+export interface SearchResult {
+	id: string
+	externalId: string
+	title: string
+	thumbnailUrl: string | null
+	inLibrary: boolean
+	status: string | null
+	genres: string[]
+}
+
+export interface SearchResponse {
+	results: SearchResult[]
+	hasNextPage: boolean
+}
+
+export interface MangaInfo {
+	id:            string | null
+	extensionId:   string | null
+	externalId:    string
+	contentType:   ContentType
+	title:         string
+	description:   string | null
+	thumbnailUrl:  string | null
+	status:        string | null
+	author:        string | null
+	artist:        string | null
+	genres:        string[]
+	tags:          string[]
+	inLibrary:     boolean
+	chapterCount:  number
+	unreadCount:   number
+	downloadCount: number
+	chapters?:     Chapter[]
+	sourceName?:   string | null
+	source?:       { id: string; displayName: string; iconUrl: string | null } | null
+}
+
+export interface SourceDetails {
+	sourceEntryId: string
+	title: string
+	description: string | null
+	coverUrl: string | null
+	status: string | null
+	authors: string[]
+	artists: string[]
+	genres: string[]
+	mediaId: string | null
 }
 
 export interface AboutServer {
-  name:      string
-  version:   string
-  buildType: string
-  buildTime: number
-  github:    string
-  discord:   string
+	name: string
+	version: string
+	buildTime: string
 }
 
-export interface AboutWebUI {
-  channel:         string
-  tag:             string
-  updateTimestamp: number
+export interface StorageInfo {
+	usedBytes: number
+	totalBytes: number
+	freeBytes: number
 }
 
-export interface DownloadItem {
-  chapterId: string
-  mangaId: string
-  chapterName: string
-  mangaTitle: string
-  thumbnailUrl?: string
-  progress: number
-  state: 'queued' | 'downloading' | 'finished' | 'error'
+export interface Folder {
+	id: string
+	name: string
+	kind: string
+	systemKey: string | null
+	parentFolderId: string | null
+	sortOrder: number
+	includeInUpdate: boolean
+	includeInDownload: boolean
+}
+export interface PreviewChapter {
+	externalId:  string
+	title:       string | null
+	number:      number | null
+	sourceOrder: number | null
+	uploadedAt:  string | null
 }
 
-export interface UpdateResult {
-  mangaId: string
-  newChapters: number
+export interface RecentChapter {
+	chapter: Chapter
+	mediaId: string
+	libraryEntryTitle: string
+	libraryEntryCoverPath: string | null
+	contentType: ContentType
 }
 
-export interface LibraryUpdateProgress {
-  isRunning: boolean
-  finishedJobs: number
-  totalJobs: number
-  lastUpdated?: number
+export interface Tracker {
+	key: string
+	name: string
+	configured: boolean
+	isLoggedIn: boolean
+	authUrl: string | null
+	iconUrl: string | null
+	username: string | null
+	scoreOptions: string[]
+	statusOptions: { value: number; name: string; animeName: string }[]
 }
 
-export interface ServerSecurity {
-  authMode: string
-  authUsername: string
-  socksProxyEnabled: boolean
-  socksProxyHost: string
-  socksProxyPort: string
-  socksProxyVersion: number
-  socksProxyUsername: string
-  flareSolverrEnabled: boolean
-  flareSolverrUrl: string
-  flareSolverrTimeout: number
-  flareSolverrSessionName: string
-  flareSolverrSessionTtl: number
-  flareSolverrAsResponseFallback: boolean
+export interface TrackSearchResult {
+	remoteId: string
+	title: string
+	url: string
+	coverUrl: string | null
+	summary: string | null
+	totalChapters: number | null
+	publishingStatus: string | null
+	mediaType?: string | null
 }
 
-export interface SetServerAuthInput {
-  authMode: string
-  authUsername: string
-  authPassword: string
+export interface TrackLink {
+	id: string
+	mediaId: string
+	trackerKey: string
+	remoteId: string
+	title: string
+	url: string
+	status: number
+	statusName: string
+	lastChapterRead: number
+	totalChapters: number
+	score: number
+	startedAt: string | null
+	finishedAt: string | null
+	private: boolean
+	lastSyncedAt: string | null
 }
 
-export interface SetSocksProxyInput {
-  socksProxyEnabled: boolean
-  socksProxyHost: string
-  socksProxyPort: string
-  socksProxyVersion: number
-  socksProxyUsername: string
-  socksProxyPassword: string
+export interface LibraryUpdateStatus {
+	running: boolean
+	total: number
+	done: number
+	currentTitle: string | null
+	newChapterCount: number
+	failedTitles: string[]
+	startedAt: string | null
+	finishedAt: string | null
 }
 
-export interface SetFlareSolverrInput {
-  flareSolverrEnabled: boolean
-  flareSolverrUrl: string
-  flareSolverrTimeout: number
-  flareSolverrSessionName: string
-  flareSolverrSessionTtl: number
-  flareSolverrAsResponseFallback: boolean
+export interface HeaderFilter    { __typename: 'HeaderFilter'; name: string }
+export interface SeparatorFilter { __typename: 'SeparatorFilter'; name: string }
+export interface SelectFilter    { __typename: 'SelectFilter'; name: string; values: string[]; state: number }
+export interface TextFilter      { __typename: 'TextFilter'; name: string; state: string }
+export interface CheckBoxFilter  { __typename: 'CheckBoxFilter'; name: string; state: boolean }
+export interface TriStateFilter  { __typename: 'TriStateFilter'; name: string; state: number }
+export interface SortFilter      { __typename: 'SortFilter'; name: string; values: string[]; hasState: boolean; index: number | null; ascending: boolean | null }
+export interface GroupFilter     { __typename: 'GroupFilter'; name: string; children: FilterNode[] }
+
+export type FilterNode =
+	| HeaderFilter | SeparatorFilter | SelectFilter | TextFilter
+	| CheckBoxFilter | TriStateFilter | SortFilter | GroupFilter
+
+export interface SourcePreference {
+	key: string
+	title: string
 }
 
-export interface TrackRecordPatch {
-  status?:          number
-  score?:           number
-  lastChapterRead?: number
-  startDate?:       string
-  finishDate?:      string
-  private?:         boolean
-}
-
-export interface RestoreStatus {
-  mangaProgress: number
-  state:         string
-  totalManga:    number
-}
-
-export interface ValidateBackupResult {
-  missingSources: { id: string; name: string }[]
-  missingTrackers: { name: string }[]
-}
-
-export interface ServerAdapter {
-  connect(config: ServerConfig): Promise<void>
-  getStatus(): Promise<ServerStatus>
-  getServerUrl(): string
-
-  getManga(id: string, signal?: AbortSignal): Promise<Manga>
-  getMangaList(filters: MangaFilters): Promise<PaginatedResult<Manga>>
-  getMangasByGenre(filter: Record<string, unknown>, first: number, offset: number, signal?: AbortSignal): Promise<{ items: Manga[]; hasNextPage: boolean; totalCount: number }>
-  searchManga(query: string, sourceId?: string): Promise<Manga[]>
-  searchSource(sourceId: string, query: string, page?: number, signal?: AbortSignal): Promise<PaginatedResult<Manga>>
-  fetchManga(id: string): Promise<Manga>
-  addToLibrary(mangaId: string): Promise<void>
-  removeFromLibrary(mangaId: string): Promise<void>
-  updateMangas(ids: string[], patch: { inLibrary?: boolean }): Promise<void>
-  updateMangaMeta(id: string, meta: Partial<MangaMeta>): Promise<void>
-  deleteMangaMeta(id: string, key: string): Promise<void>
-
-  getChapters(mangaId: string, signal?: AbortSignal): Promise<Chapter[]>
-  getChapter(id: string): Promise<Chapter>
-  getChapterPages(id: string, signal?: AbortSignal): Promise<Page[]>
-  fetchChapters(mangaId: string, signal?: AbortSignal): Promise<Chapter[]>
-  getRecentlyUpdated(): Promise<Chapter[]>
-  markChapterRead(id: string, read: boolean): Promise<void>
-  markChaptersRead(ids: string[], read: boolean): Promise<void>
-  updateChaptersProgress(ids: string[], patch: { isRead?: boolean; isBookmarked?: boolean; lastPageRead?: number }): Promise<void>
-  deleteDownloadedChapters(ids: string[]): Promise<void>
-  setChapterMeta(chapterId: string, key: string, value: string): Promise<void>
-  deleteChapterMeta(chapterId: string, key: string): Promise<void>
-
-  getAboutServer(): Promise<AboutServer>
-  getAboutWebUI():  Promise<AboutWebUI>
-
-  getDownloads(): Promise<DownloadItem[]>
-  getDownloadStatus(): Promise<DownloadStatus>
-  enqueueDownload(chapterId: string): Promise<void>
-  enqueueDownloads(chapterIds: string[]): Promise<void>
-  dequeueDownload(chapterId: string): Promise<void>
-  dequeueDownloads(chapterIds: string[]): Promise<void>
-  reorderDownload(chapterId: string, to: number): Promise<DownloadStatus | null>
-  clearDownloads(): Promise<void>
-  startDownloader(): Promise<DownloadStatus | null>
-  stopDownloader(): Promise<DownloadStatus | null>
-
-  getExtensions(): Promise<Extension[]>
-  installExtension(id: string): Promise<void>
-  uninstallExtension(id: string): Promise<void>
-  updateExtension(id: string): Promise<void>
-  updateExtensions(ids: string[]): Promise<void>
-  installExternalExtension(url: string): Promise<void>
-  getExtensionRepos(): Promise<string[]>
-  setExtensionRepos(repos: string[]): Promise<string[]>
-
-  getSources(): Promise<Source[]>
-  browseSource(sourceId: string, page: number): Promise<PaginatedResult<Manga>>
-  getSourceSettings(sourceId: string): Promise<unknown[]>
-  updateSourcePreference(sourceId: string, position: number, changeType: string, value: unknown): Promise<unknown[]>
-
-  getCategories(): Promise<Category[]>
-  createCategory(name: string): Promise<Category>
-  deleteCategory(id: number): Promise<void>
-  updateCategoryOrder(id: number, position: number): Promise<Category[]>
-  updateMangaCategories(mangaId: string, addTo: number[], removeFrom: number[]): Promise<void>
-  updateMangasCategories(mangaIds: string[], addTo: number[], removeFrom: number[]): Promise<void>
-  updateCategoryManga(categoryId: number): Promise<void>
-
-  getTrackers(): Promise<Tracker[]>
-  getAllTrackerRecords(): Promise<unknown[]>
-  getMangaTrackRecords(mangaId: string): Promise<unknown[]>
-  searchTracker(trackerId: string, query: string): Promise<unknown[]>
-  linkTracker(mangaId: string, trackerId: string, remoteId: string): Promise<void>
-  unlinkTracker(recordId: string): Promise<void>
-  updateTrackRecord(recordId: string, patch: TrackRecordPatch): Promise<TrackRecord>
-  fetchTrackRecord(recordId: string): Promise<TrackRecord>
-  syncTracking(mangaId: string): Promise<void>
-  loginTrackerOAuth(trackerId: string, callbackUrl: string): Promise<void>
-  loginTrackerCredentials(trackerId: string, username: string, password: string): Promise<void>
-  logoutTracker(trackerId: string): Promise<void>
-
-  getServerSecurity(): Promise<ServerSecurity>
-  setServerAuth(input: SetServerAuthInput): Promise<void>
-  setSocksProxy(input: SetSocksProxyInput): Promise<void>
-  setFlareSolverr(input: SetFlareSolverrInput): Promise<void>
-
-  getDownloadsPath(): Promise<{ downloadsPath: string; localSourcePath: string }>
-  setDownloadsPath(path: string): Promise<void>
-  setLocalSourcePath(path: string): Promise<void>
-  createBackup(): Promise<{ url: string }>
-  restoreBackup(file: File): Promise<{ id: string; status: RestoreStatus }>
-  validateBackup(file: File): Promise<ValidateBackupResult>
-  pollRestoreStatus(id: string): Promise<RestoreStatus>
-  clearCachedImages(opts: { cachedPages: boolean; cachedThumbnails: boolean; downloadedThumbnails: boolean }): Promise<void>
-
-  checkForUpdates(mangaIds?: string[]): Promise<UpdateResult[]>
-  startLibraryUpdate(): Promise<void>
-  stopLibraryUpdate(): Promise<void>
-  getLibraryUpdateStatus(): Promise<LibraryUpdateProgress>
-  clearPageCache(chapterId?: number): void
+export interface FilterInput {
+	name: string
+	select?:   { state: number }
+	text?:     { state: string }
+	checkbox?: { state: boolean }
+	tristate?: { state: number }
+	group?:    { children: FilterInput[] }
+	sort?:     { hasState: boolean; index?: number | null; ascending?: boolean | null }
 }

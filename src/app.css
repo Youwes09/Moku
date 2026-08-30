@@ -36,6 +36,11 @@
   --dot-active:   var(--accent);
   --dot-inactive: var(--text-faint);
 
+  --frost-bg:     rgba(15, 15, 15, 0.72);
+  --frost-border: rgba(60, 60, 60, 0.55);
+  --frost-blur:   blur(20px) saturate(180%);
+  --frost-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 8px 28px rgba(0, 0, 0, 0.5);
+
   --t-fast: 0.08s ease;
   --t-base: 0.14s ease;
   --t-slow: 0.22s ease;
@@ -102,6 +107,11 @@ html, body {
   overflow: hidden;
   background: var(--bg-void);
   color: var(--text-primary);
+}
+
+.ui-unzoom { zoom: calc(1 / var(--ui-zoom-factor, 1)); }
+.ui-unzoom :where(.bar, .bottombar, .vbar-progress, .resume-banner, .msp, .dl-modal, .skip-btn, .skip-toast) {
+  zoom: var(--ui-zoom-factor, 1);
 }
 
 #svelte {

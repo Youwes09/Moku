@@ -13,7 +13,7 @@
 
 <br/>
 
-Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server). It wraps Suwayomi's GraphQL API in a lightweight Tauri app — no Electron overhead.
+Moku is a fast, minimal manga, novel and anime reader. It's a lightweight Tauri frontend for the [Tsunagu](https://github.com/moku-project/Tsunagu) backend — no Electron overhead. The desktop builds bundle Tsunagu and manage it for you.
 
 ---
 
@@ -40,15 +40,16 @@ Moku is a fast, minimal manga reader frontend for [Suwayomi-Server](https://gith
 
 ## Features
 
-- **Library management** — organize manga into folders, track unread counts, filter by genre
+- **Manga, novels and anime** — one library, one reader shell; the right viewer (pages, scrolling text, or video player) mounts per title
+- **Library management** — organize titles into folders, track unread counts, filter by genre
 - **Per-folder sorting & filtering** — each folder has its own independent sort (unread, A–Z, recently read, latest chapter, and more) and publication status filter (Ongoing, Completed, Hiatus, etc.)
-- **Built-in reader** — single page, long strip, configurable fit modes, customizable keybinds
-- **Markers** — pin color-coded notes to any page while reading; markers appear as dots on the progress bar and are browseable under Series Detail → Manage → Markers
-- **Extension support** — install and manage Suwayomi extensions directly from the app
+- **Built-in reader** — single page, long strip, configurable fit modes, customizable keybinds; AniSkip intro/outro markers for anime
+- **Tracking** — link titles to AniList, two-way progress sync
+- **Extension support** — install and manage source extensions directly from the app
 - **Download management** — queue and monitor chapter downloads with progress toasts
 - **Automation** — pre-download titles automatically and optionally delete chapters after reading (accessible from Series Detail)
-- **Discord Rich Presence** — shows manga title, current chapter, and elapsed timer in your Discord status; configurable in Settings → General
-- **Auto-start server** — optionally launch Suwayomi in the background on startup
+- **Discord Rich Presence** — shows title, current chapter, and elapsed timer in your Discord status; configurable in Settings → General
+- **Bundled backend** — the desktop app launches and supervises Tsunagu for you; no separate install
 - **Multiple themes** — Dark, Light, Midnight, Warm, High Contrast, and more
 - **Auto-updates** — in-app update checker with silent background notifications
 - **Improved NSFW filtering** — expanded tag parser gives the Hide NSFW setting better coverage across sources
@@ -75,23 +76,9 @@ winget install Moku.Moku
 
 > Thanks to [@frozenKelp](https://github.com/frozenKelp) for setting up and maintaining the winget package through v0.9.0.
 
-Or download the `.exe` installer from the [releases page](https://github.com/moku-project/Moku/releases/latest). Suwayomi-Server and a JRE are bundled.
+Or download the `.exe` installer from the [releases page](https://github.com/moku-project/Moku/releases/latest). The Tsunagu backend and a JRE are bundled.
 
-### Linux (Flatpak, recommended)
-
-Suwayomi-Server and a bundled JRE are included — no separate install needed.
-
-```bash
-flatpak install io.github.moku_project.Moku
-```
-
-Or download the latest `moku.flatpak` from the [releases page](https://github.com/moku-project/Moku/releases/latest) and install manually:
-
-```bash
-flatpak install moku.flatpak
-```
-
-### Nix
+### Linux (Nix)
 
 ```bash
 nix run github:moku-project/Moku
@@ -102,6 +89,8 @@ Add to your flake:
 ```nix
 inputs.moku.url = "github:moku-project/Moku";
 ```
+
+The Nix app pulls the Tsunagu backend from its flake and launches it for you. AppImage / deb packaging is a work in progress.
 
 ### macOS
 
@@ -116,9 +105,9 @@ Download the `.dmg` from the [releases page](https://github.com/moku-project/Mok
 
 ## Requirements
 
-If you're not using the bundled Flatpak or Windows installer, [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server) must be running separately. By default Moku connects to `http://127.0.0.1:4567`.
+The desktop and Nix builds bundle and launch [Tsunagu](https://github.com/moku-project/Tsunagu) automatically. To run against your own instance instead, start Tsunagu separately — Moku connects to `http://127.0.0.1:6007` by default.
 
-You can point Moku at any Suwayomi instance — local or remote — via **Settings → General → Server URL**.
+You can point Moku at any Tsunagu instance — local or remote — via **Settings → General → Server URL**.
 
 ---
 

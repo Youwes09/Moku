@@ -1,7 +1,7 @@
-import type { Manga }       from "$lib/types";
-import type { MangaStatus } from "$lib/server-adapters/types";
-import type { Category }    from "$lib/types";
+import type { Manga }  from "$lib/types";
+import type { Folder, LibraryEntry } from "$lib/server-adapters/types";
 import { settingsState, updateSettings } from "$lib/state/settings.svelte";
+import { tsunagu } from "$lib/server-adapters/tsunagu";
 
 export type LibrarySortOption =
   | "az"
@@ -27,8 +27,9 @@ export type LibraryStatusFilter =
   | "PUBLISHING_FINISHED";
 
 class LibraryState {
-  items      = $state<Manga[]>([]);
-  categories = $state<Category[]>([]);
+  items   = $state<Manga[]>([]);
+  folders = $state<Folder[]>([]);
+  folderMembership = $state<Record<string, Manga[]>>({});
   loading    = $state(false);
   error      = $state<string | null>(null);
   refreshing = $state(false);
@@ -41,49 +42,57 @@ class LibraryState {
 
   hiddenTabs            = $state<Set<string>>(new Set());
   pinnedTabOrder        = $state<string[]>([]);
-  defaultCategoryId     = $state<number | null>(null);
+  defaultFolderId       = $state<string | null>(null);
   showAllInSaved        = $state(true);
   hideCompletedInSaved  = $state(false);
-  categoryFrecency      = $state<Record<number, number>>({});
+  folderFrecency        = $state<Record<string, number>>({});
   viewMode              = $state<LibraryViewMode>("grid");
 
   filter = $state({ query: "" });
 
-  selected   = $state(new Set<number>());
+  selected   = $state(new Set<string>());
   selectMode = $state(false);
 
   refreshProgress   = $state({ finished: 0, total: 0 });
   refreshDone       = $state(false);
 
-  refreshingMangaId = $state<number | null>(null);
-  refreshingCatId   = $state<number | null>(null);
+  refreshingMangaId  = $state<string | null>(null);
+  refreshingFolderId = $state<string | null>(null);
 
   private tabInitialized = false;
 
   readonly COMPLETED_NAME = "Completed";
 
-  get completedCatId(): number | null {
-    return this.categories.find(c => c.name === this.COMPLETED_NAME && c.id !== 0)?.id ?? null;
+  get completedFolderId(): string | null {
+    return this.folders.find(f => f.name === this.COMPLETED_NAME)?.id ?? null;
   }
 
-  get categoryMangaMap(): Map<number, Manga[]> {
-    const map = new Map<number, Manga[]>();
-    for (const cat of this.categories) {
-      map.set(cat.id, (cat as any).mangas?.nodes ?? []);
+  get folderMangaMap(): Map<string, Manga[]> {
+    const map = new Map<string, Manga[]>();
+    for (const folder of this.folders) {
+      map.set(folder.id, this.folderMembership[folder.id] ?? []);
     }
     return map;
   }
 
+  get uncategorizedManga(): Manga[] {
+    const inAnyFolder = new Set<string>();
+    for (const mangas of Object.values(this.folderMembership)) {
+      for (const m of mangas) inAnyFolder.add(m.id);
+    }
+    return this.items.filter(m => m.inLibrary && !inAnyFolder.has(m.id));
+  }
+
   get allTabIds(): string[] {
-    const catIds  = this.categories.filter(c => c.id !== 0).map(c => String(c.id));
-    const BUILTIN = ["library", "downloaded"];
-    const known   = new Set([...BUILTIN, ...catIds]);
+    const folderIds = this.folders.map(f => f.id);
+    const BUILTIN    = ["library", "downloaded"];
+    const known      = new Set([...BUILTIN, ...folderIds]);
     const ordered: string[] = [];
     const inOrder = new Set<string>();
     for (const id of this.pinnedTabOrder) {
       if (known.has(id) && !inOrder.has(id)) { ordered.push(id); inOrder.add(id); }
     }
-    for (const id of [...BUILTIN, ...catIds]) {
+    for (const id of [...BUILTIN, ...folderIds]) {
       if (!inOrder.has(id)) { ordered.push(id); inOrder.add(id); }
     }
     return ordered;
@@ -93,28 +102,34 @@ class LibraryState {
     return this.allTabIds.filter(id => !this.hiddenTabs.has(id));
   }
 
-  get visibleCategories(): Category[] {
+  get visibleFolders(): Folder[] {
     const pinned   = this.pinnedTabOrder;
-    const defId    = this.defaultCategoryId;
-    const cats     = this.categories.filter(c => c.id !== 0 && !this.hiddenTabs.has(String(c.id)));
-    const pinOrder = (id: number) => { const i = pinned.indexOf(String(id)); return i === -1 ? Infinity : i; };
-    return [...cats].sort((a, b) => {
+    const defId    = this.defaultFolderId;
+    const folders  = this.folders.filter(f => !this.hiddenTabs.has(f.id));
+    const pinOrder = (id: string) => { const i = pinned.indexOf(id); return i === -1 ? Infinity : i; };
+    return [...folders].sort((a, b) => {
       if (a.id === defId) return -1;
       if (b.id === defId) return  1;
       const pd = pinOrder(a.id) - pinOrder(b.id);
-      return pd !== 0 ? pd : (a as any).order - (b as any).order;
+      return pd !== 0 ? pd : a.sortOrder - b.sortOrder;
     });
   }
 
+  private matchesContentType = (m: Manga): boolean => {
+    const ct = settingsState.settings.contentTypeFilter;
+    return !ct || ct === "all" || m.contentType === ct;
+  };
+
   get counts(): Record<string, number> {
+    const inType = (arr: Manga[]) => arr.filter(this.matchesContentType);
     const m: Record<string, number> = {
       library:    this.showAllInSaved
-        ? this.items.filter(x => x.inLibrary).length
-        : (this.categoryMangaMap.get(0) ?? []).length,
-      downloaded: this.items.filter(x => (x.downloadCount ?? 0) > 0).length,
+        ? inType(this.items.filter(x => x.inLibrary)).length
+        : inType(this.uncategorizedManga).length,
+      downloaded: inType(this.items.filter(x => (x.downloadCount ?? 0) > 0)).length,
     };
-    for (const cat of this.visibleCategories) {
-      m[String(cat.id)] = (this.categoryMangaMap.get(cat.id) ?? []).length;
+    for (const folder of this.visibleFolders) {
+      m[folder.id] = inType(this.folderMangaMap.get(folder.id) ?? []).length;
     }
     return m;
   }
@@ -126,20 +141,23 @@ class LibraryState {
     if (tab === "library") {
       items = this.showAllInSaved
         ? this.items.filter(m => m.inLibrary)
-        : (this.categoryMangaMap.get(0) ?? []);
+        : this.uncategorizedManga;
 
       if (this.showAllInSaved && this.hideCompletedInSaved) {
-        const completedCat = this.categories.find(c => c.name === this.COMPLETED_NAME);
-        if (completedCat) {
-          const completedIds = new Set((this.categoryMangaMap.get(completedCat.id) ?? []).map(m => m.id));
+        const completedFolder = this.folders.find(f => f.name === this.COMPLETED_NAME);
+        if (completedFolder) {
+          const completedIds = new Set((this.folderMangaMap.get(completedFolder.id) ?? []).map(m => m.id));
           items = items.filter(m => !completedIds.has(m.id));
         }
       }
     } else if (tab === "downloaded") {
       items = this.items.filter(m => (m.downloadCount ?? 0) > 0);
     } else {
-      items = this.categoryMangaMap.get(Number(tab)) ?? [];
+      items = this.folderMangaMap.get(tab) ?? [];
     }
+
+    const ct = settingsState.settings.contentTypeFilter;
+    if (ct && ct !== "all") items = items.filter(m => m.contentType === ct);
 
     const q = this.filter.query.trim().toLowerCase();
     if (q) items = items.filter(m => m.title.toLowerCase().includes(q));
@@ -216,7 +234,7 @@ class LibraryState {
   syncFromSettings(s: {
     hiddenLibraryTabs?:          string[];
     libraryPinnedTabOrder?:      string[];
-    defaultLibraryCategoryId?:   number | null;
+    defaultLibraryCategoryId?:   string | null;
     libraryShowAllInSaved?:      boolean;
     libraryHideCompletedInSaved?: boolean;
     libraryViewMode?:            LibraryViewMode;
@@ -226,7 +244,7 @@ class LibraryState {
   }) {
     if (s.hiddenLibraryTabs)                        this.hiddenTabs          = new Set(s.hiddenLibraryTabs);
     if (s.libraryPinnedTabOrder)                    this.pinnedTabOrder      = s.libraryPinnedTabOrder;
-    if (s.defaultLibraryCategoryId !== undefined)   this.defaultCategoryId   = s.defaultLibraryCategoryId ?? null;
+    if (s.defaultLibraryCategoryId !== undefined)   this.defaultFolderId    = s.defaultLibraryCategoryId ?? null;
     if (s.libraryShowAllInSaved !== undefined)       this.showAllInSaved      = s.libraryShowAllInSaved;
     if (s.libraryHideCompletedInSaved !== undefined) this.hideCompletedInSaved = s.libraryHideCompletedInSaved;
     if (s.libraryViewMode !== undefined)             this.viewMode            = s.libraryViewMode;
@@ -240,21 +258,30 @@ class LibraryState {
     updateSettings({ libraryViewMode: mode });
   }
 
-  setCategories(cats: Category[]) {
-    this.categories = cats;
+  setFolders(folders: Folder[]) {
+    this.folders = folders;
     if (!this.tabInitialized) {
       this.tabInitialized = true;
-      if (this.defaultCategoryId !== null && cats.some(c => c.id === this.defaultCategoryId)) {
-        this.tab = String(this.defaultCategoryId);
+      if (this.defaultFolderId !== null && folders.some(f => f.id === this.defaultFolderId)) {
+        this.tab = this.defaultFolderId;
       }
     }
   }
 
-  bumpCategoryFrecency(catId: number) {
-    this.categoryFrecency = { ...this.categoryFrecency, [catId]: (this.categoryFrecency[catId] ?? 0) + 1 };
+  addFolder(folder: Folder) {
+    this.folders = [...this.folders, folder];
+    this.folderMembership = { ...this.folderMembership, [folder.id]: [] };
   }
 
-  enterSelect(id?: number) {
+  setFolderMembership(membership: Record<string, Manga[]>) {
+    this.folderMembership = membership;
+  }
+
+  bumpFolderFrecency(folderId: string) {
+    this.folderFrecency = { ...this.folderFrecency, [folderId]: (this.folderFrecency[folderId] ?? 0) + 1 };
+  }
+
+  enterSelect(id?: string) {
     this.selectMode = true;
     if (id !== undefined) this.selected = new Set([id]);
   }
@@ -264,22 +291,87 @@ class LibraryState {
     this.selected   = new Set();
   }
 
-  toggleSelect(id: number) {
+  toggleSelect(id: string) {
     const next = new Set(this.selected);
     if (next.has(id)) next.delete(id); else next.add(id);
     this.selected = next;
     if (next.size === 0) this.exitSelect();
   }
 
-  selectAll(ids: number[]) {
+  selectAll(ids: string[]) {
     this.selected = new Set(ids);
   }
 
   guardTab() {
     if (this.tab === "library" || this.tab === "downloaded") return;
-    const id = Number(this.tab);
-    if (!this.categories.some(c => c.id === id)) this.tab = "library";
+    if (!this.folders.some(f => f.id === this.tab)) this.tab = "library";
   }
 }
 
 export const libraryState = new LibraryState();
+
+export function mapEntryToManga(entry: LibraryEntry): Manga {
+  return {
+    id:             entry.id,
+    title:          entry.title,
+    thumbnailUrl:   entry.thumbnailUrl ?? "",
+    inLibrary:      true,
+    contentType:    entry.contentType,
+    description:    entry.description,
+    status:         entry.status,
+    author:         entry.author,
+    artist:         entry.artist,
+    genre:          entry.genres,
+    tags:           entry.tags,
+    unreadCount:    entry.unreadCount,
+    downloadCount:  entry.downloadCount,
+    chapters:       entry.chapterCount != null ? { totalCount: entry.chapterCount } : undefined,
+    latestUploadedChapter: entry.latestChapter
+      ? { id: "", chapterNumber: entry.latestChapter.number ?? 0, uploadDate: entry.latestChapter.uploadedAt ?? undefined }
+      : null,
+    extensionId:    entry.source?.id,
+    sourceEntryId:  entry.externalId,
+    mediaId:        entry.id,
+    libraryEntryId: entry.id,
+  } as Manga;
+}
+
+const LIBRARY_TTL_MS = 20_000;
+let lastLibraryLoad = 0;
+let inFlight: Promise<void> | null = null;
+
+export async function loadLibrary(force = false) {
+  if (!force && inFlight) return inFlight;
+  if (!force && libraryState.items.length && Date.now() - lastLibraryLoad < LIBRARY_TTL_MS) return;
+
+  libraryState.loading = libraryState.items.length === 0;
+  libraryState.error   = null;
+
+  inFlight = (async () => {
+    try {
+      const [entries, folders] = await Promise.all([tsunagu.library(), tsunagu.folders()]);
+      const items = entries.map(mapEntryToManga);
+      libraryState.items = items;
+
+      const byId = new Map(items.map((m, i) => [entries[i].id, m]));
+      const membership: Record<string, Manga[]> = {};
+      for (const f of folders) membership[f.id] = [];
+      for (const e of entries) {
+        for (const f of e.folders ?? []) (membership[f.id] ??= []).push(byId.get(e.id)!);
+      }
+      libraryState.setFolders(folders);
+      libraryState.setFolderMembership(membership);
+
+      lastLibraryLoad = Date.now();
+    } catch (e) {
+      libraryState.error = String(e);
+    } finally {
+      libraryState.loading = false;
+      inFlight = null;
+    }
+  })();
+  return inFlight;
+}
+
+export const loadFolders = (force = true) => loadLibrary(force);
+

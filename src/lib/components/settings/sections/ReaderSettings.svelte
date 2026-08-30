@@ -17,10 +17,14 @@
   let triggerPageStyle  = $state<HTMLButtonElement>(null!)
   let triggerReadingDir = $state<HTMLButtonElement>(null!)
   let triggerFitMode    = $state<HTMLButtonElement>(null!)
+  let triggerBarPos     = $state<HTMLButtonElement>(null!)
+
+  const BAR_POS_LABELS = { top: 'Top', left: 'Left', right: 'Right' } as const
 
   $effect(() => { if (triggerPageStyle)  registerTrigger('page-style',  triggerPageStyle)  })
   $effect(() => { if (triggerReadingDir) registerTrigger('reading-dir', triggerReadingDir) })
   $effect(() => { if (triggerFitMode)    registerTrigger('fit-mode',    triggerFitMode)    })
+  $effect(() => { if (triggerBarPos)     registerTrigger('bar-pos',     triggerBarPos)     })
 </script>
 
 <div class="s-panel">
@@ -32,7 +36,7 @@
         <div class="s-row-info"><span class="s-label">Default layout</span><span class="s-desc">How chapters open by default</span></div>
         <div class="s-select">
           <button bind:this={triggerPageStyle} class="s-select-btn" onclick={() => toggleSelect('page-style')}>
-            <span>{{ 'single':'Single page','longstrip':'Long strip' }[settingsState.settings.pageStyle === 'double' ? 'single' : settingsState.settings.pageStyle]}</span>
+            <span>{{ 'single':'Single page','longstrip':'Long strip','fade':'Fade' }[settingsState.settings.pageStyle === 'double' ? 'single' : settingsState.settings.pageStyle]}</span>
             <svg class="s-select-caret" class:open={selectOpen === 'page-style'} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
           </button>
           {#if selectOpen === 'page-style' || closingSelect === 'page-style'}
@@ -64,10 +68,28 @@
         <div class="s-row-info"><span class="s-label">Page gap</span><span class="s-desc">Adds spacing between pages in single-page mode</span></div>
         <button role="switch" aria-checked={settingsState.settings.pageGap} aria-label="Page gap" class="s-toggle" class:on={settingsState.settings.pageGap} onclick={() => updateSettings({ pageGap: !settingsState.settings.pageGap })}><span class="s-toggle-thumb"></span></button>
       </label>
-      <label class="s-row">
-        <div class="s-row-info"><span class="s-label">Overlay bars</span><span class="s-desc">Floats the nav and chapter bars over the page instead of pushing content</span></div>
-        <button role="switch" aria-checked={settingsState.settings.overlayBars ?? false} aria-label="Overlay bars" class="s-toggle" class:on={settingsState.settings.overlayBars ?? false} onclick={() => updateSettings({ overlayBars: !(settingsState.settings.overlayBars ?? false) })}><span class="s-toggle-thumb"></span></button>
-      </label>
+    </div>
+  </div>
+
+  <div class="s-section">
+    <p class="s-section-title">Bars &amp; Chrome</p>
+    <div class="s-section-body">
+      <div class="s-row">
+        <div class="s-row-info"><span class="s-label">Bar position</span><span class="s-desc">Where the reader nav and chapter bars dock</span></div>
+        <div class="s-select">
+          <button bind:this={triggerBarPos} class="s-select-btn" onclick={() => toggleSelect('bar-pos')}>
+            <span>{BAR_POS_LABELS[settingsState.settings.barPosition ?? 'top']}</span>
+            <svg class="s-select-caret" class:open={selectOpen === 'bar-pos'} width="10" height="6" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6" fill="currentColor"/></svg>
+          </button>
+          {#if selectOpen === 'bar-pos' || closingSelect === 'bar-pos'}
+            <div use:selectPortal={getTrigger('bar-pos')} class="s-select-menu" class:anims class:closing={closingSelect === 'bar-pos'}>
+              {#each [['top','Top'],['left','Left'],['right','Right']] as [v, l]}
+                <button class="s-select-option" class:active={(settingsState.settings.barPosition ?? 'top') === v} onclick={() => { updateSettings({ barPosition: v as 'top' | 'left' | 'right' }); toggleSelect('bar-pos') }}>{l}</button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
       <label class="s-row">
         <div class="s-row-info"><span class="s-label">Tap to toggle bar</span><span class="s-desc">Double-tap the center of the reader to show or hide the bars</span></div>
         <button role="switch" aria-checked={settingsState.settings.tapToToggleBar ?? false} aria-label="Tap to toggle bar" class="s-toggle" class:on={settingsState.settings.tapToToggleBar ?? false} onclick={() => updateSettings({ tapToToggleBar: !(settingsState.settings.tapToToggleBar ?? false) })}><span class="s-toggle-thumb"></span></button>

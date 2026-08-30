@@ -1,222 +1,189 @@
-import { detectAdapter }      from '$lib/platform-adapters'
+import { detectAdapter } from '$lib/platform-adapters'
 import { initPlatformService, platformService } from '$lib/platform-service'
-import { probeServer, loginBasic, loginUI, verifyBasicAuth, configureAuth } from '$lib/core/auth'
-import { authVerifiedState }   from '$lib/state/auth.svelte'
-import { appState }            from '$lib/state/app.svelte'
-import { settingsState, updateSettings } from '$lib/state/settings.svelte'
+import { tsunagu } from '$lib/server-adapters/tsunagu'
+import { appState } from '$lib/state/app.svelte'
+import { settingsState } from '$lib/state/settings.svelte'
 
-const MAX_ATTEMPTS     = 40
+
+const MAX_ATTEMPTS = 40
 const WEB_MAX_ATTEMPTS = 1
-const BG_MAX_ATTEMPTS  = 120
+const BG_MAX_ATTEMPTS = 120
 
 export const boot = $state({
-  failed:         false,
-  notConfigured:  false,
-  loginRequired:  false,
-  loginError:     null as string | null,
-  loginBusy:      false,
-  loginUser:      '',
-  loginPass:      '',
-  loginMode:      'BASIC_AUTH' as 'BASIC_AUTH' | 'UI_LOGIN',
-  sessionExpired: false,
-  skipped:        false,
-  serverProbeOk:  false,
+	failed: false,
+	serverProbeOk: false,
+	skipped: false,
+	errorMessage: '',
+	errorLog: '',
 })
+
+function isRemoteServer(): boolean {
+	const u = (settingsState.settings.serverUrl ?? '').trim()
+	if (!u) return false
+	return !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(u)
+}
+
+let backendUnlisten: (() => void) | null = null
+
+export async function subscribeBackend(): Promise<void> {
+	if (appState.platform !== 'tauri' || backendUnlisten || isRemoteServer()) return
+	try {
+		const { listen } = await import('@tauri-apps/api/event')
+		backendUnlisten = await listen<{ kind: string; url?: string; version?: string; message?: string; log?: string }>(
+			'backend',
+			({ payload }) => {
+				if (payload.kind === 'ready' && payload.url) {
+					boot.failed = false
+					boot.errorMessage = ''
+					boot.errorLog = ''
+					liveServerUrl = payload.url
+					appState.serverUrl = payload.url
+					startProbe(0)
+				} else if (payload.kind === 'failed' || payload.kind === 'crashed') {
+					boot.failed = true
+					boot.errorMessage = payload.message ?? (payload.kind === 'crashed' ? 'the server stopped' : 'the server failed to start')
+					boot.errorLog = payload.log ?? ''
+					appState.status = 'error'
+				}
+			},
+		)
+	} catch {
+	}
+}
 
 let probeGeneration = 0
 
-export async function initPlatform(): Promise<void> {
-  const adapter = detectAdapter()
-  initPlatformService(adapter)
-  await adapter.init()
-  appState.platform = adapter.platform
-  appState.version  = await platformService.getVersion()
-  appState.appDir   = await platformService.getAppDir()
+function pinLockEnabled(): boolean {
+	const pin = settingsState.settings.appLockPin
+	return typeof pin === 'string' && pin.length >= 4
 }
 
-function pinLockEnabled(): boolean {
-  const pin = settingsState.settings.appLockPin
-  return typeof pin === 'string' && pin.length >= 4
+async function pingServer(): Promise<boolean> {
+	try {
+		await tsunagu.about()
+		return true
+	} catch {
+		return false
+	}
+}
+
+let platformAdapter: ReturnType<typeof detectAdapter> | null = null
+
+let liveServerUrl: string | null = null
+function resolvedServerUrl(): string {
+	return liveServerUrl ?? settingsState.settings.serverUrl ?? 'http://127.0.0.1:6007'
+}
+
+export function registerPlatformAdapter(): void {
+	platformAdapter = detectAdapter()
+	initPlatformService(platformAdapter)
+}
+
+export async function initApp(): Promise<void> {
+	if (!platformAdapter) {
+		platformAdapter = detectAdapter()
+		initPlatformService(platformAdapter)
+	}
+
+	await platformAdapter.init()
+	appState.platform = platformAdapter.platform
+	appState.version = await platformService.getVersion().catch(() => '')
+	appState.appDir = await platformService.getAppDir().catch(() => '')
+
+	appState.serverUrl = resolvedServerUrl()
 }
 
 function handleProbeSuccess(gen: number) {
-  if (gen !== probeGeneration) return
-  boot.failed             = false
-  boot.skipped            = false
-  boot.serverProbeOk      = true
-  authVerifiedState.value = true
-  appState.authenticated  = true
-  appState.status         = pinLockEnabled() ? 'locked' : 'ready'
+	if (gen !== probeGeneration) return
+	boot.failed = false
+	boot.skipped = false
+	boot.serverProbeOk = true
+	appState.status = pinLockEnabled() ? 'locked' : 'ready'
+	tsunagu.rescanLocalMedia()
+		.then(found => { if (found.length) import('$lib/state/library.svelte').then(m => m.loadLibrary(true)) })
+		.catch(() => {})
 }
 
-function showLoginForm(
-  gen:      number,
-  authMode: 'NONE' | 'BASIC_AUTH' | 'UI_LOGIN',
-  user:     string,
-) {
-  if (gen !== probeGeneration) return
-  boot.loginUser          = user
-  boot.loginMode          = authMode === 'UI_LOGIN' ? 'UI_LOGIN' : 'BASIC_AUTH'
-  boot.loginRequired      = true
-  authVerifiedState.value = false
-  appState.authRequired   = true
-  appState.status         = 'ready'
+export async function startProbe(initialDelay = 100): Promise<void> {
+	const gen = ++probeGeneration
+	boot.failed = false
+	boot.serverProbeOk = false
+	boot.skipped = false
+	appState.status = 'booting'
+
+	const baseUrl = resolvedServerUrl()
+	appState.serverUrl = baseUrl
+
+	let tries = 0
+
+	async function probe() {
+		if (gen !== probeGeneration) return
+		tries++
+		const ok = await pingServer()
+		if (gen !== probeGeneration) return
+
+		if (ok) {
+			handleProbeSuccess(gen)
+			return
+		}
+
+		const maxAttempts = appState.platform === 'tauri' ? MAX_ATTEMPTS : WEB_MAX_ATTEMPTS
+		if (tries >= maxAttempts) {
+			boot.failed = true
+			appState.status = 'error'
+			startBackgroundProbe(gen)
+			return
+		}
+
+		setTimeout(probe, Math.min(500 + tries * 200, 2000))
+	}
+
+	setTimeout(probe, initialDelay)
 }
 
-function handleAuthRequired(
-  gen:      number,
-  authMode: 'NONE' | 'BASIC_AUTH' | 'UI_LOGIN',
-  user:     string,
-  pass:     string,
-) {
-  if (gen !== probeGeneration) return
-  if (boot.skipped) return
-  boot.failed       = false
-  appState.authMode = authMode
+function startBackgroundProbe(gen: number) {
+	let bgTries = 0
 
-  if (authMode === 'BASIC_AUTH' && user && pass) {
-    loginBasic(user, pass)
-    handleProbeSuccess(gen)
-    return
-  }
+	async function bgProbe() {
+		if (gen !== probeGeneration) return
+		bgTries++
+		const ok = await pingServer()
+		if (gen !== probeGeneration) return
+		if (ok) {
+			handleProbeSuccess(gen)
+			return
+		}
+		if (bgTries >= BG_MAX_ATTEMPTS) return
+		setTimeout(bgProbe, 2000)
+	}
 
-  if (authMode === 'UI_LOGIN' && user && pass) {
-    loginUI(user, pass)
-      .then(() => handleProbeSuccess(gen))
-      .catch(() => showLoginForm(gen, authMode, user))
-    return
-  }
-
-  showLoginForm(gen, authMode, user)
+	setTimeout(bgProbe, 2000)
 }
 
-export async function startProbe(
-  authMode: 'NONE' | 'BASIC_AUTH' | 'UI_LOGIN' = 'NONE',
-  user = '',
-  pass = '',
-  initialDelay = 100,
-): Promise<void> {
-  const gen = ++probeGeneration
-  boot.failed             = false
-  boot.loginRequired      = false
-  boot.skipped            = false
-  boot.serverProbeOk      = false
-  authVerifiedState.value = false
-  appState.status         = 'booting'
-  appState.authMode       = authMode
-
-  const baseUrl = settingsState.settings.serverUrl ?? 'http://127.0.0.1:4567'
-  configureAuth(baseUrl, authMode, user || undefined, pass || undefined)
-
-  let tries = 0
-
-  async function probe() {
-    if (gen !== probeGeneration) return
-    tries++
-    const result = await probeServer()
-    if (gen !== probeGeneration) return
-
-    if (result === 'ok')            { handleProbeSuccess(gen); return }
-    if (result === 'auth_required') { handleAuthRequired(gen, authMode, user, pass); return }
-    const maxAttempts = appState.platform === 'tauri' ? MAX_ATTEMPTS : WEB_MAX_ATTEMPTS
-    if (tries >= maxAttempts)       { boot.failed = true; appState.status = 'error'; startBackgroundProbe(gen, authMode, user, pass); return }
-
-    setTimeout(probe, Math.min(500 + tries * 200, 2000))
-  }
-
-  setTimeout(probe, initialDelay)
+export function retryBoot(): void {
+	boot.failed = false
+	boot.skipped = false
+	boot.errorMessage = ''
+	boot.errorLog = ''
+	if (appState.platform === 'tauri' && !isRemoteServer()) {
+		import('@tauri-apps/api/core')
+			.then(({ invoke }) => invoke('restart_backend'))
+			.catch(() => {})
+	}
+	startProbe()
 }
 
-function startBackgroundProbe(
-  gen:      number,
-  authMode: 'NONE' | 'BASIC_AUTH' | 'UI_LOGIN',
-  user:     string,
-  pass:     string,
-) {
-  let bgTries = 0
-
-  async function bgProbe() {
-    if (gen !== probeGeneration) return
-    bgTries++
-    const result = await probeServer()
-    if (gen !== probeGeneration) return
-
-    if (result === 'ok')            { handleProbeSuccess(gen); return }
-    if (result === 'auth_required') { handleAuthRequired(gen, authMode, user, pass); return }
-    if (bgTries >= BG_MAX_ATTEMPTS) return
-
-    setTimeout(bgProbe, 2000)
-  }
-
-  setTimeout(bgProbe, 2000)
+export async function openBackendDataDir(): Promise<void> {
+	try {
+		const { invoke } = await import('@tauri-apps/api/core')
+		const dir = await invoke<string | null>('backend_data_dir')
+		if (dir) await invoke('open_path', { path: dir })
+	} catch {
+	}
 }
 
-export function stopProbe() {
-  probeGeneration++
-}
-
-export async function submitLogin(): Promise<void> {
-  if (!boot.loginUser.trim() || !boot.loginPass.trim()) {
-    boot.loginError = 'Username and password are required'
-    return
-  }
-  boot.loginBusy  = true
-  boot.loginError = null
-  const user = boot.loginUser.trim()
-  const pass = boot.loginPass.trim()
-  try {
-    if (boot.loginMode === 'UI_LOGIN') {
-      await loginUI(user, pass)
-    } else {
-      await verifyBasicAuth(user, pass)
-    }
-
-    updateSettings({
-      serverAuthMode: boot.loginMode,
-      serverAuthUser: user,
-      serverAuthPass: pass,
-    })
-    appState.authMode = boot.loginMode
-
-    boot.loginRequired      = false
-    boot.sessionExpired     = false
-    boot.skipped            = false
-    boot.loginPass          = ''
-    boot.loginError         = null
-    boot.serverProbeOk      = true
-    authVerifiedState.value = true
-    appState.authenticated  = true
-    appState.authRequired   = false
-    appState.status         = pinLockEnabled() ? 'locked' : 'ready'
-  } catch (e: unknown) {
-    boot.loginError = e instanceof Error ? e.message : 'Login failed'
-  } finally {
-    boot.loginBusy = false
-  }
-}
-
-export function retryBoot(
-  authMode: 'NONE' | 'BASIC_AUTH' | 'UI_LOGIN' = 'NONE',
-  user = '',
-  pass = '',
-) {
-  boot.failed        = false
-  boot.notConfigured = false
-  boot.loginRequired = false
-  boot.skipped       = false
-  startProbe(authMode, user, pass)
-}
-
-export function bypassBoot(
-  authMode: 'NONE' | 'BASIC_AUTH' | 'UI_LOGIN' = 'NONE',
-  user = '',
-  pass = '',
-) {
-  boot.loginRequired      = false
-  boot.sessionExpired     = false
-  boot.skipped            = true
-  authVerifiedState.value = true
-  appState.authRequired   = false
-  appState.status         = 'ready'
-  startBackgroundProbe(probeGeneration, authMode, user, pass)
+export function bypassBoot(): void {
+	boot.skipped = true
+	appState.status = 'ready'
+	startBackgroundProbe(probeGeneration)
 }

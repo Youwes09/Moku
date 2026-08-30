@@ -2,10 +2,25 @@
   import { goto }   from '$app/navigation'
   import { page }   from '$app/stores'
   import { app }    from '$lib/state/app.svelte'
+  import { settingsState, updateSettings } from '$lib/state/settings.svelte'
+  import type { ContentTypeFilter } from '$lib/types/settings'
   import {
     House, Books, MagnifyingGlass, ClockCounterClockwise,
-    DownloadSimple, PuzzlePiece, GearSix, ChartLineUp,
+    DownloadSimple, PuzzlePiece, GearSix, Broadcast,
+    ImageSquare, BookOpenText, FilmSlate, SquaresFour,
   } from 'phosphor-svelte'
+
+  const CONTENT_TYPES: { id: ContentTypeFilter; label: string; icon: any }[] = [
+    { id: 'all',   label: 'All',    icon: SquaresFour  },
+    { id: 'MANGA', label: 'Manga',  icon: ImageSquare  },
+    { id: 'NOVEL', label: 'Novels', icon: BookOpenText },
+    { id: 'ANIME', label: 'Anime',  icon: FilmSlate    },
+  ]
+
+  function setContentType(t: ContentTypeFilter) {
+    if (t === settingsState.settings.contentTypeFilter) return
+    updateSettings({ contentTypeFilter: t })
+  }
 
   const TABS: { path: string; label: string; icon: any }[] = [
     { path: '/',           label: 'Home',       icon: House           },
@@ -13,8 +28,8 @@
     { path: '/browse',     label: 'Browse',     icon: MagnifyingGlass },
     { path: '/downloads',  label: 'Downloads',  icon: DownloadSimple  },
     { path: '/recent',  label: 'Recent',  icon: ClockCounterClockwise  },
+    { path: '/tracking', label: 'Tracking', icon: Broadcast          },
     { path: '/extensions', label: 'Extensions', icon: PuzzlePiece     },
-    { path: '/tracking',   label: 'Tracking',   icon: ChartLineUp     },
   ]
 
   const TAB_SIZE = 36
@@ -51,6 +66,20 @@
       </button>
     {/each}
   </nav>
+
+  <div class="content-type-group" role="group" aria-label="Content type">
+    {#each CONTENT_TYPES as ct}
+      <button
+        class="ct-pill"
+        class:active={settingsState.settings.contentTypeFilter === ct.id}
+        onclick={() => setContentType(ct.id)}
+        title={ct.label}
+        aria-pressed={settingsState.settings.contentTypeFilter === ct.id}
+      >
+        <ct.icon size={16} weight={settingsState.settings.contentTypeFilter === ct.id ? "fill" : "light"} />
+      </button>
+    {/each}
+  </div>
 
   <div class="bottom">
     <button class="settings-btn" onclick={() => app.setSettingsOpen(true)} title="Settings">
@@ -150,4 +179,11 @@
   }
   .settings-btn:hover         { color: var(--text-muted); background: var(--bg-raised); transform: rotate(30deg); }
   .settings-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .content-type-group { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: var(--sp-3) var(--sp-2) 0; border-top: 1px solid var(--border-dim); margin-top: var(--sp-3); }
+  .ct-pill { width: 36px; height: 36px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-md); color: var(--text-faint); transition: color var(--t-base), background var(--t-base); }
+  .ct-pill:hover { color: var(--text-muted); background: var(--bg-raised); }
+  .ct-pill:active { transform: scale(0.88); }
+  .ct-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .ct-pill.active { color: var(--accent-fg); background: var(--accent-muted); }
 </style>

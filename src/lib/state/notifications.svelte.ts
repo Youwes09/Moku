@@ -7,8 +7,8 @@ export interface Toast {
 }
 
 export interface ActiveDownload {
-  chapterId: number;
-  mangaId:   number;
+  chapterId: string;
+  mangaId:   string;
   progress:  number;
 }
 

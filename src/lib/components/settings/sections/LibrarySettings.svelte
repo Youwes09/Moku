@@ -1,5 +1,6 @@
 <script lang="ts">
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
+  import { historyState } from '$lib/state/history.svelte'
   import { homeState } from '$lib/state/home.svelte'
   import type { Settings } from '$lib/types/settings'
   import type { Action } from 'svelte/action'
@@ -20,7 +21,7 @@
   $effect(() => { if (triggerSortDir) registerTrigger('sort-dir', triggerSortDir) })
 
   function clearHistory() {
-    homeState.history = []
+    historyState.clearHistory()
   }
 </script>
 
@@ -38,7 +39,7 @@
         <button role="switch" aria-checked={settingsState.settings.libraryCropCovers} aria-label="Crop cover images" class="s-toggle" class:on={settingsState.settings.libraryCropCovers} onclick={() => updateSettings({ libraryCropCovers: !settingsState.settings.libraryCropCovers })}><span class="s-toggle-thumb"></span></button>
       </label>
       <label class="s-row">
-        <div class="s-row-info"><span class="s-label">Show all in Saved tab</span><span class="s-desc">Include manga that are in folders — lets you see your whole library in one place</span></div>
+        <div class="s-row-info"><span class="s-label">Show all in Saved tab</span><span class="s-desc">Include manga that are in folders.</span></div>
         <button role="switch" aria-checked={settingsState.settings.libraryShowAllInSaved ?? true} aria-label="Show all manga in Saved tab" class="s-toggle" class:on={settingsState.settings.libraryShowAllInSaved ?? true} onclick={() => updateSettings({ libraryShowAllInSaved: !(settingsState.settings.libraryShowAllInSaved ?? true) })}><span class="s-toggle-thumb"></span></button>
       </label>
       {#if settingsState.settings.libraryShowAllInSaved ?? true}
@@ -89,8 +90,8 @@
   <div class="s-section">
     <div class="s-section-body">
       <div class="s-row">
-        <div class="s-row-info"><span class="s-label">Reading history</span><span class="s-desc">{homeState.history?.length ?? 0} entries</span></div>
-        <button class="s-btn s-btn-danger" onclick={clearHistory} disabled={!homeState.history?.length}>Clear</button>
+        <div class="s-row-info"><span class="s-label">Reading history</span><span class="s-desc">{historyState.sessions.length} entries</span></div>
+        <button class="s-btn s-btn-danger" onclick={clearHistory} disabled={!historyState.sessions.length}>Clear</button>
       </div>
     </div>
   </div>

@@ -1,7 +1,8 @@
 <script lang="ts">
   import Thumbnail from '$lib/components/shared/manga/Thumbnail.svelte'
-  import type { FlatRecord } from '$lib/components/tracking/lib/trackingSync'
-  import { calcProgress }   from '$lib/components/tracking/lib/trackingSync'
+  import TrackerLogo from '$lib/components/tracking/TrackerLogo.svelte'
+  import { calcProgress, type FlatRecord } from '$lib/components/tracking/lib/trackingSync'
+  import { statusLabel } from '$lib/state/trackers.svelte'
 
   interface Props {
     record:   FlatRecord
@@ -12,17 +13,18 @@
   let { record, active, onSelect }: Props = $props()
 
   const progress = $derived(calcProgress(record.lastChapterRead, record.totalChapters))
+  const status   = $derived(statusLabel(record.status, record.tracker, record.media.contentType))
 </script>
 
 <button class="card" class:active onclick={() => onSelect(record)}>
   <div class="cover-wrap">
-    {#if record.manga?.thumbnailUrl}
-      <Thumbnail src={record.manga.thumbnailUrl} alt={record.title} class="cover" />
+    {#if record.thumbnailUrl}
+      <Thumbnail src={record.thumbnailUrl} alt={record.title} class="cover" />
     {:else}
       <div class="cover-empty"></div>
     {/if}
     <div class="tracker-badge">
-      <Thumbnail src={record.tracker.icon} alt={record.tracker.name} class="badge-img" />
+      <TrackerLogo trackerKey={record.tracker.key} iconUrl={record.tracker.iconUrl} size={12} />
     </div>
     {#if progress !== null}
       <div class="progress-bar">
@@ -31,6 +33,7 @@
     {/if}
   </div>
   <p class="title">{record.title}</p>
+  <p class="meta">{status} · {record.lastChapterRead}/{record.totalChapters || '?'}</p>
 </button>
 
 <style>
@@ -59,7 +62,6 @@
     box-shadow: 0 2px 6px rgba(0,0,0,0.4); overflow: hidden;
     display: flex; align-items: center; justify-content: center;
   }
-  :global(.badge-img) { width: 100%; height: 100%; object-fit: contain; display: block; }
 
   .progress-bar {
     position: absolute; bottom: 0; left: 0; right: 0;
@@ -71,9 +73,14 @@
     margin-top: var(--sp-2);
     font-size: var(--text-sm); color: var(--text-secondary);
     line-height: var(--leading-snug);
-    display: -webkit-box; -webkit-line-clamp: 2;
+    display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2;
     -webkit-box-orient: vertical; overflow: hidden;
-    height: 2lh;
     transition: color var(--t-base);
+  }
+  .meta {
+    margin-top: 3px;
+    font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint);
+    letter-spacing: var(--tracking-wide);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 </style>

@@ -1,10 +1,16 @@
 export interface LibraryManga {
-  id: number;
+  id: string;
   title: string;
   thumbnailUrl: string;
   unreadCount: number;
   downloadCount: number;
   source: { id: string; displayName: string } | null;
+}
+
+export interface SourceNode {
+  id:          string;
+  displayName: string;
+  iconUrl?:    string | null;
 }
 
 export interface SourceLibrary {
@@ -13,44 +19,31 @@ export interface SourceLibrary {
   manga: LibraryManga[];
 }
 
-export type SourceNode = {
-  id: string;
-  displayName: string;
-  isConfigurable: boolean;
-  extension?: { pkgName: string };
-};
-
 export function libraryByExtension(
   libraryManga: LibraryManga[],
-  sources: SourceNode[],
-  pkgName: string,
+  pkgNameOf:     (sourceId: string) => string | undefined,
+  pkgName:       string,
 ): SourceLibrary[] {
-  const pkgSources = sources.filter(s => s.extension?.pkgName === pkgName);
-  const sourceIds  = new Set(pkgSources.map(s => s.id));
-
-  const bySource = new Map<string, LibraryManga[]>();
-  for (const src of pkgSources) bySource.set(src.id, []);
+  const bySource = new Map<string, { displayName: string; manga: LibraryManga[] }>();
   for (const m of libraryManga) {
-    if (m.source && sourceIds.has(m.source.id)) bySource.get(m.source.id)!.push(m);
+    if (!m.source) continue;
+    if (pkgNameOf(m.source.id) !== pkgName) continue;
+    if (!bySource.has(m.source.id)) bySource.set(m.source.id, { displayName: m.source.displayName, manga: [] });
+    bySource.get(m.source.id)!.manga.push(m);
   }
-
-  return pkgSources
-    .map(src => ({ sourceId: src.id, displayName: src.displayName, manga: bySource.get(src.id)! }))
+  return Array.from(bySource.entries())
+    .map(([sourceId, g]) => ({ sourceId, displayName: g.displayName, manga: g.manga }))
     .filter(g => g.manga.length > 0);
 }
 
 export function libraryCountByPkg(
   libraryManga: LibraryManga[],
-  sources: SourceNode[],
+  pkgNameOf:     (sourceId: string) => string | undefined,
 ): Record<string, number> {
-  const sourceIdToPkg = new Map<string, string>();
-  for (const s of sources) {
-    if (s.extension?.pkgName) sourceIdToPkg.set(s.id, s.extension.pkgName);
-  }
   const counts: Record<string, number> = {};
   for (const m of libraryManga) {
     if (!m.source) continue;
-    const pkg = sourceIdToPkg.get(m.source.id);
+    const pkg = pkgNameOf(m.source.id);
     if (pkg) counts[pkg] = (counts[pkg] ?? 0) + 1;
   }
   return counts;

@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { CircleNotch } from 'phosphor-svelte'
   import { trackingState } from '$lib/state/tracking.svelte'
+  import { statusesFor } from '$lib/state/trackers.svelte'
   import {
     flattenRecords, filterRecords, sortRecords, dedupeStatuses,
     type FlatRecord, type SortKey,
@@ -9,28 +11,32 @@
   import TrackingCard    from './TrackingCard.svelte'
   import TrackingPreview from './TrackingPreview.svelte'
 
-  let activeTrackerId = $state<number | 'all'>('all')
-  let statusFilter    = $state<number | 'all'>('all')
-  let searchQuery     = $state('')
-  let sortBy          = $state<SortKey>('title')
-  let selectedRecord  = $state<FlatRecord | null>(null)
+  let activeTrackerKey = $state<string | 'all'>('all')
+  let statusFilter     = $state<number | 'all'>('all')
+  let searchQuery      = $state('')
+  let sortBy           = $state<SortKey>('title')
+  let selectedRecord   = $state<FlatRecord | null>(null)
 
-  $effect(() => {
-    if (trackingState.allTrackers.length === 0 && !trackingState.loadingAll) {
-      trackingState.loadAll()
-    }
-  })
+  onMount(() => { trackingState.loadAll(true) })
 
-  const loggedIn      = $derived(trackingState.allTrackers.filter((t) => t.isLoggedIn))
-  const allRecords    = $derived(flattenRecords(trackingState.allTrackers))
-  const totalCount    = $derived(allRecords.length)
+  const loggedIn   = $derived(trackingState.allTrackers.filter((t) => t.isLoggedIn))
+  const allRecords = $derived(flattenRecords(trackingState.media, trackingState.allTrackers))
+  const totalCount = $derived(allRecords.length)
+
+  const countFor = (key: string | 'all') =>
+    key === 'all' ? allRecords.length : allRecords.filter((r) => r.tracker.key === key).length
+
   const statusOptions = $derived(
-    activeTrackerId === 'all'
+    activeTrackerKey === 'all'
       ? dedupeStatuses(trackingState.allTrackers)
-      : loggedIn.find((t) => t.id === activeTrackerId)?.statuses ?? []
+      : (() => {
+          const t = loggedIn.find((x) => x.key === activeTrackerKey)
+          return t ? statusesFor(t).map((s) => ({ value: s.value, name: s.label })) : []
+        })(),
   )
+
   const filtered = $derived(
-    sortRecords(filterRecords(allRecords, activeTrackerId, statusFilter, searchQuery), sortBy)
+    sortRecords(filterRecords(allRecords, activeTrackerKey, statusFilter, searchQuery), sortBy),
   )
 </script>
 
@@ -38,21 +44,22 @@
   <TrackingToolbar
     {loggedIn}
     {totalCount}
-    {activeTrackerId}
+    {activeTrackerKey}
     {statusFilter}
     {statusOptions}
     {searchQuery}
     {sortBy}
+    {countFor}
     loading={trackingState.loadingAll}
-    onRefresh={() => trackingState.loadAll()}
-    onTrackerChange={(id) => { activeTrackerId = id; statusFilter = 'all' }}
+    onRefresh={() => trackingState.loadAll(true)}
+    onTrackerChange={(key) => { activeTrackerKey = key; statusFilter = 'all' }}
     onStatusChange={(v) => statusFilter = v}
     onSearchChange={(v) => searchQuery = v}
     onSortChange={(v) => sortBy = v}
   />
 
   <div class="body">
-    {#if trackingState.loadingAll}
+    {#if trackingState.loadingAll && trackingState.media.length === 0}
       <div class="state">
         <CircleNotch size={18} weight="light" class="anim-spin" style="color:var(--text-faint)" />
       </div>
@@ -60,13 +67,13 @@
     {:else if trackingState.error}
       <div class="state">
         <span class="state-error">{trackingState.error}</span>
-        <button class="ghost-btn" onclick={() => trackingState.loadAll()}>Retry</button>
+        <button class="ghost-btn" onclick={() => trackingState.loadAll(true)}>Retry</button>
       </div>
 
     {:else if loggedIn.length === 0}
       <div class="state">
         <span class="state-text">No trackers connected.</span>
-        <span class="state-hint">Settings → Tracking to connect AniList, MAL, or others.</span>
+        <span class="state-hint">Settings → Tracking to connect AniList.</span>
       </div>
 
     {:else if filtered.length === 0}
@@ -79,10 +86,10 @@
 
     {:else}
       <div class="grid">
-        {#each filtered as record (record.tracker.id + ':' + record.id)}
+        {#each filtered as record (record.tracker.key + ':' + record.id)}
           <TrackingCard
             {record}
-            active={selectedRecord?.id === record.id && selectedRecord?.tracker.id === record.tracker.id}
+            active={selectedRecord?.id === record.id && selectedRecord?.tracker.key === record.tracker.key}
             onSelect={(r) => selectedRecord = r}
           />
         {/each}
@@ -92,7 +99,9 @@
 </div>
 
 {#if selectedRecord}
-  <TrackingPreview record={selectedRecord} onClose={() => selectedRecord = null} />
+  {#key selectedRecord.id}
+    <TrackingPreview record={selectedRecord} onClose={() => selectedRecord = null} />
+  {/key}
 {/if}
 
 <style>

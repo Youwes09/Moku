@@ -5,7 +5,8 @@
     Trash, DownloadSimple, X, MagnifyingGlass, Funnel, Check, FolderOpen,
   } from 'phosphor-svelte'
   import { canOpenFolder }  from '$lib/core/filesystem'
-  import type { Chapter, Category } from '$lib/types'
+  import type { Chapter } from '$lib/types'
+  import type { Folder } from '$lib/server-adapters/types'
   import type { ChapterSortMode, ChapterSortDir } from './lib/chapterList'
 
   interface ContinueChapter {
@@ -30,8 +31,8 @@
     scanlatorFilter:         string[]
     scanlatorBlacklist:      string[]
     scanlatorForce:          boolean
-    allCategories:           Category[]
-    mangaCategories:         Category[]
+    allFolders:              Folder[]
+    mangaFolders:            Folder[]
     catsLoading:             boolean
     refreshing:              boolean
     onViewModeToggle:        () => void
@@ -40,17 +41,19 @@
     onMarkSelectedRead:      (isRead: boolean) => void
     onClearSelection:        () => void
     onEnqueueNext:           (n: number) => void
-    onEnqueueMultiple:       (ids: number[]) => void
+    onEnqueueMultiple:       (ids: string[]) => void
     onDeleteAll:             () => void
     onRefresh:               () => void
-    onToggleCategory:        (cat: Category) => void
-    onCreateCategory:        (name: string) => void
+    onToggleFolder:          (folder: Folder) => void
+    onCreateFolder:          (name: string) => void
     onSetScanlatorFilter:    (v: string[]) => void
     onSetScanlatorBlacklist: (v: string[]) => void
     onSetScanlatorForce:     (v: boolean) => void
     onOpenFolder:            () => void
     onSortModeChange:        (v: ChapterSortMode) => void
     onSortDirChange:         (v: ChapterSortDir) => void
+    onJumpToChapter:         (id: string) => void
+    isLocal?:                boolean
   }
 
   let {
@@ -58,12 +61,12 @@
     downloadedCount, totalCount, deletingAll,
     hasSelection, selectedCount, continueChapter,
     availableScanlators, scanlatorFilter, scanlatorBlacklist, scanlatorForce,
-    allCategories, mangaCategories, catsLoading, refreshing,
+    allFolders, mangaFolders, catsLoading, refreshing,
     onViewModeToggle, onDownloadSelected, onDeleteSelected,
     onMarkSelectedRead, onClearSelection, onEnqueueNext, onEnqueueMultiple,
-    onDeleteAll, onRefresh, onToggleCategory, onCreateCategory,
+    onDeleteAll, onRefresh, onToggleFolder, onCreateFolder,
     onSetScanlatorFilter, onSetScanlatorBlacklist, onSetScanlatorForce,
-    onOpenFolder, onSortModeChange, onSortDirChange,
+    onOpenFolder, onSortModeChange, onSortDirChange, onJumpToChapter, isLocal = false,
   }: Props = $props()
 
   let sortMenuOpen:    boolean = $state(false)
@@ -81,7 +84,7 @@
   let dlDropRef:        HTMLDivElement | undefined = $state()
   let folderPickerRef:  HTMLDivElement | undefined = $state()
 
-  const hasFolders = $derived(mangaCategories.filter(c => c.id !== 0).length > 0)
+  const hasFolders = $derived(mangaFolders.length > 0)
 
   const jumpChapter = $derived.by(() => {
     const q = jumpInput.trim().toLowerCase()
@@ -95,7 +98,7 @@
 
   function doJump() {
     if (!jumpChapter) return
-    document.getElementById(`ch-${jumpChapter.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    onJumpToChapter(jumpChapter.id)
     jumpOpen = false; jumpInput = ''
   }
 
@@ -109,7 +112,7 @@
   function submitNewFolder() {
     const name = folderNewName.trim()
     if (!name) return
-    onCreateCategory(name)
+    onCreateFolder(name)
     folderNewName = ''; folderCreating = false
   }
 
@@ -270,9 +273,11 @@
       </div>
     {/if}
 
-    <button class="icon-btn" onclick={onRefresh} disabled={refreshing} title="Refresh chapters">
-      <ArrowsClockwise size={14} weight="light" class={refreshing ? 'anim-spin' : ''} />
-    </button>
+    {#if !isLocal}
+      <button class="icon-btn" onclick={onRefresh} disabled={refreshing} title="Refresh chapters">
+        <ArrowsClockwise size={14} weight="light" class={refreshing ? 'anim-spin' : ''} />
+      </button>
+    {/if}
 
     {#if downloadedCount > 0 && canOpenFolder()}
       <button class="icon-btn" onclick={onOpenFolder} title="Open manga folder">
@@ -288,13 +293,13 @@
         <div class="fp-menu">
           {#if catsLoading}
             <p class="fp-empty">Loading…</p>
-          {:else if allCategories.length === 0 && !folderCreating}
+          {:else if allFolders.length === 0 && !folderCreating}
             <p class="fp-empty">No folders yet</p>
           {/if}
-          {#each allCategories as cat}
-            {@const isIn = mangaCategories.some(c => c.id === cat.id)}
-            <button class="fp-item" class:fp-item-active={isIn} onclick={() => onToggleCategory(cat)}>
-              <span class="fp-check">{isIn ? '✓' : ''}</span>{cat.name}
+          {#each allFolders as folder}
+            {@const isIn = mangaFolders.some(f => f.id === folder.id)}
+            <button class="fp-item" class:fp-item-active={isIn} onclick={() => onToggleFolder(folder)}>
+              <span class="fp-check">{isIn ? '✓' : ''}</span>{folder.name}
             </button>
           {/each}
           <div class="fp-div"></div>
@@ -317,7 +322,7 @@
       {/if}
     </div>
 
-    {#if chapters.length > 0}
+    {#if chapters.length > 0 && !isLocal}
       <div class="dl-wrap" bind:this={dlDropRef}>
         <button class="icon-btn dl-unified-btn" class:active={dlOpen} class:dl-has-count={downloadedCount > 0} onclick={() => dlOpen = !dlOpen} title="Download options">
           <Download size={13} weight={downloadedCount > 0 ? 'fill' : 'light'} />

@@ -1,12 +1,12 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { CircleNotch, X, Check, HardDrives } from "phosphor-svelte";
-  import { getAdapter }    from "$lib/request-manager";
+  import { tsunagu } from "$lib/server-adapters/tsunagu";
   import { addToast }      from "$lib/state/notifications.svelte";
   import { settingsState } from "$lib/state/settings.svelte";
-  import type { Extension } from "$lib/types";
+  import type { Extension } from "$lib/server-adapters/types";
   import { matchesFilter, groupExtensions, validateUrl, type Filter, type Panel } from "$lib/components/extensions/lib/extensionHelpers";
-  import { libraryCountByPkg, type LibraryManga, type SourceNode } from "$lib/components/extensions/lib/extensionLibrary";
+  import { libraryCountByPkg, type LibraryManga } from "$lib/components/extensions/lib/extensionLibrary";
   import ExtensionFilters       from "$lib/components/extensions/ExtensionFilters.svelte";
   import ExtensionCard          from "$lib/components/extensions/ExtensionCard.svelte";
   import ExtensionSettingsPanel from "$lib/components/extensions/panels/ExtensionSettingsPanel.svelte";
@@ -30,9 +30,10 @@
   let localMangaCount = $state<string>("0");
   let loading      = $state(true);
   let refreshing   = $state(false);
-  let filter       = $state<Filter>("installed");
-  let search       = $state("");
-  let langFilter   = $state<string | null>(null);
+  let filter     = $state<Filter>("installed");
+  let search     = $state("");
+  let langFilter = $state<string | null>(null);
+  const contentTypeFilter = $derived(settingsState.settings.contentTypeFilter);
   let working      = $state(new Set<string>());
   let updatingAll  = $state(false);
   let expanded     = $state(new Set<string>());
@@ -60,87 +61,142 @@
   let repoError    = $state<string | null>(null);
   let savingRepos  = $state(false);
 
-  async function load() {
-    const [extData, srcData, libData] = await Promise.all([
-      getAdapter().getExtensions().then(nodes => ({ extensions: { nodes } })).catch(console.error),
-      getAdapter().getSources().then(nodes => ({ sources: { nodes } })).catch(console.error),
-      getAdapter().getMangaList({}).then(r => ({ mangas: { nodes: r.items as any } })).catch(console.error),
-    ]);
-    if (extData) extensions = extData.extensions.nodes;
-    if (srcData) {
-      const map: Record<string, SourceEntry[]> = {};
-      for (const s of srcData.sources.nodes) {
-        if (!s.isConfigurable || !s.extension?.pkgName) continue;
-        const pkg = s.extension.pkgName;
-        if (!map[pkg]) map[pkg] = [];
-        map[pkg].push({ id: s.id, displayName: s.displayName });
-      }
-      sourcesByPkg = map;
-    }
-    if (libData && srcData) {
-      libCountByPkg = libraryCountByPkg(libData.mangas.nodes, srcData.sources.nodes);
+  async function fetchAvailable(): Promise<Extension[]> {
+    try {
+      const repos = await tsunagu.repositories();
+      const perRepo = await Promise.all(
+        repos.map((r) => tsunagu.availableExtensions(r.id).catch((e) => { console.error(e); return []; }))
+      );
+      return perRepo.flat();
+    } catch (e) {
+      console.error(e);
+      return [];
     }
   }
 
+  async function load() {
+    try {
+      const [installed, available] = await Promise.all([
+        tsunagu.installedExtensions(),
+        fetchAvailable(),
+      ]);
+      const byPkg = new Map<string, Extension>();
+      for (const e of available) byPkg.set(e.packageName, e);
+      for (const e of installed)  byPkg.set(e.packageName, e);
+      extensions = Array.from(byPkg.values());
+    } catch (e) { console.error(e); }
+
+    const byPkg: Record<string, SourceEntry[]> = {};
+    for (const e of extensions) {
+      if (!e.installed) continue;
+      (byPkg[e.packageName] ??= []).push({ id: e.id, displayName: e.displayName });
+    }
+    sourcesByPkg = byPkg;
+
+    const pkgNameOf = (sourceId: string) => extensions.find((e) => e.id === sourceId)?.packageName;
+    try {
+      const libraryEntries = await tsunagu.library();
+      const mapped: LibraryManga[] = libraryEntries.map((entry) => ({
+        id:            entry.id,
+        title:         entry.title,
+        thumbnailUrl:  entry.thumbnailUrl ?? "",
+        unreadCount:   entry.unreadCount,
+        downloadCount: entry.downloadCount,
+        source:        entry.source ? { id: entry.source.id, displayName: entry.source.displayName } : null,
+      }));
+      libCountByPkg = libraryCountByPkg(mapped, pkgNameOf);
+    } catch (e) {
+      console.error(e);
+      libCountByPkg = {};
+    }
+  }
+
+  let rescanning = $state(false);
+
   async function loadLocalManga() {
     try {
-      const r = await getAdapter().browseSource('0', 1)
-      localMangaCount = r.hasNextPage ? r.items.length + '+' : String(r.items.length)
-    } catch {}
+      const found = await tsunagu.rescanLocalMedia();
+      localMangaCount = String(found.length);
+    } catch { localMangaCount = "0"; }
+  }
+
+  async function rescanLocal() {
+    if (rescanning) return;
+    rescanning = true;
+    try {
+      const found = await tsunagu.rescanLocalMedia();
+      localMangaCount = String(found.length);
+      const { loadLibrary } = await import("$lib/state/library.svelte");
+      await loadLibrary(true);
+      addToast({ kind: "success", title: "Local library rescanned", body: `${found.length} local ${found.length === 1 ? "title" : "titles"}` });
+    } catch (e) {
+      addToast({ kind: "error", title: "Rescan failed", body: String(e) });
+    } finally { rescanning = false; }
   }
 
   async function fetchFromRepo() {
     refreshing = true;
-    const d = await getAdapter().getExtensions().then(nodes => ({ fetchExtensions: { extensions: nodes } }))
-      .catch(console.error)
-      .finally(() => refreshing = false);
-    if (d) {
-      extensions = d.fetchExtensions.extensions;
+    try {
+      const [installed, available] = await Promise.all([
+        tsunagu.installedExtensions(),
+        fetchAvailable(),
+      ]);
+      const byPkg = new Map<string, Extension>();
+      for (const e of available) byPkg.set(e.packageName, e);
+      for (const e of installed)  byPkg.set(e.packageName, e);
+      extensions = Array.from(byPkg.values());
       addToast({ kind: "success", title: "Extensions refreshed", body: "Extension list is up to date" });
-    }
+    } catch (e) { console.error(e); }
+    finally { refreshing = false; }
   }
+
+  let repoObjs = $state<{ id: string; indexUrl: string }[]>([]);
 
   async function loadRepos() {
     reposLoading = true;
     try {
-      repos = await getAdapter().getExtensionRepos();
+      repoObjs = await tsunagu.repositories();
+      repos = repoObjs.map(r => r.indexUrl);
     } catch (e) { console.error(e); }
     finally { reposLoading = false; }
   }
 
-  async function saveRepos(updated: string[], intent: "add" | "remove") {
-    savingRepos = true;
-    try {
-      const removed = repos.find(r => !updated.includes(r)) ?? "";
-      repos = await getAdapter().setExtensionRepos(updated);
-      addToast(intent === "add"
-        ? { kind: "success", title: "Repo added",   body: updated[updated.length - 1] }
-        : { kind: "info",    title: "Repo removed", body: removed }
-      );
-    } catch (e: any) {
-      repoError = e instanceof Error ? e.message : "Failed to save";
-    } finally { savingRepos = false; }
-  }
-
-  function addRepo() {
+  async function addRepo() {
     const url = newRepoUrl.trim();
     const err = validateUrl(url);
     if (err) { repoError = err; return; }
     if (repos.includes(url)) { repoError = "Repo already added"; return; }
     repoError = null; newRepoUrl = "";
-    saveRepos([...repos, url], "add");
+    savingRepos = true;
+    try {
+      await tsunagu.addRepository(url);
+      await loadRepos();
+      addToast({ kind: "success", title: "Repo added", body: url });
+    } catch (e: any) {
+      repoError = e instanceof Error ? e.message : "Failed to save";
+    } finally { savingRepos = false; }
   }
 
-  function removeRepo(url: string) { saveRepos(repos.filter((r) => r !== url), "remove"); }
+  async function removeRepo(url: string) {
+    const target = repoObjs.find(r => r.indexUrl === url);
+    if (!target) return;
+    savingRepos = true;
+    try {
+      await tsunagu.deleteRepository(target.id);
+      await loadRepos();
+      addToast({ kind: "info", title: "Repo removed", body: url });
+    } catch (e: any) {
+      repoError = e instanceof Error ? e.message : "Failed to remove";
+    } finally { savingRepos = false; }
+  }
 
   async function mutate(pkgName: string, op: "install" | "update" | "uninstall") {
     working = new Set(working).add(pkgName);
-    const label = extensions.find((e) => e.pkgName === pkgName)?.name ?? pkgName;
+    const label = extensions.find((e) => e.packageName === pkgName)?.name ?? pkgName;
     try {
-      const adapter = getAdapter();
-      if      (op === "install")   await adapter.installExtension(pkgName);
-      else if (op === "update")    await adapter.updateExtension(pkgName);
-      else                         await adapter.uninstallExtension(pkgName);
+      if      (op === "install")   await tsunagu.installExtension(pkgName);
+      else if (op === "update")    await tsunagu.updateExtension(pkgName);
+      else                         await tsunagu.uninstallExtension(pkgName);
       await load();
       addToast({
         install:   { kind: "download" as const, title: "Extension installed", body: label },
@@ -156,10 +212,10 @@
   }
 
   async function updateAll() {
-    const pending = extensions.filter((e) => e.hasUpdate);
+    const pending = extensions.filter((e) => e.needsUpdate);
     if (!pending.length || updatingAll) return;
     updatingAll = true;
-    for (const ext of pending) await mutate(ext.pkgName, "update");
+    for (const ext of pending) await mutate(ext.packageName, "update");
     updatingAll = false;
     addToast({ kind: "success", title: "All extensions updated", body: `${pending.length} extension${pending.length === 1 ? "" : "s"} updated` });
   }
@@ -170,7 +226,7 @@
     if (err) { installError = err; return; }
     installing = true; installError = null; installSuccess = false;
     try {
-      await getAdapter().installExternalExtension(url);
+      await tsunagu.installExternalExtension(url);
       installSuccess = true; externalUrl = "";
       await load();
       addToast({ kind: "download", title: "Extension installed", body: url.split("/").pop() ?? url });
@@ -213,14 +269,21 @@
     const matchesSearch = all.some((e) => e.name.toLowerCase().includes(q) || e.lang.toLowerCase().includes(q));
     const matchesTab    = all.some((e) => matchesFilter(e, filter));
     const matchesLang   = langFilter === null || all.some((e) => e.lang === langFilter);
-    return matchesSearch && matchesTab && matchesLang;
+    const matchesType   = contentTypeFilter === "all" || all.some((e) => e.contentType === contentTypeFilter);
+    return matchesSearch && matchesTab && matchesLang && matchesType;
   }));
 
   const availableLangs = $derived(
-    [...new Set(extensions.filter((e) => matchesFilter(e, filter)).map((e) => e.lang))].sort()
+    [...new Set(
+      extensions
+        .filter((e) => matchesFilter(e, filter))
+        .filter((e) => contentTypeFilter === "all" || e.contentType === contentTypeFilter)
+        .map((e) => e.lang)
+    )].sort()
   );
 
-  const updateCount = $derived(extensions.filter((e) => e.hasUpdate).length);
+
+  const updateCount = $derived(extensions.filter((e) => e.needsUpdate).length);
 
   $effect(() => {
     untrack(async () => {
@@ -336,11 +399,13 @@
     {:else}
       <div class="list">
         {#if showLocal}
-          <button type="button" class="local-row" onclick={() => libraryTarget = { pkgName: '__local__', extensionName: 'Local Source', iconUrl: '' }}>
-            <div class="local-icon"><HardDrives size={18} weight="bold" /></div>
+          <button type="button" class="local-row" onclick={rescanLocal} disabled={rescanning} title="Rescan {'{mediaDir}'}/local for hand-added files">
+            <div class="local-icon">
+              {#if rescanning}<CircleNotch size={16} weight="light" class="anim-spin" />{:else}<HardDrives size={18} weight="bold" />{/if}
+            </div>
             <div class="info">
               <span class="name">Local Source</span>
-              <span class="meta">Built-in · {localMangaCount} {localMangaCount === "1" ? "manga" : "mangas"}</span>
+              <span class="meta">Built-in · {localMangaCount} {localMangaCount === "1" ? "title" : "titles"} · tap to rescan</span>
             </div>
             <span class="local-badge">Built-in</span>
           </button>
@@ -348,8 +413,8 @@
         {#each groups as { base, primary, variants }}
           <ExtensionCard
             {base} {primary} {variants} {working} {anims}
-            sources={sourcesByPkg[primary.pkgName] ?? []}
-            libraryCount={libCountByPkg[primary.pkgName] ?? 0}
+            sources={sourcesByPkg[primary.packageName] ?? []}
+            libraryCount={libCountByPkg[primary.packageName] ?? 0}
             expanded={expanded.has(base)}
             onToggle={toggleExpand}
             onMutate={mutate}

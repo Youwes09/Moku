@@ -1,7 +1,5 @@
-import type { PlatformAdapter } from '$lib/platform-adapters/types'
 import type {
-  PlatformFeature, ServerLaunchConfig, FlaresolverrLaunchConfig, DiscordPresence,
-  AppUpdateInfo, StorageInfo, ReleaseInfo, UpdateProgress, MigrateProgress,
+  PlatformAdapter, PlatformFeature, DiscordPresence, UpdateProgress, MigrateProgress,
 } from '$lib/platform-adapters/types'
 
 let adapter: PlatformAdapter | null = null
@@ -44,13 +42,6 @@ export const platformService = {
 
   fetchImage:      (url: string, headers: Record<string, string>) => get().fetchImage(url, headers),
 
-  launchServer:    (c: ServerLaunchConfig)                 => get().launchServer(c),
-  stopServer:      ()                                      => get().stopServer(),
-  getServerStatus: ()                                      => get().getServerStatus(),
-
-  launchFlaresolverr: (c: FlaresolverrLaunchConfig)        => get().launchFlaresolverr(c),
-  stopFlaresolverr:   ()                                   => get().stopFlaresolverr(),
-
   setTitle:         (title: string)                        => get().setTitle(title),
   minimize:         ()                                     => get().minimize(),
   maximize:         ()                                     => get().maximize(),
@@ -69,8 +60,6 @@ export const platformService = {
   listReleases:      ()                                    => get().listReleases(),
 
   clearMokuCache:     ()                                   => get().clearMokuCache(),
-  clearSuwayomiCache: ()                                   => get().clearSuwayomiCache(),
-  resetSuwayomiData:  ()                                   => get().resetSuwayomiData(),
 
   onUpdateProgress:  (cb: (p: UpdateProgress) => void)     => get().onUpdateProgress(cb),
   onUpdateLaunching: (cb: () => void)                      => get().onUpdateLaunching(cb),

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Play, ArrowRight, BookOpen, Clock } from 'phosphor-svelte'
-  import { timeAgo } from '$lib/components/home/lib/homeHelpers'
+  import { timeAgo } from '$lib/core/util'
   import Thumbnail from '$lib/components/shared/manga/Thumbnail.svelte'
   import { historyState } from '$lib/state/history.svelte'
   import type { ReadSession } from '$lib/types/history'

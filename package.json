@@ -40,11 +40,11 @@
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-http": "^2.5.9",
     "@tauri-apps/plugin-os": "^2.3.2",
-    "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
-    "@tauri-apps/plugin-store": "^2.4.3",
     "capacitor-native-biometric": "^4.2.2",
-    "clsx": "^2.1.1",
+    "dashjs": "^4.7.4",
+    "hls.js": "^1.5.17",
+    "jassub": "^2.5.14",
     "tauri-plugin-discord-rpc-api": "github:Youwes09/tauri-plugin-discord-rpc"
   }
 }

@@ -1,6 +1,4 @@
 node_modules/
-suwayomi-raw/
-suwayomi-windows.zip
 dist/
 dist-tauri/
 target/
@@ -40,16 +38,14 @@ yarn-debug.log*
 src-tauri/target/
 src-tauri/binaries/
 src-tauri/gen/
+# Bundled Tsunagu sidecar — populated by CI from the release, or locally by
+# scripts/stage-sidecar.sh. Never committed (large per-target binaries).
+src-tauri/resources/tsunagu
+src-tauri/resources/tsunagu.exe
+src-tauri/resources/sandbox/
 
 .DS_Store
 Thumbs.db
 
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
-
-build-dir/
-repo/
-dist/
-packaging/frontend-dist.tar.gz
-*.flatpak
-./flatpak-builder

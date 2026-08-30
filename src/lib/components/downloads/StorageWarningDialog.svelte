@@ -12,6 +12,7 @@
   role="dialog"
   aria-modal="true"
   aria-labelledby="storage-dialog-title"
+  tabindex="-1"
   onclick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
   onkeydown={(e) => { if (e.key === "Escape") onCancel(); }}
 >

@@ -1,11 +1,9 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import { goto } from '$app/navigation'
-  import { loadLibrary } from '$lib/request-manager/manga'
-  import { getAdapter } from '$lib/request-manager'
-  import { libraryState } from '$lib/state/library.svelte'
+  import { libraryState, loadLibrary } from '$lib/state/library.svelte'
   import { homeState, setHeroSlot } from '$lib/state/home.svelte'
-  import { openReaderForChapter, seriesState }   from '$lib/state/series.svelte'
+  import { openReaderForChapter, seriesState, resolveMediaId, seriesHref }   from '$lib/state/series.svelte'
   import { buildChapterList }       from '$lib/components/series/lib/chapterList'
   import { settingsState }          from '$lib/state/settings.svelte'
   import { DEFAULT_MANGA_PREFS } from '$lib/types/settings'
@@ -15,7 +13,6 @@
   import HeroSlotPicker  from '$lib/components/home/HeroSlotPicker.svelte'
   import ActivityFeed    from '$lib/components/home/ActivityFeed.svelte'
   import ActivityHeatmap from '$lib/components/home/ActivityHeatmap.svelte'
-  import RecsRow         from '$lib/components/home/RecsRow.svelte'
   import StatsGrid       from '$lib/components/home/StatsGrid.svelte'
   import type { Manga, Chapter } from '$lib/types'
 
@@ -33,7 +30,7 @@
   const manga = $derived(libraryState.items)
 
   const continueReading = $derived((() => {
-    const seen = new Set<number>()
+    const seen = new Set<string>()
     const out: ReadSession[] = []
     for (const e of historyState.sessions) {
       if (seen.has(e.mangaId)) continue
@@ -85,28 +82,28 @@
     heroThumb = path
   })
 
-  const heroNewChapter = $derived(
-    heroManga ? (manga.find(m => m.id === heroManga!.id) as any)?.latestUploadedChapter ?? null : null
-  )
+  const heroUnread = $derived(heroManga?.unreadCount ?? 0)
 
   let heroChapters:    Chapter[] = $state([])
   let heroAllChapters: Chapter[] = $state([])
   let loadingHeroChapters = $state(false)
-  let heroChaptersFor: number | null = null
+  let heroChaptersFor: string | null = null
 
   $effect(() => {
     const id = heroMangaId
-    if (id) untrack(() => loadHeroChapters(id))
+    if (id) untrack(() => { void loadHeroChapters(id) })
   })
 
-  async function loadHeroChapters(mangaId: number) {
-    heroChaptersFor     = mangaId
+  async function loadHeroChapters(rawId: string) {
+    heroChaptersFor     = rawId
     loadingHeroChapters = true
     heroChapters        = []
     heroAllChapters     = []
     try {
-      await seriesState.loadChapters(mangaId)
-      if (heroChaptersFor !== mangaId) return
+      const mangaId = await resolveMediaId(rawId)
+      if (heroChaptersFor !== rawId) return
+      await seriesState.loadChapters(mangaId, { mediaId: mangaId })
+      if (heroChaptersFor !== rawId) return
       const chapters = seriesState.chaptersFor(mangaId)
       const prefs = settingsState.settings.mangaPrefs?.[mangaId] ?? {}
       const all = buildChapterList(chapters, {
@@ -135,11 +132,11 @@
 
   async function openChapter(chapter: Chapter) {
     if (!heroMangaId) return
-    goto(`/reader/${heroMangaId}/${chapter.id}`)
+    goto(`/media/${encodeURIComponent(heroMangaId)}/${encodeURIComponent(chapter.id)}`)
   }
 
   async function resumeActive() {
-    if (!heroEntry && heroManga) { goto(`/series/${heroManga.id}`); return }
+    if (!heroEntry && heroManga) { goto(seriesHref(heroManga)); return }
     if (!heroEntry) return
     const target = heroAllChapters.find(c => c.id === heroEntry!.endChapterId) ?? heroAllChapters[0]
     if (target) openReaderForChapter(target, heroManga ?? null)
@@ -158,7 +155,7 @@
   function unpinSlot(i: 1 | 2 | 3) { setHeroSlot(i, null) }
 
   function resumeEntry(entry: ReadSession) {
-    goto(`/reader/${entry.mangaId}/${entry.endChapterId}`)
+    goto(`/media/${encodeURIComponent(entry.mangaId)}/${encodeURIComponent(entry.endChapterId)}`)
   }
 </script>
 
@@ -173,38 +170,28 @@
       {heroEntry}
       {heroMangaId}
       {heroChapters}
-      {heroNewChapter}
+      {heroUnread}
       {loadingHeroChapters}
       {resuming}
       onresume={resumeActive}
-      onviewseries={() => heroMangaId && goto(`/series/${heroMangaId}`)}
+      onviewseries={() => heroManga && goto(seriesHref(heroManga))}
       onopenchapter={openChapter}
       oncyclenext={cycleNext}
       oncycleprev={cyclePrev}
       ongotoslot={goToSlot}
       onopenpicker={openPicker}
       onunpin={unpinSlot}
-      onviewall={() => heroManga && goto(`/series/${heroManga.id}`)}
+      onviewall={() => heroManga && goto(seriesHref(heroManga))}
     />
   </div>
 
   <div class="scroll-body">
     <div class="mid-row">
-      <div class="mid-left">
-        <ActivityFeed
-          onresume={resumeEntry}
-          onviewhistory={() => goto('/recent')}
-          onopenlibrary={() => goto('/library')}
-        />
-      </div>
-      <div class="mid-divider"></div>
-      <div class="mid-right">
-        <RecsRow
-          libraryManga={manga}
-          history={historyState.sessions}
-          onopenrecommended={(m) => goto(`/series/${m.id}`)}
-        />
-      </div>
+      <ActivityFeed
+        onresume={resumeEntry}
+        onviewhistory={() => goto('/recent')}
+        onopenlibrary={() => goto('/library')}
+      />
     </div>
 
     <div class="bottom-row">
@@ -214,7 +201,7 @@
       </div>
       <div class="bottom-divider"></div>
       <div class="bottom-stats">
-        <StatsGrid stats={historyState.stats} updateCount={0} />
+        <StatsGrid stats={historyState.stats} />
       </div>
     </div>
   </div>
@@ -244,13 +231,10 @@
   .scroll-body::-webkit-scrollbar { display: none; }
 
   .mid-row {
-    display: grid; grid-template-columns: 1fr 1px 1.4fr;
     border-top: 1px solid var(--border-dim); flex-shrink: 0; min-height: 0;
+    min-width: 0; overflow: hidden;
   }
-  .mid-left  { min-width: 0; overflow: hidden; }
-  .mid-left :global(.section) { border-top: none; }
-  .mid-divider { background: var(--border-dim); align-self: stretch; }
-  .mid-right { min-width: 0; overflow: hidden; padding: var(--sp-3) var(--sp-4) var(--sp-4); }
+  .mid-row :global(.section) { border-top: none; }
 
   .bottom-row {
     display: grid; grid-template-columns: 1fr 1px 1fr;

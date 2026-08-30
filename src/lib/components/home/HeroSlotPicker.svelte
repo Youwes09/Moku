@@ -49,12 +49,12 @@
       {:else if results.length === 0}
         <p class="empty-msg">No results</p>
       {:else}
-        {#each results as m (m.id)}
+        {#each results as m (`${m.extensionId}-${m.sourceEntryId}`)}
           <button class="list-row" onclick={() => onpin(m)}>
             <Thumbnail src={m.thumbnailUrl} alt={m.title} class="row-thumb" />
             <div class="row-info">
               <span class="row-title">{m.title}</span>
-              {#if m.source?.displayName}<span class="row-source">{m.source.displayName}</span>{/if}
+              {#if m.sourceName || m.source?.displayName}<span class="row-source">{m.sourceName ?? m.source?.displayName}</span>{/if}
             </div>
           </button>
         {/each}

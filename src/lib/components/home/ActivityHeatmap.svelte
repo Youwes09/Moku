@@ -130,7 +130,6 @@
       {#each visibleWeeks as week}
         <div class="week-col">
           {#each week as cell}
-            <!-- svelte-ignore a11y_mouse_events_have_key_events -->
             <button
               class="cell intensity-{intensity(cell.count)}"
               class:cell-today={cell.isToday}

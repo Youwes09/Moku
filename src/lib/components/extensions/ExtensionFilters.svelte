@@ -79,7 +79,7 @@
 {#if availableLangs.length > 1}
   <div class="lang-bar">
     <button class="lang-pill" class:active={langFilter === null} onclick={() => onLang(null)}>All</button>
-    {#each availableLangs as lang}
+    {#each availableLangs.filter((l) => l.toLowerCase() !== "all") as lang}
       <button class="lang-pill" class:active={langFilter === lang} onclick={() => onLang(langFilter === lang ? null : lang)}>
         {lang.toUpperCase()}
       </button>

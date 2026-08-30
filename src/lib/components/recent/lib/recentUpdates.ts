@@ -1,15 +1,18 @@
 import { dayLabel } from '$lib/core/util'
+import { deriveChapterNumber } from '$lib/state/series.svelte'
+import type { RecentChapter } from '$lib/server-adapters/types'
 
 export interface RecentUpdate {
-  id:            number
+  id:            string
   name:          string
   chapterNumber: number
   sourceOrder:   number
   isRead:        boolean
   lastPageRead:  number
-  mangaId:       number
+  mangaId:       string
   fetchedAt:     string
-  manga: { id: number; title: string; thumbnailUrl: string; inLibrary: boolean } | null
+  downloaded:    boolean
+  manga: { id: string; title: string; thumbnailUrl: string; inLibrary: boolean } | null
 }
 
 export interface UpdateGroup {
@@ -59,4 +62,24 @@ export function groupUpdatesByDay(updates: RecentUpdate[]): UpdateGroup[] {
   return Object.entries(grouped)
     .sort(([a], [b]) => order[b] - order[a])
     .map(([label, items]) => ({ label, items }))
+}
+
+export function mapRecentChapterToUpdate(rc: RecentChapter): RecentUpdate {
+  return {
+    id:            rc.chapter.id,
+    name:          rc.chapter.title ?? '',
+    chapterNumber: deriveChapterNumber(rc.chapter.number, rc.chapter.title ?? ''),
+    sourceOrder:   rc.chapter.sourceOrder ?? 0,
+    isRead:        rc.chapter.readingProgress?.completed ?? rc.chapter.completed ?? false,
+    lastPageRead:  0,
+    mangaId:       rc.mediaId,
+    fetchedAt:     rc.chapter.uploadedAt ?? '',
+    downloaded:    rc.chapter.downloaded ?? (rc.chapter.download?.status === 'DONE'),
+    manga: {
+      id:           rc.mediaId,
+      title:        rc.libraryEntryTitle,
+      thumbnailUrl: rc.libraryEntryCoverPath ?? '',
+      inLibrary:    true,
+    },
+  }
 }

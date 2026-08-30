@@ -1,10 +1,10 @@
 import { dayLabel }     from '$lib/core/util'
-import type { ReadSession } from '$lib/types/history'
+import type { ReadSession, MediaKind } from '$lib/types/history'
 
 export type { ReadSession }
 
 export interface ChapterHistoryEntry {
-  chapterId:   number
+  chapterId:   string
   chapterName: string
   endPage:     number
   durationMs:  number
@@ -13,10 +13,11 @@ export interface ChapterHistoryEntry {
 }
 
 export interface MangaHistoryEntry {
-  mangaId:           number
+  mangaId:           string
   mangaTitle:        string
   thumbnailUrl:      string
-  latestChapterId:   number
+  contentType:       MediaKind
+  latestChapterId:   string
   latestChapterName: string
   chaptersSpanned:   number
   durationMs:        number
@@ -30,7 +31,7 @@ export interface HistoryGroup {
 }
 
 export function collapseAndGroupByDay(sessions: ReadSession[]): HistoryGroup[] {
-  const mangaMap = new Map<number, ReadSession[]>()
+  const mangaMap = new Map<string, ReadSession[]>()
   for (const s of sessions) {
     if (!mangaMap.has(s.mangaId)) mangaMap.set(s.mangaId, [])
     mangaMap.get(s.mangaId)!.push(s)
@@ -40,8 +41,8 @@ export function collapseAndGroupByDay(sessions: ReadSession[]): HistoryGroup[] {
   for (const [mangaId, mSessions] of mangaMap.entries()) {
     const latest = mSessions[0]
     let totalDurationMs = 0
-    const uniqueChapters = new Set<number>()
-    const chapterMap = new Map<number, ReadSession[]>()
+    const uniqueChapters = new Set<string>()
+    const chapterMap = new Map<string, ReadSession[]>()
 
     for (const s of mSessions) {
       totalDurationMs += s.durationMs
@@ -76,6 +77,7 @@ export function collapseAndGroupByDay(sessions: ReadSession[]): HistoryGroup[] {
       mangaId,
       mangaTitle:        latest.mangaTitle,
       thumbnailUrl:      latest.thumbnailUrl,
+      contentType:       latest.contentType ?? 'MANGA',
       latestChapterId:   latest.endChapterId,
       latestChapterName: latest.endChapterName,
       chaptersSpanned:   uniqueChapters.size,

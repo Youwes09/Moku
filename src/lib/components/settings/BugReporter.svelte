@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Bug, Lightbulb, X, ArrowSquareOut, ClipboardText, Check, CaretDown, CaretRight } from 'phosphor-svelte'
   import { platformService } from '$lib/platform-service'
-  import { requestManager }  from '$lib/request-manager'
+  import { tsunagu }  from '$lib/server-adapters/tsunagu'
   import { settingsState }   from '$lib/state/settings.svelte'
   import type { Settings }   from '$lib/types/settings'
   import {
@@ -34,7 +34,7 @@
   let serverVersion = $state<string | undefined>(undefined)
 
   $effect(() => {
-    requestManager.meta.getAboutServer()
+    tsunagu.about()
       .then(s => { serverVersion = s.version })
       .catch(() => {})
   })
@@ -238,8 +238,8 @@
             {/if}
 
             <div class="br-field">
-              <label class="br-label">Environment <span class="br-auto">auto-filled</span></label>
-              <pre class="br-env-block">{envBlock}</pre>
+              <label class="br-label" for="br-env">Environment <span class="br-auto">auto-filled</span></label>
+              <pre id="br-env" class="br-env-block">{envBlock}</pre>
             </div>
 
           </div>

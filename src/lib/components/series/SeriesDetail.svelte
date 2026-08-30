@@ -12,57 +12,62 @@
   type MenuSeparator = { separator: true }
   type MenuItem     = { label: string; icon?: any; onClick: () => void; danger?: boolean; disabled?: boolean; separator?: never; children?: MenuEntry[] }
   type MenuEntry    = MenuItem | MenuSeparator
-  import { getManga, getMangaList }    from '$lib/request-manager/manga'
-  import { markChapterRead, markChaptersRead, deleteDownloadedChapters, fetchChapters } from '$lib/request-manager/chapters'
+  import { tsunagu } from '$lib/server-adapters/tsunagu'
   import { downloadStore }             from '$lib/state/downloads.svelte'
-  import { getCategories, updateMangaCategories, createCategory as createCategoryReq, updateManga } from '$lib/request-manager/manga'
   import { saveScroll, getScroll }     from '$lib/state/app.svelte'
-  import { seriesState, openReaderForChapter, acknowledgeUpdate, addBookmark, clearMarkersForManga } from '$lib/state/series.svelte'
+  import { seriesState, openReaderForChapter, acknowledgeUpdate, addBookmark, seriesHref } from '$lib/state/series.svelte'
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
+  import { libraryState, loadLibrary } from '$lib/state/library.svelte'
   import { DEFAULT_MANGA_PREFS }       from '$lib/state/series.svelte'
   import type { MangaPrefs }           from '$lib/types/settings'
   import { addToast }                  from '$lib/state/notifications.svelte'
   import { trackingState }             from '$lib/state/tracking.svelte'
-  import { autoLinkLibrary }           from '$lib/core/cover/autoLink'
   import { getPref, setPref }          from '$lib/state/series.svelte'
   import { openMangaFolder }           from '$lib/core/filesystem'
-  import type { Manga, Chapter, Category } from '$lib/types'
+  import type { Manga, Chapter } from '$lib/types'
+  import type { Folder, TrackLink } from '$lib/server-adapters/types'
   import AutomationPanel  from '$lib/components/series/panels/AutomationPanel.svelte'
   import CoverPickerPanel from '$lib/components/series/panels/CoverPickerPanel.svelte'
-  import MarkersPanel     from '$lib/components/series/panels/MarkersPanel.svelte'
+  import TrackerPanel     from '$lib/components/series/panels/TrackerPanel.svelte'
   import MigrateModal     from '$lib/components/shared/manga/MigrateModal.svelte'
   import SeriesLinkPanel  from '$lib/components/shared/manga/SeriesLinkPanel.svelte'
-  import TrackingPanel    from '$lib/components/tracking/TrackingPanel.svelte'
 
-  interface Props { mangaId: number }
-  let { mangaId }: Props = $props()
+  interface Props { extensionId: string; sourceEntryId: string; mid?: string }
+  let { extensionId, sourceEntryId, mid }: Props = $props()
+
+  const mangaId = $derived(`${extensionId}:${sourceEntryId}`)
+
+  let manga = $state<Manga | null>(null)
+
+  const realMediaId = $derived(manga?.mediaId ?? manga?.libraryEntryId ?? '')
+  const isLocal = $derived(manga != null && !manga.extensionId)
 
   const MANGA_TTL_MS  = 5 * 60 * 1000
-  const mangaCache: Map<number, { data: Manga; fetchedAt: number }> = new Map()
+  const mangaCache: Map<string, { data: Manga; fetchedAt: number }> = new Map()
 
-  let manga:           Manga | null = $state(null)
   let loadingManga:    boolean      = $state(false)
-  let enqueueing:      Set<number>  = $state(new Set())
+  let enqueueing:      Set<string>  = $state(new Set())
   let togglingLibrary: boolean      = $state(false)
   const viewMode = $derived(settingsState.settings.chapterViewMode ?? 'list')
   let deletingAll:     boolean      = $state(false)
   let refreshing:      boolean      = $state(false)
-  let selectedIds:     Set<number>  = $state(new Set())
+  let selectedIds:     Set<string>  = $state(new Set())
   let migrateOpen:     boolean      = $state(false)
   let autoOpen:        boolean      = $state(false)
-  let trackingOpen:    boolean      = $state(false)
-  let markersOpen:     boolean      = $state(false)
   let linkPickerOpen:  boolean      = $state(false)
   let coverPickerOpen: boolean      = $state(false)
   let allMangaForLink: Manga[]      = $state([])
   let loadingLinkList: boolean      = $state(false)
-  let mangaCategories: Category[]   = $state([])
-  let allCategories:   Category[]   = $state([])
+  let mangaFolders:    Folder[]     = $state([])
+  let allFolders:      Folder[]     = $state([])
   let catsLoading:     boolean      = $state(false)
+  let trackLinks:      TrackLink[]  = $state([])
+  let trackerOpen:     boolean      = $state(false)
   let chapterListEl:   HTMLDivElement | null = $state(null)
+  let chapterListRef:  ChapterList | undefined = $state(undefined)
 
   let mangaAbort:  AbortController | null = null
-  let prevMangaId: number | null = null
+  let prevMangaId: string | null = null
 
   const get = <K extends keyof MangaPrefs>(key: K) => getPref(mangaId, key)
   const set = <K extends keyof MangaPrefs>(key: K, value: MangaPrefs[K]) => setPref(mangaId, key, value)
@@ -87,8 +92,8 @@
   const downloadedCount = $derived(chapters.filter(c => c.downloaded).length)
 
   const continueChapter = $derived((() => {
-    if (!sortedChapters.length) return null
-    const asc      = [...sortedChapters].sort((a, b) => a.sourceOrder - b.sourceOrder)
+    const asc = seriesState.readerChapterList
+    if (!asc.length) return null
     const anyRead  = asc.some(c => c.read)
     const bookmark = seriesState.bookmarks.find(b => b.mangaId === mangaId)
     const bookmarkedCh = bookmark ? asc.find(c => c.id === bookmark.chapterId) : null
@@ -115,101 +120,157 @@
 
   function clearSelection() { selectedIds = new Set() }
 
-  function toggleSelect(id: number, e: MouseEvent | KeyboardEvent) {
+  function toggleSelect(id: string, e: MouseEvent | KeyboardEvent) {
     e.stopPropagation()
     const next = new Set(selectedIds)
     if (next.has(id)) next.delete(id); else next.add(id)
     selectedIds = next
   }
 
-  function loadCategories(id: number) {
+  async function loadFolders(id: string) {
     catsLoading = true
-    getCategories()
-      .then(d => {
-        allCategories   = d.filter(c => c.id !== 0)
-        mangaCategories = allCategories.filter(c => c.mangas?.nodes?.some((m: Manga) => m.id === id))
-      })
-      .catch(console.error)
-      .finally(() => { catsLoading = false })
+    try {
+      const [all, entry] = await Promise.all([tsunagu.folders(), tsunagu.libraryEntry(id)])
+      allFolders   = all
+      mangaFolders = entry?.folders ?? []
+      trackLinks   = entry?.trackLinks ?? []
+    } catch (e) {
+      console.error(e)
+    } finally {
+      catsLoading = false
+    }
+    maybePullTracker(id)
   }
 
-  async function checkAndMarkCompleted(id: number, chaps: Chapter[]) {
-    if (!chaps.length || manga?.status === 'ONGOING') return
-    const allRead   = chaps.every(c => c.read)
-    const completed = allCategories.find(c => c.name === 'Completed')
-    if (!completed) return
-    const inCompleted = mangaCategories.some(c => c.id === completed.id)
-    if (allRead && !inCompleted) {
-      await updateMangaCategories(String(id), [completed.id], []).catch(console.error)
-      mangaCategories = [...mangaCategories, completed]
-    } else if (!allRead && inCompleted) {
-      await updateMangaCategories(String(id), [], [completed.id]).catch(console.error)
-      mangaCategories = mangaCategories.filter(c => c.id !== completed.id)
+  let pulledMediaId: string | null = null
+  async function maybePullTracker(id: string) {
+    if (!id || pulledMediaId === id || trackLinks.length === 0) return
+    pulledMediaId = id
+    try {
+      trackLinks = await tsunagu.pullTracker(id)
+      await seriesState.loadChapters(mangaId, { force: true, mediaId: id })
+    } catch (e) {
+      console.error('pullTracker', e)
     }
   }
 
-  function loadMangaData(id: number) {
+  async function checkAndMarkCompleted(_id: string, _chaps: Chapter[]) {}
+
+  function mapEntryToManga(entry: Awaited<ReturnType<typeof tsunagu.libraryEntry>>, key: string): Manga | null {
+    if (!entry) return null
+    return {
+      id: key,
+      title: entry.title,
+      thumbnailUrl: entry.thumbnailUrl ?? '',
+      inLibrary: entry.inLibrary ?? false,
+      contentType: entry.contentType,
+      description: entry.description,
+      status: entry.status,
+      author: entry.author,
+      artist: entry.artist,
+      genre: entry.genres,
+      tags: entry.tags,
+      unreadCount: entry.unreadCount,
+      downloadCount: entry.downloadCount,
+      extensionId:    entry.source?.id,
+      sourceName:     entry.sourceName ?? entry.extensionName ?? null,
+      source:         entry.source
+        ? { id: entry.source.id, name: entry.source.name, displayName: entry.source.displayName, isNsfw: entry.source.isNsfw, iconUrl: entry.source.iconUrl }
+        : null,
+      sourceEntryId:  entry.externalId,
+      mediaId:        entry.id,
+      libraryEntryId: entry.inLibrary ? entry.id : null,
+    }
+  }
+
+  function knownMediaId(): string | null {
+    if (mid) return mid
+    const lib = libraryState.items.find(m =>
+      m.sourceEntryId === sourceEntryId &&
+      String(m.extensionId ?? '') === String(extensionId))
+    return lib?.mediaId ?? lib?.libraryEntryId ?? null
+  }
+
+  async function resolveOpenId(signal: AbortSignal): Promise<string | null> {
+    const known = knownMediaId()
+    if (known) return known
+    const info = await tsunagu.mangaInfo(extensionId, sourceEntryId, false)
+    return signal.aborted ? null : (info.id ?? null)
+  }
+
+  function loadMangaData(id: string): Promise<Manga | null> {
     mangaAbort?.abort()
     const ctrl = new AbortController()
     mangaAbort = ctrl
+
     const cached = mangaCache.get(id)
     if (cached) {
       manga = cached.data
       loadingManga = false
       seriesState.setActiveManga(cached.data)
-      if (Date.now() - cached.fetchedAt < MANGA_TTL_MS) return
-      getManga(id, ctrl.signal)
-        .then(m => {
-          if (ctrl.signal.aborted) return
-          mangaCache.set(id, { data: m, fetchedAt: Date.now() })
-          manga = m
-          seriesState.setActiveManga(m)
-        })
-        .catch(() => {})
-      return
+      if (Date.now() - cached.fetchedAt < MANGA_TTL_MS) return Promise.resolve(cached.data)
+    } else {
+      manga = null
+      seriesState.setActiveManga(null)
+      loadingManga = true
     }
-    loadingManga = true
-    getManga(id, ctrl.signal)
-      .then(m => {
-        if (ctrl.signal.aborted) return
+
+    return (async () => {
+      try {
+        const realId = cached?.data.mediaId ?? cached?.data.libraryEntryId ?? await resolveOpenId(ctrl.signal)
+        if (ctrl.signal.aborted) return cached?.data ?? null
+        if (!realId) throw new Error('Could not resolve a media id for this entry')
+
+        const entry = await tsunagu.libraryEntry(realId)
+        if (ctrl.signal.aborted) return cached?.data ?? null
+        if (!entry) throw new Error(`Media ${realId} not found`)
+
+        const m = mapEntryToManga(entry, id)
+        if (!m) return cached?.data ?? null
         mangaCache.set(id, { data: m, fetchedAt: Date.now() })
         manga = m
         seriesState.setActiveManga(m)
-      })
-      .catch(() => {})
-      .finally(() => { if (!ctrl.signal.aborted) loadingManga = false })
+        seriesState.ingestEntry(id, entry)
+        return m
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return cached?.data ?? null
+        console.error(`loadMangaData: failed to load ${id}`, e)
+        if (!cached) addToast({ kind: 'error', title: 'Could not load series', body: e?.message ?? 'Unknown error' })
+        return cached?.data ?? null
+      } finally {
+        if (!ctrl.signal.aborted) loadingManga = false
+      }
+    })()
   }
 
   $effect(() => {
     const id             = mangaId
+    const extId          = extensionId
+    const srcId          = sourceEntryId
     const shouldAutoLink = seriesState.settings.autoLinkOnOpen
     untrack(() => {
       acknowledgeUpdate(id)
-      loadMangaData(id)
-      seriesState.loadChapters(id).then(() => {
-        checkAndMarkCompleted(id, seriesState.chaptersFor(id))
-        trackingState.loadForManga(id).then(() => syncTrackersIntoChapters(id))
+      loadMangaData(id).then(m => {
+        seriesState.loadChapters(id, {
+          mediaId: m?.mediaId ?? m?.libraryEntryId ?? null,
+        }).then(() => {
+          checkAndMarkCompleted(id, seriesState.chaptersFor(id))
+        })
+        if (m?.libraryEntryId) loadFolders(m.libraryEntryId)
       })
-      loadCategories(id)
       if (shouldAutoLink) {
-        if (allMangaForLink.length) {
-          autoLinkLibrary(manga, allMangaForLink)
-            .then(n => { if (n > 0) addToast({ kind: 'success', title: 'Series linked', body: `${n} new link${n === 1 ? '' : 's'} found` }) })
-        } else {
-          loadingLinkList = true
-          getMangaList()
-            .then(list => { allMangaForLink = list; return autoLinkLibrary(manga, list) })
-            .then(n => { if (n > 0) addToast({ kind: 'success', title: 'Series linked', body: `${n} new link${n === 1 ? '' : 's'} found` }) })
-            .catch(console.error)
-            .finally(() => { loadingLinkList = false })
-        }
+        console.warn('autoLinkOnOpen: not wired to tsunagu yet, skipping')
       }
     })
   })
 
+  let hadChapterOpen = false
   $effect(() => {
-    const wasOpen = seriesState.activeChapter !== null
-    if (!wasOpen) untrack(() => seriesState.loadChapters(mangaId, { force: true }))
+    const isOpen = seriesState.activeChapter !== null
+    if (hadChapterOpen && !isOpen) {
+      untrack(() => seriesState.loadChapters(mangaId, { force: true, mediaId: realMediaId }))
+    }
+    hadChapterOpen = isOpen
   })
 
   $effect(() => {
@@ -222,74 +283,73 @@
 
   $effect(() => () => { mangaAbort?.abort() })
 
-  async function syncTrackersIntoChapters(id: number) {
-    if (!seriesState.settings.trackerSyncBack) return
-    const records = trackingState.recordsFor(id)
-    if (!records.length) return
-    const prefs = {
-      sortMode:           seriesState.settings.chapterSortMode,
-      sortDir:            seriesState.settings.chapterSortDir,
-      preferredScanlator: get('preferredScanlator') as string,
-      scanlatorFilter:    scanlatorFilter,
-      scanlatorBlacklist: scanlatorBlacklist,
-      scanlatorForce:     scanlatorForce,
-    }
-    for (const record of records) {
-      try {
-        const { markedIds } = await trackingState.syncFromRemote(id, record, seriesState.chaptersFor(id), prefs)
-        if (markedIds.length > 0) {
-          const idSet = new Set(markedIds)
-          seriesState.patchChapters(id, chaps => chaps.map(c => idSet.has(c.id) ? { ...c, read: true } : c))
-        }
-      } catch {}
-    }
-  }
-
   async function toggleLibrary() {
-    if (!manga) return
-    togglingLibrary = true
+    if (!manga || !realMediaId || togglingLibrary) return
     const next = !manga.inLibrary
-    await updateManga(manga.id, { inLibrary: next }).catch(console.error)
-    manga = { ...manga, inLibrary: next }
-    seriesState.setActiveManga(manga)
-    if (mangaCache.has(manga.id)) mangaCache.set(manga.id, { data: manga, fetchedAt: mangaCache.get(manga.id)!.fetchedAt })
-    togglingLibrary = false
+    togglingLibrary = true
+    try {
+      await tsunagu.setInLibrary(realMediaId, next)
+      manga.inLibrary = next
+      if (next) {
+        manga.libraryEntryId = realMediaId
+        loadFolders(realMediaId)
+      } else {
+        manga.libraryEntryId = null
+        mangaFolders = []
+      }
+      mangaCache.delete(mangaId)
+      await loadLibrary(true)
+    } catch (e) {
+      addToast({ kind: 'error', title: next ? "Couldn't add to library" : "Couldn't remove", body: String(e) })
+    } finally {
+      togglingLibrary = false
+    }
   }
 
   async function enqueue(ch: Chapter, e: MouseEvent) {
     e.stopPropagation()
     enqueueing = new Set(enqueueing).add(ch.id)
-    const allowed = await downloadStore.enqueue(ch.id)
+    const allowed = await downloadStore.enqueue(ch.id, realMediaId)
     if (allowed) addToast({ kind: 'download', title: 'Download queued', body: ch.name })
     enqueueing.delete(ch.id); enqueueing = new Set(enqueueing)
-    seriesState.loadChapters(mangaId, { force: true })
+    seriesState.loadChapters(mangaId, { force: true, mediaId: realMediaId })
   }
 
-  async function enqueueMultiple(chapterIds: number[]) {
+  async function enqueueMultiple(chapterIds: string[]) {
     if (!chapterIds.length) return
     for (const id of chapterIds) {
-      const allowed = await downloadStore.enqueue(id)
+      const allowed = await downloadStore.enqueue(id, realMediaId)
       if (!allowed) return
     }
     addToast({ kind: 'download', title: 'Download queued', body: `${chapterIds.length} chapter${chapterIds.length !== 1 ? 's' : ''} added` })
-    seriesState.loadChapters(mangaId, { force: true })
+    seriesState.loadChapters(mangaId, { force: true, mediaId: realMediaId })
   }
 
-  async function markRead(chapterId: number, isRead: boolean) {
-    await markChapterRead(chapterId, isRead).catch(console.error)
+  async function pushTrackerProgress() {
+    if (trackLinks.length === 0) return
+    const chaps   = seriesState.chaptersFor(mangaId)
+    const highest = chaps.reduce((m, c) => (c.read && c.chapterNumber > m ? c.chapterNumber : m), 0)
+    if (highest <= 0) return
+
+    const updated = await Promise.all(
+      trackLinks.map(async (l) => {
+        if (highest <= l.lastChapterRead) return l
+        try { return await tsunagu.updateTrack(l.id, { lastChapterRead: highest }) }
+        catch { return l }
+      }),
+    )
+    trackLinks = updated
+    trackingState.loadAll(true).catch(() => {})
+  }
+
+  async function markRead(chapterId: string, isRead: boolean) {
+    if (!realMediaId) { console.warn('markRead: no media id'); return }
+    await tsunagu.markChaptersRead(realMediaId, [chapterId], isRead).catch(console.error)
     seriesState.patchChapters(mangaId, chaps => chaps.map(c => c.id === chapterId ? { ...c, read: isRead } : c))
     checkAndMarkCompleted(mangaId, seriesState.chaptersFor(mangaId))
     const ch = seriesState.chaptersFor(mangaId).find(c => c.id === chapterId)
-    const currentPrefs = {
-      sortMode: seriesState.settings.chapterSortMode, sortDir: seriesState.settings.chapterSortDir,
-      preferredScanlator: get('preferredScanlator') as string,
-      scanlatorFilter, scanlatorBlacklist, scanlatorForce,
-    }
-    if (ch) {
-      if (isRead) await trackingState.updateFromRead(mangaId, ch, seriesState.chaptersFor(mangaId), currentPrefs)
-      else        await trackingState.updateFromUnread(mangaId, seriesState.chaptersFor(mangaId), currentPrefs)
-    }
     if (isRead) {
+      pushTrackerProgress().catch(console.error)
       if (get('deleteOnRead') && ch?.downloaded) {
         const delayMs = (get('deleteDelayHours') as number) * 3_600_000
         const doDelete = () => deleteDownloaded(chapterId)
@@ -306,30 +366,20 @@
     }
   }
 
-  async function markBulk(ids: number[], isRead: boolean) {
+  async function markBulk(ids: string[], isRead: boolean) {
     if (!ids.length) return
-    await markChaptersRead(ids, isRead).catch(console.error)
+    if (!realMediaId) { console.warn('markBulk: no media id'); return }
+    await tsunagu.markChaptersRead(realMediaId, ids, isRead).catch(console.error)
     const idSet = new Set(ids)
     seriesState.patchChapters(mangaId, chaps => chaps.map(c => idSet.has(c.id) ? { ...c, read: isRead } : c))
     checkAndMarkCompleted(mangaId, seriesState.chaptersFor(mangaId))
-    const currentPrefs = {
-      sortMode: seriesState.settings.chapterSortMode, sortDir: seriesState.settings.chapterSortDir,
-      preferredScanlator: get('preferredScanlator') as string,
-      scanlatorFilter, scanlatorBlacklist, scanlatorForce,
-    }
-    if (isRead) {
-      const chaps    = seriesState.chaptersFor(mangaId)
-      const lastRead = [...chaps].sort((a, b) => a.sourceOrder - b.sourceOrder).filter(c => idSet.has(c.id)).at(-1)
-      if (lastRead) await trackingState.updateFromRead(mangaId, lastRead, chaps, currentPrefs)
-    } else {
-      await trackingState.updateFromUnread(mangaId, seriesState.chaptersFor(mangaId), currentPrefs)
-    }
+    if (isRead) pushTrackerProgress().catch(console.error)
     if (isRead && get('deleteOnRead')) {
       const toDelete = ids.filter(id => seriesState.chaptersFor(mangaId).find(c => c.id === id)?.downloaded)
       if (toDelete.length) {
         const delayMs = (get('deleteDelayHours') as number) * 3_600_000
         const doDelete = async () => {
-          await deleteDownloadedChapters(toDelete).catch(console.error)
+          await Promise.all((toDelete).map(id => tsunagu.deleteDownload(realMediaId, id))).catch(console.error)
           seriesState.patchChapters(mangaId, chaps => chaps.map(c => toDelete.includes(c.id) ? { ...c, downloaded: false } : c))
         }
         if (delayMs === 0) doDelete(); else setTimeout(doDelete, delayMs)
@@ -340,7 +390,7 @@
   async function deleteSelected() {
     const ids = [...selectedIds].filter(id => seriesState.chaptersFor(mangaId).find(c => c.id === id)?.downloaded)
     if (ids.length) {
-      await deleteDownloadedChapters(ids).catch(console.error)
+      await Promise.all((ids).map(id => tsunagu.deleteDownload(realMediaId, id))).catch(console.error)
       seriesState.patchChapters(mangaId, chaps => chaps.map(c => ids.includes(c.id) ? { ...c, downloaded: false } : c))
     }
     clearSelection()
@@ -361,8 +411,8 @@
   const markAboveUnread = (i: number) => markBulk(sortedChapters.slice(0, i + 1).filter(c => c.read).map(c => c.id), false)
   const markBelowUnread = (i: number) => markBulk(sortedChapters.slice(i).filter(c => c.read).map(c => c.id), false)
 
-  async function deleteDownloaded(chapterId: number) {
-    await deleteDownloadedChapters([chapterId]).catch(console.error)
+  async function deleteDownloaded(chapterId: string) {
+    await Promise.all(([chapterId]).map(id => tsunagu.deleteDownload(realMediaId, id))).catch(console.error)
     seriesState.patchChapters(mangaId, chaps => chaps.map(c => c.id === chapterId ? { ...c, downloaded: false } : c))
   }
 
@@ -370,17 +420,18 @@
     const ids = seriesState.chaptersFor(mangaId).filter(c => c.downloaded).map(c => c.id)
     if (!ids.length) return
     deletingAll = true
-    await deleteDownloadedChapters(ids).catch(console.error)
+    await Promise.all((ids).map(id => tsunagu.deleteDownload(realMediaId, id))).catch(console.error)
     seriesState.patchChapters(mangaId, chaps => chaps.map(c => ({ ...c, downloaded: false })))
     deletingAll = false
   }
 
   async function refreshChapters() {
-    if (refreshing) return
+    if (refreshing || isLocal) return
+    if (!manga?.libraryEntryId) { addToast({ kind: 'error', title: 'Add to library first', body: 'Chapters refresh automatically for series not yet in your library.' }); return }
     refreshing = true
     seriesState.invalidateChapters(mangaId)
-    fetchChapters(mangaId)
-      .then(() => seriesState.loadChapters(mangaId, { force: true }))
+    tsunagu.syncChapters(manga.libraryEntryId)
+      .then(() => seriesState.loadChapters(mangaId, { force: true, mediaId: realMediaId }))
       .then(() => {
         const count = seriesState.chaptersFor(mangaId).length
         addToast({ kind: 'success', title: 'Chapters refreshed', body: `${count} chapter${count !== 1 ? 's' : ''} available` })
@@ -393,7 +444,7 @@
     const above = sortedChapters.slice(0, idx + 1)
     const below = sortedChapters.slice(idx)
     const last  = sortedChapters.length - 1
-    return [
+    const items: MenuEntry[] = [
       { label: ch.read ? 'Mark as unread' : 'Mark as read', icon: ch.read ? Circle : CheckCircle, onClick: () => markRead(ch.id, !ch.read) },
       { label: 'Select', icon: CheckSquare, onClick: () => { const next = new Set(selectedIds); next.add(ch.id); selectedIds = next } },
       { separator: true },
@@ -402,12 +453,17 @@
       { separator: true },
       { label: 'Mark below as read',   icon: ArrowFatLinesDown, onClick: () => markBelowRead(idx),   disabled: idx === last || below.filter(c => !c.read).length === 0 },
       { label: 'Mark below as unread', icon: ArrowFatLineDown,  onClick: () => markBelowUnread(idx), disabled: idx === last || below.filter(c => c.read).length === 0 },
-      { separator: true },
-      { label: ch.downloaded ? 'Delete download' : 'Download', icon: ch.downloaded ? Trash : Download, danger: ch.downloaded, onClick: () => ch.downloaded ? deleteDownloaded(ch.id) : downloadStore.enqueue(ch.id) },
-      { separator: true },
-      { label: 'Download next 5 from here', icon: DownloadSimple, onClick: () => enqueueMultiple(sortedChapters.slice(idx, idx + 5).filter(c => !c.downloaded).map(c => c.id)) },
-      { label: 'Download all from here',    icon: DownloadSimple, onClick: () => enqueueMultiple(sortedChapters.slice(idx).filter(c => !c.downloaded).map(c => c.id)) },
     ]
+    if (!isLocal) {
+      items.push(
+        { separator: true },
+        { label: ch.downloaded ? 'Delete download' : 'Download', icon: ch.downloaded ? Trash : Download, danger: ch.downloaded, onClick: () => ch.downloaded ? deleteDownloaded(ch.id) : downloadStore.enqueue(ch.id, realMediaId) },
+        { separator: true },
+        { label: 'Download next 5 from here', icon: DownloadSimple, onClick: () => enqueueMultiple(sortedChapters.slice(idx, idx + 5).filter(c => !c.downloaded).map(c => c.id)) },
+        { label: 'Download all from here',    icon: DownloadSimple, onClick: () => enqueueMultiple(sortedChapters.slice(idx).filter(c => !c.downloaded).map(c => c.id)) },
+      )
+    }
+    return items
   }
 
   function enqueueNext(n: number) {
@@ -439,49 +495,45 @@
     openReaderForChapter(cc.chapter, manga)
   }
 
-  async function openLinkPicker() {
-    linkPickerOpen = true
+  async function ensureMangaList() {
     if (allMangaForLink.length) return
     loadingLinkList = true
-    getMangaList()
-      .then(list => { allMangaForLink = list })
-      .catch(console.error)
-      .finally(() => { loadingLinkList = false })
+    try {
+      if (!libraryState.items.length) await loadLibrary()
+      allMangaForLink = libraryState.items
+    } finally {
+      loadingLinkList = false
+    }
+  }
+
+  async function openLinkPicker() {
+    linkPickerOpen = true
+    ensureMangaList()
   }
 
   async function openCoverPicker() {
     coverPickerOpen = true
-    if (allMangaForLink.length) return
-    loadingLinkList = true
-    getMangaList()
-      .then(list => { allMangaForLink = list })
-      .catch(console.error)
-      .finally(() => { loadingLinkList = false })
+    ensureMangaList()
   }
 
-  async function toggleCategory(cat: Category) {
-    const inCat = mangaCategories.some(c => c.id === cat.id)
+  async function toggleFolder(folder: Folder) {
+    if (!manga?.libraryEntryId) { addToast({ kind: 'error', title: 'Add to library first', body: 'Folders only apply to series in your library.' }); return }
+    const inFolder = mangaFolders.some(f => f.id === folder.id)
     try {
-      await updateMangaCategories(String(mangaId), inCat ? [] : [cat.id], inCat ? [cat.id] : [])
-      if (!inCat && !manga?.inLibrary) {
-        await updateManga(mangaId, { inLibrary: true }).catch(console.error)
-        if (manga) { manga = { ...manga, inLibrary: true }; seriesState.setActiveManga(manga) }
-      }
-      mangaCategories = inCat ? mangaCategories.filter(c => c.id !== cat.id) : [...mangaCategories, cat]
+      if (inFolder) await tsunagu.removeEntryFromFolder(manga.libraryEntryId, folder.id)
+      else          await tsunagu.addEntryToFolder(manga.libraryEntryId, folder.id)
+      mangaFolders = inFolder ? mangaFolders.filter(f => f.id !== folder.id) : [...mangaFolders, folder]
     } catch (e) { console.error(e) }
   }
 
-  async function createNewCategory(name: string) {
+  async function createNewFolder(name: string) {
     if (!name) return
+    if (!manga?.libraryEntryId) { addToast({ kind: 'error', title: 'Add to library first', body: 'Folders only apply to series in your library.' }); return }
     try {
-      const cat = await createCategoryReq(name)
-      await updateMangaCategories(String(mangaId), [cat.id], [])
-      if (!manga?.inLibrary) {
-        await updateManga(mangaId, { inLibrary: true }).catch(console.error)
-        if (manga) { manga = { ...manga, inLibrary: true }; seriesState.setActiveManga(manga) }
-      }
-      allCategories   = [...allCategories, cat]
-      mangaCategories = [...mangaCategories, cat]
+      const folder = await tsunagu.createFolder(name)
+      await tsunagu.addEntryToFolder(manga.libraryEntryId, folder.id)
+      allFolders   = [...allFolders, folder]
+      mangaFolders = [...mangaFolders, folder]
     } catch (e) { console.error(e) }
   }
 </script>
@@ -489,6 +541,7 @@
 <div class="root" role="presentation" oncontextmenu={(e) => e.preventDefault()}>
 
   <SeriesHeader
+    {isLocal}
     {manga}
     {loadingManga}
     {totalCount}
@@ -498,19 +551,18 @@
     {deletingAll}
     {continueChapter}
     {hasAnyAutomation}
-    {markersOpen}
     {linkedIds}
     {allMangaForLink}
     {loadingLinkList}
-    {mangaCategories}
+    {mangaFolders}
     {togglingLibrary}
+    trackLinkCount={trackLinks.length}
     onRead={(ch) => handleContinue(ch)}
     onToggleLibrary={toggleLibrary}
     onDeleteAll={deleteAllDownloads}
     onMigrateOpen={() => migrateOpen = true}
-    onTrackingOpen={() => trackingOpen = true}
     onAutoOpen={() => autoOpen = true}
-    onMarkersToggle={() => markersOpen = !markersOpen}
+    onTrackerOpen={() => trackerOpen = true}
     onLinkPickerOpen={openLinkPicker}
     onCoverPickerOpen={openCoverPicker}
     onGenreClick={(genre) => goto(`/browse?genre=${encodeURIComponent(genre)}`)}
@@ -518,6 +570,7 @@
 
   <div class="list-wrap" bind:this={chapterListEl}>
     <SeriesActions
+      {isLocal}
       {chapters}
       {sortedChapters}
       sortMode={seriesState.settings.chapterSortMode}
@@ -533,8 +586,8 @@
       {scanlatorFilter}
       {scanlatorBlacklist}
       {scanlatorForce}
-      {allCategories}
-      {mangaCategories}
+      {allFolders}
+      {mangaFolders}
       {catsLoading}
       {refreshing}
       onViewModeToggle={() => updateSettings({ chapterViewMode: viewMode === 'list' ? 'grid' : 'list' })}
@@ -546,22 +599,25 @@
       onEnqueueMultiple={enqueueMultiple}
       onDeleteAll={deleteAllDownloads}
       onRefresh={refreshChapters}
-      onToggleCategory={toggleCategory}
-      onCreateCategory={createNewCategory}
+      onToggleFolder={toggleFolder}
+      onCreateFolder={createNewFolder}
       onSetScanlatorFilter={(v) => set('scanlatorFilter', v)}
       onSetScanlatorBlacklist={(v) => set('scanlatorBlacklist', v)}
       onSetScanlatorForce={(v) => set('scanlatorForce', v)}
       onSortModeChange={(v) => updateSettings({ chapterSortMode: v })}
       onSortDirChange={(v) => updateSettings({ chapterSortDir: v })}
       onOpenFolder={() => manga && openMangaFolder(manga)}
+      onJumpToChapter={(id) => chapterListRef?.scrollToChapter(id)}
     />
 
     <ChapterList
+      bind:this={chapterListRef}
       {sortedChapters}
       {viewMode}
       {loadingChapters}
       {selectedIds}
       {enqueueing}
+      {isLocal}
       onOpen={openReaderWithAhead}
       onToggleSelect={toggleSelect}
       onEnqueue={enqueue}
@@ -571,25 +627,20 @@
   </div>
 </div>
 
-{#if markersOpen && manga}
-  <div class="panel-overlay" role="presentation" onclick={() => markersOpen = false}>
-    <div class="panel-drawer" role="presentation" onclick={(e) => e.stopPropagation()}>
-      <MarkersPanel mangaId={manga.id} chapters={seriesState.chaptersFor(manga.id)} onClose={() => markersOpen = false} />
-    </div>
-  </div>
-{/if}
-
 {#if autoOpen && manga}
   <AutomationPanel mangaId={manga.id} {manga} onClose={() => autoOpen = false} />
 {/if}
 
-{#if trackingOpen && manga}
-  <div class="modal-overlay" role="presentation" onclick={() => trackingOpen = false}>
-    <div class="modal-dialog" role="presentation" onclick={(e) => e.stopPropagation()}>
-      <TrackingPanel mangaId={manga.id} mangaTitle={manga.title} onClose={() => trackingOpen = false} />
-    </div>
-  </div>
+{#if trackerOpen && manga && realMediaId}
+  <TrackerPanel
+    mediaId={realMediaId}
+    {manga}
+    links={trackLinks}
+    onChanged={() => { if (realMediaId) loadFolders(realMediaId) }}
+    onClose={() => trackerOpen = false}
+  />
 {/if}
+
 
 {#if linkPickerOpen && manga}
   <div class="modal-overlay" role="presentation" onclick={() => linkPickerOpen = false}>
@@ -602,7 +653,13 @@
 {#if coverPickerOpen && manga}
   <div class="modal-overlay" role="presentation" onclick={() => coverPickerOpen = false}>
     <div class="modal-dialog" role="presentation" onclick={(e) => e.stopPropagation()}>
-      <CoverPickerPanel {manga} allManga={allMangaForLink} onClose={() => coverPickerOpen = false} />
+      <CoverPickerPanel
+        {manga}
+        mediaId={realMediaId}
+        allManga={allMangaForLink}
+        onApplied={(url) => { if (manga) manga.thumbnailUrl = url ?? manga.thumbnailUrl; mangaCache.delete(mangaId); loadLibrary(true) }}
+        onClose={() => coverPickerOpen = false}
+      />
     </div>
   </div>
 {/if}
@@ -612,15 +669,13 @@
     {manga}
     currentChapters={seriesState.chaptersFor(manga.id)}
     onClose={() => migrateOpen = false}
-    onMigrated={(newManga) => { goto(`/series/${newManga.id}`); migrateOpen = false }}
+    onMigrated={(newManga) => { goto(seriesHref(newManga)); migrateOpen = false }}
   />
 {/if}
 
 <style>
   .root { display: flex; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
   .list-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-  .panel-overlay { position: fixed; inset: 0; z-index: var(--z-settings); display: flex; align-items: stretch; justify-content: flex-start; animation: fadeIn 0.12s ease both; }
-  .panel-drawer { width: 280px; max-width: 90vw; background: var(--bg-surface); border-right: 1px solid var(--border-base); box-shadow: 4px 0 24px rgba(0,0,0,0.4); display: flex; flex-direction: column; animation: drawerIn 0.18s cubic-bezier(0.16,1,0.3,1) both; }
   @keyframes fadeIn   { from { opacity: 0 }                               to { opacity: 1 } }
   @keyframes drawerIn { from { opacity: 0; transform: translateX(-12px) } to { opacity: 1; transform: translateX(0) } }
   .modal-overlay { position: fixed; inset: 0; z-index: var(--z-settings); display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); animation: fadeIn 0.12s ease both; }

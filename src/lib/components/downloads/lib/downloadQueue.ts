@@ -1,11 +1,11 @@
-import type { DownloadQueueItem } from "$lib/types/api";
+import type { Download, DownloaderStatus } from "$lib/server-adapters/types";
 
-export function isRunning(state: string | undefined): boolean {
-  return state === "STARTED";
+export function isRunning(status: DownloaderStatus | null): boolean {
+  return status?.isRunning ?? false;
 }
 
-export function getErrored(queue: DownloadQueueItem[]): DownloadQueueItem[] {
-  return queue.filter(i => i.state === "ERROR");
+export function getErrored(queue: Download[]): Download[] {
+  return queue.filter(i => i.status === "FAILED");
 }
 
 export function pageProgress(progress: number, pageCount: number): { done: number; total: number } {
@@ -27,7 +27,7 @@ export function calcSpeed(prev: SpeedSample | null, current: SpeedSample): numbe
   return delta / dt;
 }
 
-export function estimateEta(pagesPerSec: number, queue: DownloadQueueItem[]): number | null {
+export function estimateEta(pagesPerSec: number, queue: Download[]): number | null {
   if (pagesPerSec <= 0 || !queue.length) return null;
   let remaining = 0;
   for (const item of queue) {
@@ -38,7 +38,7 @@ export function estimateEta(pagesPerSec: number, queue: DownloadQueueItem[]): nu
   return eta > 0 ? eta : null;
 }
 
-export function estimateQueueBytes(queue: DownloadQueueItem[]): number {
+export function estimateQueueBytes(queue: Download[]): number {
   const AVG = 1_500_000;
   let total = 0;
   for (const item of queue) {
@@ -46,6 +46,14 @@ export function estimateQueueBytes(queue: DownloadQueueItem[]): number {
     total += (pages - Math.round(item.progress * pages)) * AVG;
   }
   return total;
+}
+
+export function formatBytes(n: number | null | undefined): string {
+  if (!n || n <= 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let v = n, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(i > 0 && v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
 export function formatEta(seconds: number): string {

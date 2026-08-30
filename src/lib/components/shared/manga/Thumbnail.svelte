@@ -29,7 +29,7 @@
 
   function getServerUrl(): string {
     const url = settingsState.settings.serverUrl;
-    return typeof url === "string" && url.trim() ? url.replace(/\/$/, "") : "http://127.0.0.1:4567";
+    return typeof url === "string" && url.trim() ? url.replace(/\/$/, "") : "http://localhost:6007";
   }
 
   function withBust(url: string): string {
@@ -42,7 +42,7 @@
     return withBust(base);
   }
 
-  const isAuth = $derived(appState.authMode !== "NONE");
+  const isAuth = false;
 
   let blobUrl = $state("");
   let reqId   = 0;

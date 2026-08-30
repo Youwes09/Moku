@@ -1,18 +1,28 @@
 <script lang="ts">
-  import { Play, Pause, Trash, CircleNotch, ArrowClockwise, Bell, BellSlash, Repeat, Warning } from "phosphor-svelte";
+  import { onMount } from "svelte";
+  import { Play, Pause, Trash, CircleNotch, ArrowClockwise, Bell, BellSlash, Repeat, Warning, DownloadSimple, ClockCounterClockwise } from "phosphor-svelte";
   import { ArrowLineUp, ArrowLineDown, X, CaretUp, CaretDown } from "phosphor-svelte";
-  import DownloadQueue  from "$lib/components/downloads/DownloadQueue.svelte";
+  import DownloadQueue   from "$lib/components/downloads/DownloadQueue.svelte";
+  import DownloadHistory from "$lib/components/downloads/DownloadHistory.svelte";
   import { downloadStore } from "$lib/state/downloads.svelte";
   import { formatEta }  from "$lib/components/downloads/lib/downloadQueue";
 
-  let selectAnchor = $state<number | null>(null);
+  let tab: "queue" | "history" = $state("queue");
+
+  onMount(() => {
+    downloadStore.drawerOpen = true;
+    void downloadStore.poll();
+    return () => { downloadStore.drawerOpen = false; };
+  });
+
+  let selectAnchor = $state<string | null>(null);
   let moveBy       = $state(1);
 
   const selectedErrorCount = $derived(
-    downloadStore.queue.filter(i => downloadStore.selected.has(i.chapter.id) && i.state === "ERROR").length,
+    downloadStore.queue.filter(i => downloadStore.selected.has(i.chapter.id) && i.status === "FAILED").length,
   );
 
-  function handleSelect(chapterId: number, e: MouseEvent | { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) {
+  function handleSelect(chapterId: string, e: MouseEvent | { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) {
     const ctrl = e.ctrlKey || e.metaKey;
     if (e.shiftKey && selectAnchor !== null) {
       downloadStore.selectRange(selectAnchor, chapterId);
@@ -37,8 +47,20 @@
 
 <div class="root">
   <div class="header">
-    <h1 class="heading">Downloads</h1>
-    <div class="header-actions">
+    <span class="heading">Downloads</span>
+
+    <div class="tabs">
+      <button class="tab" class:active={tab === "queue"} onclick={() => tab = "queue"}>
+        <DownloadSimple size={11} weight="bold" />
+        Queue{#if downloadStore.queue.length}<span class="tab-count">{downloadStore.queue.length}</span>{/if}
+      </button>
+      <button class="tab" class:active={tab === "history"} onclick={() => tab = "history"}>
+        <ClockCounterClockwise size={11} weight="bold" />
+        History{#if downloadStore.completed.length}<span class="tab-count">{downloadStore.completed.length}</span>{/if}
+      </button>
+    </div>
+
+    <div class="header-right">
       {#if downloadStore.storageWarning}
         <div class="storage-warning" title="Download queue may exceed available disk space">
           <Warning size={14} weight="fill" />
@@ -92,9 +114,9 @@
       <button
         class="icon-btn"
         class:loading={downloadStore.clearing}
-        onclick={() => downloadStore.clear()}
-        disabled={downloadStore.clearing || downloadStore.queue.length === 0}
-        title="Clear queue"
+        onclick={() => tab === "queue" ? downloadStore.clear() : downloadStore.clearCompleted()}
+        disabled={downloadStore.clearing || (tab === "queue" ? downloadStore.queue.length === 0 : downloadStore.completed.length === 0)}
+        title={tab === "queue" ? "Clear queue" : "Clear history"}
       >
         {#if downloadStore.clearing}<CircleNotch size={14} weight="light" class="anim-spin" />
         {:else}<Trash size={14} weight="regular" />{/if}
@@ -102,6 +124,7 @@
     </div>
   </div>
 
+  {#if tab === "queue"}
   <div class="bar-wrap">
     <div class="status-bar" role="none">
       <div class="status-dot" class:active={downloadStore.isRunning}></div>
@@ -165,19 +188,24 @@
       isRunning={downloadStore.isRunning}
       dequeueing={downloadStore.dequeueing}
       selected={downloadStore.selected}
-      onRemove={(id: number) => downloadStore.dequeue(id)}
-      onRetry={(id: number) => downloadStore.retryOne(id)}
+      onRemove={(id: string) => downloadStore.dequeue(id)}
+      onRetry={(id: string) => downloadStore.retryOne(id)}
       onSelect={handleSelect}
     />
   </div>
+  {:else}
+  <div class="content">
+    <DownloadHistory completed={downloadStore.completed} loading={downloadStore.loading} />
+  </div>
+  {/if}
 </div>
 
 <style>
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; animation: fadeIn 0.14s ease both; }
 
-  .header         { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
-  .heading        { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-normal); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; }
-  .header-actions { display: flex; align-items: center; gap: var(--sp-2); }
+  .header       { position: relative; z-index: 100; display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; min-width: 0; }
+  .heading      { font-family: var(--font-ui); font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase; flex-shrink: 0; }
+  .header-right { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0; }
 
   .storage-warning {
     display: flex; align-items: center; justify-content: center;
@@ -188,6 +216,25 @@
     color: var(--color-warning);
     flex-shrink: 0;
   }
+
+  .tabs {
+    display: flex; gap: 2px;
+    background: var(--bg-raised); border: 1px solid var(--border-dim);
+    border-radius: var(--radius-md); padding: 2px;
+  }
+  .tab {
+    display: flex; align-items: center; gap: 5px;
+    font-family: var(--font-ui); font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-wide); text-transform: uppercase;
+    padding: 4px 10px; border-radius: var(--radius-sm);
+    color: var(--text-faint); white-space: nowrap;
+    border: 1px solid transparent; background: none; cursor: pointer;
+    transition: background var(--t-base), color var(--t-base), border-color var(--t-base);
+  }
+  .tab:hover { color: var(--text-muted); }
+  .tab.active { background: var(--accent-muted); color: var(--accent-fg); border-color: var(--accent-dim); }
+  .tab-count { font-size: var(--text-2xs); color: var(--text-faint); }
+  .tab.active .tab-count { color: var(--accent-fg); opacity: 0.8; }
 
   .bar-wrap   { padding: var(--sp-4) var(--sp-6); flex-shrink: 0; }
   .status-bar { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: var(--radius-md); box-shadow: 0 1px 4px rgba(0,0,0,0.25); cursor: default; }

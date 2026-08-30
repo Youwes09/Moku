@@ -26,7 +26,7 @@
         if (newest === null || ts > newest) newest = ts
       }
     }
-    ['library', 'sources', 'popular'].forEach(checkKey)
+    ['library', 'sources', 'popular'].forEach(checkKey);
     ['Action','Romance','Fantasy','Comedy','Drama','Horror','Sci-Fi','Adventure','Thriller',
      'Isekai','Supernatural','Historical','Psychological','Sports','Mystery','Mecha',
      'Slice of Life','School Life','Martial Arts','Magic','Military'].forEach(g => checkKey(`genre:${g}`))
@@ -34,7 +34,7 @@
   }
 
   function fmtAge(ts: number | null): string {
-    if (ts === null) return '—'
+    if (ts === null) return '-'
     const secs = Math.floor((Date.now() - ts) / 1000)
     if (secs < 60) return `${secs}s ago`
     const mins = Math.floor(secs / 60)

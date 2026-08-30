@@ -37,21 +37,17 @@ jobs:
           V="${{ inputs.version }}"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -am "release: v$V"
-          git tag "v$V"
+          git commit -am "release: v$V" || echo "already at v$V, nothing to commit"
+          git tag -f "v$V"
           git push origin HEAD:main
-          git push origin "v$V"
+          git push -f origin "v$V"
 
-      - name: Create draft release
+      - name: Create draft release if missing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           V="${{ inputs.version }}"
-          gh release create "v$V" \
-            --draft \
-            --title "Moku v$V" \
-            --generate-notes \
-            --notes-start-tag "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')" || \
+          gh release view "v$V" >/dev/null 2>&1 && { echo "release v$V already exists"; exit 0; }
           gh release create "v$V" --draft --title "Moku v$V" --generate-notes
 
   windows:

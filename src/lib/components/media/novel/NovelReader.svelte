@@ -9,7 +9,7 @@
   import { chapterNav } from "$lib/components/media/shared/useChapterNav";
   import { createMediaKeyHandler } from "$lib/components/media/shared/mediaKeybinds";
   import { throttledProgressReporter } from "$lib/components/media/shared/progress";
-  import { trackHistory } from "$lib/components/media/shared/historyTracking";
+  import { trackHistory } from "$lib/components/media/shared/historyTracking.svelte";
   import { markChapterRead } from "$lib/components/media/manga/lib/chapterActions";
   import { getChapterText } from "$lib/components/media/novel/lib/novelLoader";
   import { sanitizeNovelHtml } from "$lib/components/media/novel/lib/sanitizeHtml";

@@ -16,7 +16,7 @@
   import { mediaViewState } from "$lib/state/mediaView.svelte";
   import { chapterNav } from "$lib/components/media/shared/useChapterNav";
   import { throttledProgressReporter } from "$lib/components/media/shared/progress";
-  import { trackHistory } from "$lib/components/media/shared/historyTracking";
+  import { trackHistory } from "$lib/components/media/shared/historyTracking.svelte";
   import { markChapterRead } from "$lib/components/media/manga/lib/chapterActions";
   import { resolveEpisodeSource, resolveSkipTimestamps } from "$lib/components/media/anime/lib/episodeSource";
   import type { AssRenderer } from "$lib/components/media/anime/lib/assSubs";

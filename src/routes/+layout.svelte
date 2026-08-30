@@ -17,6 +17,7 @@
 	import Sidebar from '$lib/components/chrome/Sidebar.svelte'
 	import TitleBar from '$lib/components/chrome/TitleBar.svelte'
 	import Toaster from '$lib/components/chrome/Toaster.svelte'
+	import BackendLog from '$lib/components/chrome/BackendLog.svelte'
 	import Settings from '$lib/components/settings/Settings.svelte'
 	import ThemeEditor from '$lib/components/settings/ThemeEditor.svelte'
 	import { downloadStore } from '$lib/state/downloads.svelte'
@@ -47,6 +48,19 @@
 	let settingsLoaded = $state(false)
 	let themeEditorOpen = $state(false)
 	let themeEditorId = $state<string | null>(null)
+	let backendLogOpen = $state(false)
+
+	$effect(() => {
+		if (!isTauri) return
+		function onDevKey(e: KeyboardEvent) {
+			if (e.shiftKey && (e.ctrlKey || e.metaKey) && e.code === 'KeyI') {
+				e.preventDefault()
+				backendLogOpen = !backendLogOpen
+			}
+		}
+		window.addEventListener('keydown', onDevKey, true)
+		return () => window.removeEventListener('keydown', onDevKey, true)
+	})
 
 	const splashVisible = $derived(
 		appState.status === 'booting' ||
@@ -283,6 +297,10 @@
 
 {#if themeEditorOpen}
 	<ThemeEditor editingId={themeEditorId} onClose={() => (themeEditorOpen = false)} />
+{/if}
+
+{#if backendLogOpen}
+	<BackendLog onClose={() => (backendLogOpen = false)} />
 {/if}
 
 <Onboarding />

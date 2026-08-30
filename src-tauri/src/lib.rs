@@ -105,6 +105,7 @@ pub fn run() {
             commands::biometric::windows_hello_available,
             backend::backend_url,
             backend::backend_data_dir,
+            backend::get_backend_log,
             backend::restart_backend,
         ])
         .setup(|app| {

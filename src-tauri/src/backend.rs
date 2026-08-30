@@ -35,11 +35,25 @@ enum BackendEvent {
 }
 
 const READY_TIMEOUT_SECS: u64 = 20;
+const LOG_CAP: usize = 4000;
 const TSUNAGU_EXE: &str = if cfg!(windows) {
     "tsunagu.exe"
 } else {
     "tsunagu"
 };
+
+async fn push_log(app: &AppHandle, line: String) {
+    let st = app.state::<Backend>();
+    {
+        let mut t = st.log_tail.lock().await;
+        t.push(line.clone());
+        let n = t.len();
+        if n > LOG_CAP {
+            t.drain(0..n - LOG_CAP);
+        }
+    }
+    let _ = app.emit("backend-log", line);
+}
 
 fn resource_root(app: &AppHandle) -> PathBuf {
     let res = app
@@ -149,42 +163,46 @@ pub async fn start(app: AppHandle) -> Result<(), String> {
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(l)) = lines.next_line().await {
-                let st = app2.state::<Backend>();
-                let mut t = st.log_tail.lock().await;
-                t.push(l);
-                let len = t.len();
-                if len > 200 {
-                    t.drain(0..len - 200);
-                }
+                push_log(&app2, l).await;
             }
         });
     }
 
     let stdout = child.stdout.take().unwrap();
-    let mut lines = BufReader::new(stdout).lines();
-    let ready = tokio::time::timeout(Duration::from_secs(READY_TIMEOUT_SECS), async {
-        while let Ok(Some(l)) = lines.next_line().await {
-            if let Some(rest) = l.strip_prefix("TSUNAGU_READY ") {
-                let mut url = String::new();
-                let mut ver = String::new();
-                for kv in rest.split_whitespace() {
-                    if let Some(v) = kv.strip_prefix("url=") {
-                        url = v.to_string();
-                    } else if let Some(v) = kv.strip_prefix("version=") {
-                        ver = v.to_string();
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<(String, String)>();
+    {
+        let app2 = app.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stdout).lines();
+            let mut ready_tx = Some(ready_tx);
+            while let Ok(Some(l)) = lines.next_line().await {
+                if let Some(tx) = ready_tx.take() {
+                    let mut url = String::new();
+                    let mut ver = String::new();
+                    if let Some(rest) = l.strip_prefix("TSUNAGU_READY ") {
+                        for kv in rest.split_whitespace() {
+                            if let Some(v) = kv.strip_prefix("url=") {
+                                url = v.to_string();
+                            } else if let Some(v) = kv.strip_prefix("version=") {
+                                ver = v.to_string();
+                            }
+                        }
+                    }
+                    if url.is_empty() {
+                        ready_tx = Some(tx);
+                    } else {
+                        let _ = tx.send((url, ver));
                     }
                 }
-                if !url.is_empty() {
-                    return Some((url, ver));
-                }
+                push_log(&app2, l).await;
             }
-        }
-        None
-    })
-    .await;
+        });
+    }
+
+    let ready = tokio::time::timeout(Duration::from_secs(READY_TIMEOUT_SECS), ready_rx).await;
 
     match ready {
-        Ok(Some((url, version))) => {
+        Ok(Ok((url, version))) => {
             *state.child.lock().await = Some(child);
             *state.url.lock().await = Some(url.clone());
 
@@ -232,7 +250,7 @@ pub async fn start(app: AppHandle) -> Result<(), String> {
                 .ok();
             Ok(())
         }
-        Ok(None) => {
+        Ok(Err(_)) => {
             let _ = child.kill().await;
             let log = tail_string(&state).await;
             app.emit(
@@ -288,6 +306,11 @@ pub async fn backend_data_dir(state: State<'_, Backend>) -> Result<Option<String
         .await
         .clone()
         .map(|p| p.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn get_backend_log(state: State<'_, Backend>) -> Result<Vec<String>, ()> {
+    Ok(state.log_tail.lock().await.clone())
 }
 
 #[tauri::command]

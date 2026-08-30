@@ -101,6 +101,8 @@ jobs:
           test -f src-tauri/resources/tsunagu.exe
           test -f src-tauri/resources/sandbox/sandbox.jar
           test -f src-tauri/resources/sandbox/runtime/bin/java.exe
+          test -f src-tauri/resources/sandbox/runtime/lib/modules
+          src-tauri/resources/sandbox/runtime/bin/java.exe -version
 
       - name: Build
         run: pnpm tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri.windows.conf.json
@@ -175,6 +177,8 @@ jobs:
             test -x "$dest/tsunagu"
             test -f "$dest/sandbox/sandbox.jar"
             test -x "$dest/sandbox/runtime/bin/java"
+            test -f "$dest/sandbox/runtime/lib/modules"
+            "$dest/sandbox/runtime/bin/java" -version
           }
           stage tsunagu-darwin-arm64  runtime-darwin-arm64.tar.gz  resources-aarch64-apple-darwin
           stage tsunagu-darwin-amd64  runtime-darwin-amd64.tar.gz  resources-x86_64-apple-darwin

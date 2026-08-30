@@ -2,6 +2,7 @@
   "bundle": {
     "externalBin": [],
     "resources": {
+      "resources/tsunagu": null,
       "resources/tsunagu.exe": "tsunagu.exe",
       "resources/sandbox": "sandbox"
     }

@@ -1128,7 +1128,9 @@
   .sub-line {
     display: inline-block;
     font-family: var(--font-ui);
-    font-size: calc(2.6vh * var(--sub-scale, 1));
+    /* tracks Interface scale like the rest of the chrome; the overlay itself
+       stays un-zoomed so it can't drift off-centre */
+    font-size: calc(2.6vh * var(--sub-scale, 1) * var(--ui-zoom-factor, 1));
     line-height: 1.35;
     color: #fff;
     text-shadow: 0 2px 4px #000, 0 0 5px #000;
@@ -1137,7 +1139,7 @@
   .sub-overlay.boxed .sub-line {
     background: rgba(0, 0, 0, 0.72);
     text-shadow: none;
-    padding: 2px 10px;
+    padding: 0.12em 0.5em;
     border-radius: 4px;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;

@@ -110,7 +110,7 @@ html, body {
 }
 
 .ui-unzoom { zoom: calc(1 / var(--ui-zoom-factor, 1)); }
-.ui-unzoom :where(.bar, .bottombar, .vbar-progress, .resume-banner, .msp, .dl-modal, .skip-btn, .skip-toast) {
+.ui-unzoom :where(.bar, .bottombar, .vbar-progress, .resume-banner, .msp, .dl-modal, .skip-btn, .skip-toast, .abar, .loader, .notice) {
   zoom: var(--ui-zoom-factor, 1);
 }
 

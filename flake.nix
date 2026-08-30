@@ -147,8 +147,15 @@
               export GST_PLUGIN_SYSTEM_PATH_1_0="${gstPluginPath}''${GST_PLUGIN_SYSTEM_PATH_1_0:+:$GST_PLUGIN_SYSTEM_PATH_1_0}"
               export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules''${GIO_EXTRA_MODULES:+:$GIO_EXTRA_MODULES}"
 
+              # Same launch path as `nix run .#moku`: backend.rs picks up
+              # TSUNAGU_BIN and spawns this exact server (with its matching jar +
+              # JRE). Tracks the `tsunagu` flake input — `nix flake update
+              # tsunagu` + re-enter the shell to move it.
+              export TSUNAGU_BIN="${tsunaguBin}"
+
               echo "Moku dev shell — pnpm install && pnpm tauri:dev"
               echo ""
+              echo "  backend: ${tsunaguBin}"
               echo "  nix run .#bump   -- <ver>   bump version + rebuild frontend"
               echo "  nix run .#tunnel -- [port]  expose local server via cloudflare"
             '';

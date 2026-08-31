@@ -144,8 +144,8 @@ modules:
         PKG_CONFIG_PATH: /usr/lib/pkgconfig:/usr/share/pkgconfig:/app/lib/pkgconfig
         TAURI_CONFIG: '{"build":{"beforeBuildCommand":"","devUrl":null}}'
     build-commands:
-      - mkdir -p src-tauri/resources/sandbox
-      - touch src-tauri/resources/tsunagu
+      - mkdir -p src-tauri/resources/sandbox/runtime
+      - touch src-tauri/resources/tsunagu src-tauri/resources/sandbox/sandbox.jar
       - . /usr/lib/sdk/rust-stable/enable.sh && cargo build --release --manifest-path src-tauri/Cargo.toml
       - install -Dm755 src-tauri/target/release/moku /app/bin/moku.bin
       - |

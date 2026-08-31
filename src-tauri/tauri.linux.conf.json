@@ -3,12 +3,12 @@
     "targets": ["appimage"],
     "externalBin": [],
     "resources": {
-      "resources/tsunagu": "tsunagu",
-      "resources/sandbox/sandbox.jar": "sandbox/sandbox.jar"
+      "resources/tsunagu": "tsunagu"
     },
     "linux": {
       "appimage": {
         "files": {
+          "usr/lib/Moku/sandbox/sandbox.jar": "resources/sandbox/sandbox.jar",
           "usr/lib/Moku/sandbox/runtime": "resources/sandbox/runtime"
         }
       }

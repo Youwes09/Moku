@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { X, Book, FilmSlate, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Wrench, PaintBrush, ShieldCheck, Robot, Bug, Broadcast } from 'phosphor-svelte'
+  import { X, Book, FilmSlate, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Wrench, PaintBrush, ShieldCheck, Robot, Bug, Broadcast, Database } from 'phosphor-svelte'
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
   import { eventToKeybind } from '$lib/core/keybinds/keybindEngine'
   import type { Keybinds } from '$lib/core/keybinds/defaultBinds'
@@ -20,13 +20,14 @@
   import AboutSettings       from './sections/AboutSettings.svelte'
   import DevtoolsSettings    from './sections/DevToolsSettings.svelte'
   import TrackingSettings    from './sections/TrackingSettings.svelte'
+  import ServerSettings      from './sections/ServerSettings.svelte'
   import ModalBlur           from '$lib/components/shared/ui/ModalBlur.svelte'
   import BugReporter         from './BugReporter.svelte'
 
   interface Props { onclose?: () => void; onOpenThemeEditor?: (id?: string | null) => void }
   let { onclose, onOpenThemeEditor }: Props = $props()
 
-  type Tab = 'general'|'appearance'|'reader'|'player'|'library'|'automation'|'tracking'|'performance'|'keybinds'|'storage'|'folders'|'content'|'about'|'devtools'
+  type Tab = 'general'|'appearance'|'reader'|'player'|'library'|'automation'|'tracking'|'performance'|'keybinds'|'storage'|'folders'|'content'|'server'|'about'|'devtools'
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: 'general',     label: 'General',     icon: Gear        },
     { id: 'appearance',  label: 'Appearance',  icon: PaintBrush  },
@@ -40,6 +41,7 @@
     { id: 'storage',     label: 'Storage',     icon: HardDrives  },
     { id: 'folders',     label: 'Folders',     icon: FolderSimple },
     { id: 'content',     label: 'Content',     icon: ShieldCheck },
+    { id: 'server',      label: 'Server',      icon: Database    },
     { id: 'about',       label: 'About',       icon: Info        },
     { id: 'devtools',    label: 'Dev Tools',   icon: Wrench      },
   ]
@@ -198,6 +200,8 @@
           <FoldersSettings />
         {:else if tab === 'content'}
           <ContentSettings />
+        {:else if tab === 'server'}
+          <ServerSettings {selectOpen} {closingSelect} {toggleSelect} {registerTrigger} {getTrigger} {selectPortal} {anims} />
         {:else if tab === 'about'}
           <AboutSettings />
         {:else if tab === 'devtools'}

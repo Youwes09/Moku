@@ -307,3 +307,34 @@ export interface FilterInput {
 	group?:    { children: FilterInput[] }
 	sort?:     { hasState: boolean; index?: number | null; ascending?: boolean | null }
 }
+
+export type SettingType   = 'BOOL' | 'INT' | 'STRING'
+export type SettingKind   = 'BOOTSTRAP' | 'RUNTIME'
+export type SettingScope  = 'LIVE' | 'SANDBOX_RESTART' | 'FULL_RESTART'
+export type SettingSource = 'FILE' | 'DB' | 'DEFAULT'
+
+export interface ServerSetting {
+	key: string
+	value: string
+	default: string
+	type: SettingType
+	kind: SettingKind
+	scope: SettingScope
+	source: SettingSource
+	editable: boolean
+	description: string
+}
+
+export interface UpdateSettingResult {
+	setting: ServerSetting
+	restartRequired: boolean
+}
+
+export type CloudflareSolverState = 'NOT_INSTALLED' | 'DOWNLOADING' | 'INSTALLED' | 'RUNNING' | 'ERROR'
+
+export interface CloudflareSolver {
+	state: CloudflareSolverState
+	downloadProgress: number
+	error: string | null
+	supportedOnPlatform: boolean
+}

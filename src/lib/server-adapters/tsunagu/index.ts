@@ -7,6 +7,7 @@ import { repositories } from './repositories'
 import { extensions } from './extensions'
 import { folders } from './folders'
 import { trackers } from './trackers'
+import { serverSettings } from './serverSettings'
 
 export const tsunagu = {
 	...meta,
@@ -18,4 +19,5 @@ export const tsunagu = {
 	...extensions,
 	...folders,
 	...trackers,
+	...serverSettings,
 }

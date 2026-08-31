@@ -1,14 +1,16 @@
 {
   "bundle": {
-    "targets": ["appimage", "deb"],
+    "targets": ["appimage"],
     "externalBin": [],
     "resources": {
       "resources/tsunagu": "tsunagu",
-      "resources/sandbox": "sandbox"
+      "resources/sandbox/sandbox.jar": "sandbox/sandbox.jar"
     },
     "linux": {
-      "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      "appimage": {
+        "files": {
+          "usr/lib/Moku/sandbox/runtime": "src-tauri/resources/sandbox/runtime"
+        }
       }
     }
   }

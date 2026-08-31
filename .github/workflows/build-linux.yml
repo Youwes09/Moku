@@ -147,9 +147,10 @@ jobs:
       - name: Install flatpak tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder
+          sudo apt-get install -y flatpak
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y --noninteractive flathub \
+            org.flatpak.Builder \
             org.gnome.Platform//48 org.gnome.Sdk//48 \
             org.freedesktop.Sdk.Extension.rust-stable//24.08 \
             org.freedesktop.Platform.ffmpeg-full//24.08
@@ -157,7 +158,8 @@ jobs:
       - name: Build flatpak
         run: |
           rm -rf build-dir repo
-          flatpak-builder --verbose --user --disable-rofiles-fuse --install-deps-from=flathub \
+          flatpak run org.flatpak.Builder --verbose --user --disable-rofiles-fuse \
+            --install-deps-from=flathub \
             --repo=repo --force-clean build-dir io.github.MokuProject.Moku.yml
 
       - name: Bundle

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { X, MagnifyingGlass, CircleNotch, ArrowRight, Check, Warning, Sparkle, Swap } from "phosphor-svelte";
   import { tsunagu } from "$lib/server-adapters/tsunagu";
+  import { migrateMedia } from "$lib/components/shared/manga/lib/migrateMedia";
   import Thumbnail     from "$lib/components/shared/manga/Thumbnail.svelte";
   import { resolvedCover } from "$lib/core/cover/coverResolver";
 
@@ -147,18 +148,8 @@
     for (const entry of toMigrate) {
       const idx = entries.indexOf(entry);
       try {
-        const previewChaps = await tsunagu.previewChapters(targetSource!.id, entry.match!.sourceEntryId!);
-        const newEntry     = await tsunagu.addToLibrary(entry.match!.id);
-        const syncedChaps  = await tsunagu.syncChapters(newEntry.id);
-
-        const hadReads = entries[idx].manga.unreadCount < previewChaps.length;
-        if (hadReads && syncedChaps.length) {
-          await tsunagu.markChaptersRead(newEntry.id, syncedChaps.map(c => c.id), true);
-        }
-
-        await tsunagu.removeFromLibrary(entry.manga.id);
-
-        entries[idx] = { ...entries[idx], chapters: previewChaps, status: "migrated" };
+        await migrateMedia(entry.manga.id, targetSource!.id, entry.match!.sourceEntryId!);
+        entries[idx] = { ...entries[idx], status: "migrated" };
         migrateProgress = { ...migrateProgress, done: migrateProgress.done + 1 };
       } catch (e: any) {
         entries[idx] = { ...entries[idx], status: "failed", error: e.message };

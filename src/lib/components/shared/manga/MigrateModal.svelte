@@ -2,6 +2,7 @@
   import { X, MagnifyingGlass, CircleNotch, ArrowRight, Check, Warning, Sparkle } from "phosphor-svelte";
   import { untrack }        from "svelte";
   import { tsunagu }        from "$lib/server-adapters/tsunagu";
+  import { migrateMedia }   from "$lib/components/shared/manga/lib/migrateMedia";
   import Thumbnail          from "$lib/components/shared/manga/Thumbnail.svelte";
   import { resolvedCover }  from "$lib/core/cover/coverResolver";
   import { libraryState }   from "$lib/state/library.svelte";
@@ -161,33 +162,18 @@
     if (!selectedMatch || !selectedExtension) return;
     migrating = true; error = null;
     try {
-      const { hit } = selectedMatch;
-
-      const newEntry = await tsunagu.addToLibrary(hit.id);
-      const newChapters = await tsunagu.syncChapters(newEntry.id);
-
-      const oldByNum = new Map(currentChapters.map(c => [Math.round(c.chapterNumber * 100), c]));
-      const toMarkRead: string[] = [];
-
-      for (const nc of newChapters) {
-        const old = oldByNum.get(Math.round((nc.number ?? 0) * 100));
-        if (!old) continue;
-        if (old.read) toMarkRead.push(nc.id);
-      }
-
-      if (toMarkRead.length) {
-        await tsunagu.markChaptersRead(newEntry.id, toMarkRead, true);
-      }
-
-      await tsunagu.removeFromLibrary(manga.id);
-
+      const { entry } = await migrateMedia(
+        manga.id,
+        selectedExtension.packageName ?? selectedExtension.id,
+        selectedMatch.hit.sourceEntryId,
+      );
       onMigrated({
-        id: newEntry.id,
-        title: newEntry.title,
-        thumbnailUrl: newEntry.thumbnailUrl ?? "",
+        id: entry.id,
+        title: entry.title,
+        thumbnailUrl: entry.thumbnailUrl ?? "",
         inLibrary: true,
-        description: newEntry.description,
-        status: newEntry.status,
+        description: entry.description,
+        status: entry.status,
       });
     } catch (e: any) {
       error = e.message;

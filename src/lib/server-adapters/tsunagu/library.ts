@@ -81,6 +81,22 @@ export const library = {
 		return this.setInLibrary(mediaId, true)
 	},
 
+	async migrateMedia(fromMediaId: string, toExtensionId: string, toExternalId: string): Promise<LibraryEntry> {
+		const data = await gql<{ migrateMedia: LibraryEntry }>(
+			`mutation MigrateMedia($fromMediaId: ID!, $toExtensionId: ID!, $toExternalId: String!) {
+				migrateMedia(fromMediaId: $fromMediaId, toExtensionId: $toExtensionId, toExternalId: $toExternalId) {
+					id extensionId extensionName externalId contentType title thumbnailUrl description status addedAt
+					unreadCount downloadCount: downloadedCount
+					chapters { id number }
+					source { id repositoryId packageName name displayName version contentType lang iconUrl isNsfw supportsLatest apkUrl jarUrl jarPath installed enabled discoveredAt installedAt installedVersion needsUpdate }
+				}
+			}`,
+			{ fromMediaId, toExtensionId, toExternalId },
+			baseUrl()
+		)
+		return data.migrateMedia
+	},
+
 	async syncChapters(libraryEntryId: string): Promise<Chapter[]> {
 		const data = await gql<{ syncChapters: Chapter[] }>(
 			`mutation SyncChapters($mediaId: ID!) {

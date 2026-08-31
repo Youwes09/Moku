@@ -1128,8 +1128,6 @@
   .sub-line {
     display: inline-block;
     font-family: var(--font-ui);
-    /* tracks Interface scale like the rest of the chrome; the overlay itself
-       stays un-zoomed so it can't drift off-centre */
     font-size: calc(2.6vh * var(--sub-scale, 1) * var(--ui-zoom-factor, 1));
     line-height: 1.35;
     color: #fff;

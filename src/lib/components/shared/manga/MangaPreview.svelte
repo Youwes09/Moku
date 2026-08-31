@@ -107,12 +107,15 @@
     return { ch: asc[0], type: "reread" as const, resumePage: null };
   });
 
+  const isAnime  = $derived(displayManga?.contentType === "ANIME");
+  const unitOne  = $derived(isAnime ? "episode" : "chapter");
+  const unitMany = $derived(isAnime ? "episodes" : "chapters");
+
   const continueLabel = $derived.by(() => {
     if (!continueChapter) return "";
     const { ch, type, resumePage } = continueChapter;
-    const isAnime = displayManga?.contentType === "ANIME";
     const unit    = isAnime ? "Ep." : "Ch.";
-    const ref     = ch.chapterNumber >= 0 ? `${unit}${ch.chapterNumber}` : (ch.name || "chapter");
+    const ref     = ch.chapterNumber >= 0 ? `${unit}${ch.chapterNumber}` : (ch.name || unitOne);
     if (type === "reread") return isAnime ? "Watch again" : "Read again";
     if (type === "start")  return `Start · ${ref}`;
     return `Continue · ${ref}${resumePage ? ` p.${resumePage}` : ""}`;
@@ -284,7 +287,7 @@
     queueingAll = true;
     try {
       await tsunagu.enqueueDownloads(mangaId, ids);
-      addToast({ kind: "download", title: "Downloading", body: `${ids.length} chapters queued` });
+      addToast({ kind: "download", title: "Downloading", body: `${ids.length} ${unitMany} queued` });
     } catch (e) {
       console.error(e);
     } finally {
@@ -581,12 +584,12 @@
           {#if loadingChapters}
             <div class="chapter-loading">
               <CircleNotch size={13} weight="light" class="anim-spin" style="color:var(--text-faint)" />
-              <span class="chapter-loading-label">Loading chapters…</span>
+              <span class="chapter-loading-label">Loading {unitMany}…</span>
             </div>
           {:else if totalCount > 0}
             <div class="chapter-meta">
               <span class="chapter-label">
-                {totalCount} {totalCount === 1 ? "chapter" : "chapters"}
+                {totalCount} {totalCount === 1 ? unitOne : unitMany}
                 {readCount > 0 ? ` · ${readCount} read` : ""}
                 {unreadCount > 0 && readCount > 0 ? ` · ${unreadCount} left` : ""}
                 {downloadedCount > 0 ? ` · ${downloadedCount} dl` : ""}
@@ -609,7 +612,7 @@
               </button>
             {/if}
           {:else if !loadingDetail && !loadingChapters}
-            <span class="chapter-label" style="color:var(--text-faint)">No chapters in local library</span>
+            <span class="chapter-label" style="color:var(--text-faint)">No {unitMany} in local library</span>
           {/if}
         </div>
 

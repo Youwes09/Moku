@@ -42,7 +42,6 @@
 				if (disposed) un()
 				else unlisten = un
 			} catch {
-				/* not running under tauri */
 			}
 		})()
 

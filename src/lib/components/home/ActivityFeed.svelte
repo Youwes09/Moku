@@ -36,7 +36,7 @@
     {#if entries.length > 0}
       {#each entries as entry (entry.id)}
         <button class="row" onclick={() => onresume(entry)}>
-          <Thumbnail src={entry.thumbnailUrl} alt={entry.mangaTitle} class="row-thumb" />
+          <Thumbnail src={entry.thumbnailUrl} alt={entry.mangaTitle} class="row-thumb" contentType={entry.contentType} />
           <div class="row-info">
             <span class="row-title">{entry.mangaTitle}</span>
             <span class="row-sub">

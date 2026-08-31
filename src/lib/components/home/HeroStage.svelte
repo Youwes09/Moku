@@ -89,7 +89,7 @@
     aria-label={heroTitle ? `View ${heroTitle}` : 'No manga selected'}
   >
     {#if heroThumb}
-      <Thumbnail src={heroThumb} alt={heroTitle} class="hero-cover" />
+      <Thumbnail src={heroThumb} alt={heroTitle} class="hero-cover" contentType={heroManga?.contentType} />
       {#if activeSlot?.kind === 'continue'}
         <div class="cover-resume-hint"><BookOpen size={20} weight="light" /></div>
       {/if}

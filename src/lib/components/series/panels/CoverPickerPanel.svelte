@@ -116,7 +116,7 @@
 
         <div class="cover-wrap">
           {#if current}
-            <Thumbnail src={current.url} alt="" class="cover-img" />
+            <Thumbnail src={current.url} alt="" class="cover-img" contentType={manga.contentType} />
           {/if}
         </div>
 
@@ -134,7 +134,7 @@
               onclick={() => index = i}
               aria-label="Cover {i + 1}"
             >
-              <Thumbnail src={c.url} alt="" class="film-img" />
+              <Thumbnail src={c.url} alt="" class="film-img" contentType={manga.contentType} />
             </button>
           {/each}
         </div>

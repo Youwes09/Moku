@@ -135,7 +135,12 @@ export function toCachedManga(
   };
 }
 
-export function toBrowseManga(r: SearchResult, extensionId: string, sourceId?: string): Manga {
+export function toBrowseManga(
+  r: SearchResult,
+  extensionId: string,
+  sourceId?: string,
+  contentType?: "MANGA" | "NOVEL" | "ANIME",
+): Manga {
   return {
     id:             r.id ?? `${extensionId}-${r.externalId}`,
     title:          r.title,
@@ -143,6 +148,7 @@ export function toBrowseManga(r: SearchResult, extensionId: string, sourceId?: s
     inLibrary:      r.inLibrary,
     status:         r.status ?? undefined,
     genre:          r.genres,
+    contentType,
     sourceId:       sourceId ?? extensionId,
     sourceEntryId:  r.externalId,
     extensionId,

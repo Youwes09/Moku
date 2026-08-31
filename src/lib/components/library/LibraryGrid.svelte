@@ -170,7 +170,7 @@
           oncontextmenu={(e) => onCardContextMenu(e, m)}
         >
           <div class="thumb" class:cover-contain={!cropCovers}>
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb-img" id={m.id} />
+            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb-img" id={m.id} contentType={m.contentType} />
           </div>
           <div class="info">
             <span class="row-title">{m.title}</span>
@@ -216,7 +216,7 @@
           oncontextmenu={(e) => onCardContextMenu(e, m)}
         >
           <div class="cover-wrap" class:completed={isCompleted} class:cover-contain={!cropCovers}>
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" id={m.id} />
+            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" id={m.id} contentType={m.contentType} />
             {#if showTypeTag && m.contentType}
               <span class="type-tag" title={m.contentType}>
                 {#if m.contentType === 'ANIME'}<FilmSlate size={12} weight="fill" />

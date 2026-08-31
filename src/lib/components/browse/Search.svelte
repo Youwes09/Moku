@@ -128,7 +128,7 @@
         try {
           const result = await tsunagu.popularManga(src.id, p, signal);
           if (signal.aborted) return;
-          popular_push(result.results.map((r) => toBrowseManga(r, src.id)));
+          popular_push(result.results.map((r) => toBrowseManga(r, src.id, undefined, src.contentType)));
           if (!result.hasNextPage) break;
         } catch { break; }
       }
@@ -174,7 +174,7 @@
         const result = await tsunagu.popularManga(src.id, p, signal);
         if (signal.aborted) return;
         for (const r of result.results) {
-          const m = toBrowseManga(r, src.id);
+          const m = toBrowseManga(r, src.id, undefined, src.contentType);
           if (!sourceCache.has(m.id)) sourceCache.set(m.id, toCachedManga(m as any, src.id));
         }
       } catch (e: any) {

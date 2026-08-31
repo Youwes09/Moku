@@ -140,6 +140,7 @@
                       src={thumbFor(item.mangaId, item.thumbnailUrl)}
                       alt={item.mangaTitle}
                       class="thumb"
+                      contentType={item.contentType}
                     />
                     {#if item.chaptersSpanned > 1}
                       <span class="session-count">{item.chaptersSpanned}</span>

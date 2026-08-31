@@ -182,6 +182,7 @@
                       src={item.manga?.thumbnailUrl ?? ''}
                       alt={item.manga?.title ?? 'Series cover'}
                       class="thumb"
+                      contentType={item.manga?.contentType}
                     />
                   </button>
                   <button
@@ -232,6 +233,7 @@
                         src={first.manga?.thumbnailUrl ?? ''}
                         alt={first.manga?.title ?? 'Series cover'}
                         class="thumb"
+                        contentType={first.manga?.contentType}
                       />
                     </button>
                     <button class="bundle-summary" onclick={() => toggleBundle(bundle.key)}>

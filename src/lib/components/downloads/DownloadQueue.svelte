@@ -32,6 +32,7 @@
     mangaId:           string;
     mangaTitle:        string;
     thumbnailUrl:      string;
+    contentType:       "MANGA" | "NOVEL" | "ANIME" | undefined;
     items:             Download[];
     seriesPct:         number;
     activeChapter:     Download | null;
@@ -66,6 +67,7 @@
         mangaId,
         mangaTitle:        title,
         thumbnailUrl:      thumb,
+        contentType:       manga?.contentType,
         items,
         seriesPct,
         activeChapter:     active,
@@ -182,7 +184,7 @@
 
           {#if group.thumbnailUrl}
             <div class="thumb">
-              <Thumbnail src={group.thumbnailUrl} alt={group.mangaTitle} class="thumb-img" />
+              <Thumbnail src={group.thumbnailUrl} alt={group.mangaTitle} class="thumb-img" contentType={group.contentType} />
             </div>
           {/if}
 

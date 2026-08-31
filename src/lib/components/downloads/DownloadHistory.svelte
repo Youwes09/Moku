@@ -17,6 +17,7 @@
     mangaId:      string;
     mangaTitle:   string;
     thumbnailUrl: string;
+    contentType:  "MANGA" | "NOVEL" | "ANIME" | undefined;
     items:        Download[];
     totalBytes:   number;
     lastMs:       number;
@@ -41,6 +42,7 @@
         mangaId,
         mangaTitle:   manga?.title ?? "Unknown series",
         thumbnailUrl: manga?.thumbnailUrl ?? "",
+        contentType:  manga?.contentType,
         items,
         totalBytes:   items.reduce((s, i) => s + (i.finalSizeBytes ?? 0), 0),
         lastMs:       items.reduce((m, i) => Math.max(m, whenMs(i.completedAt)), 0),
@@ -79,7 +81,7 @@
           </button>
 
           {#if group.thumbnailUrl}
-            <div class="thumb"><Thumbnail src={group.thumbnailUrl} alt={group.mangaTitle} class="thumb-img" /></div>
+            <div class="thumb"><Thumbnail src={group.thumbnailUrl} alt={group.mangaTitle} class="thumb-img" contentType={group.contentType} /></div>
           {/if}
 
           <div class="series-info">

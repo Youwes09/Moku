@@ -12,7 +12,7 @@ export interface RecentUpdate {
   mangaId:       string
   fetchedAt:     string
   downloaded:    boolean
-  manga: { id: string; title: string; thumbnailUrl: string; inLibrary: boolean } | null
+  manga: { id: string; title: string; thumbnailUrl: string; inLibrary: boolean; contentType?: string } | null
 }
 
 export interface UpdateGroup {
@@ -80,6 +80,7 @@ export function mapRecentChapterToUpdate(rc: RecentChapter): RecentUpdate {
       title:        rc.libraryEntryTitle,
       thumbnailUrl: rc.libraryEntryCoverPath ?? '',
       inLibrary:    true,
+      contentType:  rc.contentType,
     },
   }
 }

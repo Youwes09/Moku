@@ -137,7 +137,7 @@
         } catch { return; }
         if (!result || ctrl.signal.aborted) return;
         const candidates = result.results
-          .map((r) => toBrowseManga(r, src.id))
+          .map((r) => toBrowseManga(r, src.id, undefined, src.contentType))
           .filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
         const toAdd: Manga[] = [];
         for (const m of candidates) {
@@ -339,7 +339,7 @@
           {#each tag_mergedResults as m, i (`${m.extensionId}-${m.sourceEntryId}`)}
             <button class="card" onclick={() => onPreview(m)}>
               <div class="coverWrap">
-                <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} />
+                <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} contentType={m.contentType} />
                 {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
               </div>
               <p class="cardTitle">{m.title}</p>

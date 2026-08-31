@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ImageSquare, BookOpenText, FilmSlate } from "phosphor-svelte";
   import { settingsState } from "$lib/state/settings.svelte";
   import { getBlobUrl }    from "$lib/core/cache/imageCache";
   import { appState } from "$lib/state/app.svelte";
@@ -8,13 +9,14 @@
 
   let {
     src,
-    id         = undefined,
-    alt        = "",
-    class: cls = "",
-    loading    = "lazy",
-    decoding   = "async",
-    priority   = 0,
-    onerror    = undefined,
+    id          = undefined,
+    alt         = "",
+    class: cls  = "",
+    loading     = "lazy",
+    decoding    = "async",
+    priority    = 0,
+    contentType = undefined,
+    onerror     = undefined,
     ...rest
   }: {
     src:       string | null | undefined;
@@ -24,9 +26,22 @@
     loading?:  "lazy" | "eager";
     decoding?: "async" | "auto" | "sync";
     priority?: number;
+    contentType?: string | null;
     onerror?:  ((e: Event) => void) | undefined;
     [key: string]: any;
   } = $props();
+
+  let broke = $state(false);
+  $effect(() => { src; broke = false; });
+
+  function handleError(e: Event) {
+    broke = true;
+    onerror?.(e);
+  }
+
+  const FallbackIcon = $derived(
+    contentType === "ANIME" ? FilmSlate : contentType === "NOVEL" ? BookOpenText : ImageSquare,
+  );
 
   function getServerUrl(): string {
     const url = settingsState.settings.serverUrl;
@@ -74,6 +89,23 @@
 
   const plainUrl = $derived(plainThumbUrl(src));
   const resolved = $derived(isAuth ? (blobUrl || undefined) : (plainUrl || undefined));
+
+  const showFallback = $derived(!!contentType && (!resolved || broke));
 </script>
 
-<img src={resolved} {alt} class={cls} {loading} {decoding} {onerror} {...rest} />
+{#if showFallback}
+  <div class="cover-fallback {cls}" role="img" aria-label={alt}>
+    <FallbackIcon size="34%" weight="fill" />
+  </div>
+{:else}
+  <img src={resolved} {alt} class={cls} {loading} {decoding} onerror={handleError} {...rest} />
+{/if}
+
+<style>
+  .cover-fallback {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%;
+    background: var(--bg-raised);
+    color: var(--text-faint);
+  }
+</style>

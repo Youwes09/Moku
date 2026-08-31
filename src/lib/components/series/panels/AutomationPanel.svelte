@@ -58,7 +58,7 @@
     <div class="cover-col">
       {#if coverSrc}
         <div class="cover-wrap">
-          <Thumbnail src={coverSrc} alt={manga?.title} class="cover" />
+          <Thumbnail src={coverSrc} alt={manga?.title} class="cover" contentType={manga?.contentType} />
         </div>
       {:else}
         <div class="cover-placeholder"></div>

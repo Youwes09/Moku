@@ -104,7 +104,7 @@
             result = await tsunagu.search(src.id, pt, page, undefined, ctrl.signal);
           } catch { break; }
           if (!result || ctrl.signal.aborted) break;
-          const mapped = result.results.map((r) => toBrowseManga(r, src.id));
+          const mapped = result.results.map((r) => toBrowseManga(r, src.id, undefined, src.contentType));
           pageItems.push(...mapped);
           if (!result.hasNextPage) { nextPageMap.set(src.id, -1); break; }
           else if (page === INITIAL_PAGES) nextPageMap.set(src.id, INITIAL_PAGES + 1);
@@ -138,7 +138,7 @@
         } catch { nextPageMap.set(src.id, -1); return; }
         if (!result || ctrl.signal.aborted) return;
         nextPageMap.set(src.id, result.hasNextPage ? page + 1 : -1);
-        const mapped = result.results.map((r) => toBrowseManga(r, src.id));
+        const mapped = result.results.map((r) => toBrowseManga(r, src.id, undefined, src.contentType));
         if (mapped.length > 0) sourceManga = dedupeMangaById([...sourceManga, ...mapped]);
       }, ctrl.signal);
     } finally {
@@ -197,7 +197,7 @@
       {#each visibleItems as m, i (`${m.extensionId}-${m.sourceEntryId}`)}
         <button class="card" onclick={() => setPreviewManga(m)} oncontextmenu={(e) => { e.stopPropagation(); openCtx(e, m); }}>
           <div class="cover-wrap">
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} />
+            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} contentType={m.contentType} />
             {#if m.inLibrary}<span class="in-library-badge">Saved</span>{/if}
           </div>
           <p class="card-title">{m.title}</p>

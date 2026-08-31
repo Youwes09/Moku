@@ -417,7 +417,7 @@
 
     <div class="cover-col">
       <div class="cover-wrap">
-        <Thumbnail src={resolvedCover(seriesState.previewManga.id, seriesState.previewManga.thumbnailUrl)} alt={displayManga?.title} class="cover" />
+        <Thumbnail src={resolvedCover(seriesState.previewManga.id, seriesState.previewManga.thumbnailUrl)} alt={displayManga?.title} class="cover" contentType={displayManga?.contentType ?? seriesState.previewManga.contentType} />
         {#if loadingDetail}
           <div class="cover-spinner">
             <CircleNotch size={18} weight="light" class="anim-spin" />

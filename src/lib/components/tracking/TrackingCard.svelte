@@ -19,7 +19,7 @@
 <button class="card" class:active onclick={() => onSelect(record)}>
   <div class="cover-wrap">
     {#if record.thumbnailUrl}
-      <Thumbnail src={record.thumbnailUrl} alt={record.title} class="cover" />
+      <Thumbnail src={record.thumbnailUrl} alt={record.title} class="cover" contentType={record.media.contentType} />
     {:else}
       <div class="cover-empty"></div>
     {/if}

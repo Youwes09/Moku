@@ -8,6 +8,7 @@
   import { mediaViewState } from "$lib/state/mediaView.svelte";
   import { chapterNav } from "$lib/components/media/shared/useChapterNav";
   import { createMediaKeyHandler } from "$lib/components/media/shared/mediaKeybinds";
+  import { createBarReveal } from "$lib/components/media/shared/barReveal.svelte";
   import { throttledProgressReporter } from "$lib/components/media/shared/progress";
   import { trackHistory } from "$lib/components/media/shared/historyTracking.svelte";
   import { markChapterRead } from "$lib/components/media/manga/lib/chapterActions";
@@ -157,16 +158,12 @@
     el.scrollTo({ top: ((el.scrollHeight - el.clientHeight) * toPct) / 100 });
   }
 
-  function onPointerMove(e: MouseEvent) {
-    if (mediaViewState.uiVisible) return;
-    const y = e.clientY, h = window.innerHeight;
-    if (y < 60 || h - y < 60) mediaViewState.showUi();
-  }
+  const bar = createBarReveal();
 
   const onKey = createMediaKeyHandler({ close: nav.close, next: nav.goNext, prev: nav.goPrev });
 
-  onMount(() => { window.addEventListener("keydown", onKey); loadInitial(); });
-  onDestroy(() => window.removeEventListener("keydown", onKey));
+  onMount(() => { window.addEventListener("keydown", onKey); bar.show(); loadInitial(); });
+  onDestroy(() => { window.removeEventListener("keydown", onKey); bar.destroy(); });
 
   let lastChapterId: string | null = null;
   $effect(() => {
@@ -184,13 +181,14 @@
   });
 </script>
 
-<div class="root" class:ui-unzoom={!(settingsState.settings.readerContainerized ?? false)} role="presentation" onmousemove={onPointerMove}>
+<div class="root" class:ui-unzoom={!(settingsState.settings.readerContainerized ?? false)} role="presentation" onmousemove={bar.onMove}>
   <div
     class="novel novel-{st.theme}"
     role="presentation"
     bind:this={scrollEl}
     onscroll={onScroll}
-    onclick={() => mediaViewState.toggleUi()}
+    onclick={bar.onClick}
+    ondblclick={bar.onDblClick}
   >
     <article
       class="col"

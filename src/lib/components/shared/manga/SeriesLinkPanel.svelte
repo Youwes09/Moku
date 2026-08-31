@@ -97,7 +97,7 @@
           {#each searchResults as m (`${m.extensionId}-${m.sourceEntryId}`)}
             {@const isLinked = linkedIds.includes(m.id)}
             <button class="row" class:row-linked={isLinked} onclick={() => toggle(m)}>
-              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb" />
+              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb" contentType={m.contentType} />
               <div class="info">
                 <span class="manga-title">{m.title}</span>
                 {#if m.sourceName || m.source?.displayName}<span class="source">{m.sourceName ?? m.source?.displayName}</span>{/if}
@@ -112,7 +112,7 @@
           <p class="section-label">Linked</p>
           {#each linked as m (m.id)}
             <button class="row row-linked" onclick={() => toggle(m)}>
-              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb" />
+              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb" contentType={m.contentType} />
               <div class="info">
                 <span class="manga-title">{m.title}</span>
                 {#if m.sourceName || m.source?.displayName}<span class="source">{m.sourceName ?? m.source?.displayName}</span>{/if}
@@ -129,7 +129,7 @@
           </p>
           {#each suggestions as { manga: m, score } (m.id)}
             <button class="row" onclick={() => toggle(m)}>
-              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb" />
+              <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb" contentType={m.contentType} />
               <div class="info">
                 <span class="manga-title">{m.title}</span>
                 {#if m.sourceName || m.source?.displayName}<span class="source">{m.sourceName ?? m.source?.displayName}</span>{/if}

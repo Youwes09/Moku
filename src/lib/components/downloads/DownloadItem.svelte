@@ -49,7 +49,7 @@
 >
   {#if manga?.thumbnailUrl}
     <div class="thumb">
-      <Thumbnail src={manga.thumbnailUrl} alt={manga.title} class="thumb-img" />
+      <Thumbnail src={manga.thumbnailUrl} alt={manga.title} class="thumb-img" contentType={manga.contentType} />
     </div>
   {/if}
 

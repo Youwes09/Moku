@@ -110,7 +110,7 @@
         const result = await tsunagu.search(pkgName, trimmed, 1, undefined, ctrl.signal);
         if (ctrl.signal.aborted) return;
         const mangas = result.results
-          .map((r) => toBrowseManga(r, pkgName, src.id))
+          .map((r) => toBrowseManga(r, pkgName, src.id, src.contentType))
           .filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
         kw_results[idx] = { ...kw_results[idx], mangas, loading: false };
       } catch (e: any) {
@@ -219,7 +219,7 @@
       {#each popularResults as m (`${m.extensionId}-${m.sourceEntryId}`)}
         <button class="srchCard" onclick={() => onPreview(m)}>
           <div class="srchCoverWrap">
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={m._priority} id={m.id} />
+            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={m._priority} id={m.id} contentType={m.contentType} />
             <div class="srchGradient"></div>
             {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
             <div class="srchFooter">
@@ -261,7 +261,7 @@
       {#each kw_flatResults as m (`${m.extensionId}-${m.sourceEntryId}`)}
         <button class="srchCard" onclick={() => onPreview(m)}>
           <div class="srchCoverWrap">
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={m._priority} id={m.id} />
+            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={m._priority} id={m.id} contentType={m.contentType} />
             <div class="srchGradient"></div>
             {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
             <div class="srchFooter">

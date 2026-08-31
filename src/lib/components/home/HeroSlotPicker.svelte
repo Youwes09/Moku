@@ -51,7 +51,7 @@
       {:else}
         {#each results as m (`${m.extensionId}-${m.sourceEntryId}`)}
           <button class="list-row" onclick={() => onpin(m)}>
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="row-thumb" />
+            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="row-thumb" contentType={m.contentType} />
             <div class="row-info">
               <span class="row-title">{m.title}</span>
               {#if m.sourceName || m.source?.displayName}<span class="row-source">{m.sourceName ?? m.source?.displayName}</span>{/if}

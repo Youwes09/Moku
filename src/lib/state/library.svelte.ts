@@ -329,7 +329,7 @@ export function mapEntryToManga(entry: LibraryEntry): Manga {
     latestUploadedChapter: entry.latestChapter
       ? { id: "", chapterNumber: entry.latestChapter.number ?? 0, uploadDate: entry.latestChapter.uploadedAt ?? undefined }
       : null,
-    extensionId:    entry.source?.id,
+    extensionId:    entry.extensionId ?? entry.source?.id,
     sourceEntryId:  entry.externalId,
     mediaId:        entry.id,
     libraryEntryId: entry.id,

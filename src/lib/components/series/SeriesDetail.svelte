@@ -184,18 +184,20 @@
   }
 
   function knownMediaId(): string | null {
-    if (mid) return mid
+    if (mid && /^\d+$/.test(mid)) return mid
     const lib = libraryState.items.find(m =>
       m.sourceEntryId === sourceEntryId &&
       String(m.extensionId ?? '') === String(extensionId))
     return lib?.mediaId ?? lib?.libraryEntryId ?? null
   }
 
-  async function resolveOpenId(signal: AbortSignal): Promise<string | null> {
-    const known = knownMediaId()
-    if (known) return known
+  async function resolveViaSource(signal: AbortSignal): Promise<string | null> {
     const info = await tsunagu.mangaInfo(extensionId, sourceEntryId, false)
-    return signal.aborted ? null : (info.id ?? null)
+    return signal.aborted ? null : (info?.id ?? null)
+  }
+
+  async function resolveOpenId(signal: AbortSignal): Promise<string | null> {
+    return knownMediaId() ?? await resolveViaSource(signal)
   }
 
   function loadMangaData(id: string): Promise<Manga | null> {
@@ -217,12 +219,18 @@
 
     return (async () => {
       try {
-        const realId = cached?.data.mediaId ?? cached?.data.libraryEntryId ?? await resolveOpenId(ctrl.signal)
+        let realId = cached?.data.mediaId ?? cached?.data.libraryEntryId ?? await resolveOpenId(ctrl.signal)
         if (ctrl.signal.aborted) return cached?.data ?? null
         if (!realId) throw new Error('Could not resolve a media id for this entry')
 
-        const entry = await tsunagu.libraryEntry(realId)
+        let entry = await tsunagu.libraryEntry(realId)
         if (ctrl.signal.aborted) return cached?.data ?? null
+        if (!entry) {
+          // stale/removed id (e.g. after a migration) — re-resolve against the source
+          realId = await resolveViaSource(ctrl.signal)
+          if (ctrl.signal.aborted) return cached?.data ?? null
+          entry = realId ? await tsunagu.libraryEntry(realId) : null
+        }
         if (!entry) throw new Error(`Media ${realId} not found`)
 
         const m = mapEntryToManga(entry, id)

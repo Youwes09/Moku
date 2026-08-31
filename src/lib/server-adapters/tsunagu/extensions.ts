@@ -1,15 +1,17 @@
 import { gql, baseUrl } from './gql'
 import type { Extension } from '$lib/server-adapters/types'
 
+const EXT_FIELDS = `
+	id repositoryId packageName name displayName version contentType lang iconUrl
+	isNsfw supportsLatest
+	apkUrl jarUrl jarPath installed enabled discoveredAt installedAt installedVersion needsUpdate
+`
+
 export const extensions = {
 	async availableExtensions(repositoryId: string): Promise<Extension[]> {
 		const data = await gql<{ availableExtensions: Extension[] }>(
 			`query AvailableExtensions($repositoryId: ID!) {
-				availableExtensions(repositoryId: $repositoryId) {
-					id repositoryId packageName name displayName version contentType lang iconUrl
-					isNsfw supportsLatest
-					apkUrl jarUrl jarPath installed enabled discoveredAt installedAt installedVersion needsUpdate
-				}
+				availableExtensions(repositoryId: $repositoryId) { ${EXT_FIELDS} }
 			}`,
 			{ repositoryId },
 			baseUrl()
@@ -19,13 +21,7 @@ export const extensions = {
 
 	async installedExtensions(): Promise<Extension[]> {
 		const data = await gql<{ installedExtensions: Extension[] }>(
-			`query InstalledExtensions {
-				installedExtensions {
-					id repositoryId packageName name displayName version contentType lang iconUrl
-					isNsfw supportsLatest
-					apkUrl jarUrl jarPath installed enabled discoveredAt installedAt installedVersion needsUpdate
-				}
-			}`,
+			`query InstalledExtensions { installedExtensions { ${EXT_FIELDS} } }`,
 			undefined,
 			baseUrl()
 		)
@@ -35,11 +31,7 @@ export const extensions = {
 	async installExtension(packageName: string): Promise<Extension> {
 		const data = await gql<{ installExtension: Extension }>(
 			`mutation InstallExtension($packageName: String!) {
-				installExtension(packageName: $packageName) {
-					id repositoryId packageName name displayName version contentType lang iconUrl
-					isNsfw supportsLatest
-					apkUrl jarUrl jarPath installed enabled discoveredAt installedAt installedVersion needsUpdate
-				}
+				installExtension(packageName: $packageName) { ${EXT_FIELDS} }
 			}`,
 			{ packageName },
 			baseUrl()
@@ -50,11 +42,7 @@ export const extensions = {
 	async uninstallExtension(packageName: string): Promise<Extension> {
 		const data = await gql<{ uninstallExtension: Extension }>(
 			`mutation UninstallExtension($packageName: String!) {
-				uninstallExtension(packageName: $packageName) {
-					id repositoryId packageName name displayName version contentType lang iconUrl
-					isNsfw supportsLatest
-					apkUrl jarUrl jarPath installed enabled discoveredAt installedAt installedVersion needsUpdate
-				}
+				uninstallExtension(packageName: $packageName) { ${EXT_FIELDS} }
 			}`,
 			{ packageName },
 			baseUrl()
@@ -65,11 +53,7 @@ export const extensions = {
 	async updateExtension(packageName: string): Promise<Extension> {
 		const data = await gql<{ updateExtension: Extension }>(
 			`mutation UpdateExtension($packageName: String!) {
-				updateExtension(packageName: $packageName) {
-					id repositoryId packageName name displayName version contentType lang iconUrl
-					isNsfw supportsLatest
-					apkUrl jarUrl jarPath installed enabled discoveredAt installedAt installedVersion needsUpdate
-				}
+				updateExtension(packageName: $packageName) { ${EXT_FIELDS} }
 			}`,
 			{ packageName },
 			baseUrl()
@@ -80,11 +64,7 @@ export const extensions = {
 	async installExternalExtension(url: string): Promise<Extension> {
 		const data = await gql<{ installExternalExtension: Extension }>(
 			`mutation InstallExternalExtension($url: String!) {
-				installExternalExtension(url: $url) {
-					id repositoryId packageName name displayName version contentType lang iconUrl
-					isNsfw supportsLatest
-					apkUrl jarUrl jarPath installed enabled discoveredAt installedAt installedVersion needsUpdate
-				}
+				installExternalExtension(url: $url) { ${EXT_FIELDS} }
 			}`,
 			{ url },
 			baseUrl()

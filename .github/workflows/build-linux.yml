@@ -70,6 +70,28 @@ jobs:
       - name: Build
         run: pnpm tauri build --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.conf.json --verbose
 
+      - name: Inject bundled JRE into AppImage
+        run: |
+          set -euo pipefail
+          B=src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage
+          APPIMAGE=$(find "$B" -name '*.AppImage' | head -1)
+          [ -n "$APPIMAGE" ] || { echo "no AppImage produced"; exit 1; }
+          NAME=$(basename "$APPIMAGE")
+          cd "$B"
+          "./$NAME" --appimage-extract >/dev/null
+          RT=squashfs-root/usr/lib/Moku/sandbox/runtime
+          mkdir -p "$(dirname "$RT")"
+          cp -r "$GITHUB_WORKSPACE/src-tauri/resources/sandbox/runtime" "$RT"
+          chmod +x "$RT/bin/java"
+          test -f "$RT/lib/modules"
+          "$RT/bin/java" -version
+          curl -fsSL -o /tmp/appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+          rm -f "$NAME"
+          ARCH=x86_64 /tmp/appimagetool squashfs-root "$NAME"
+          rm -rf squashfs-root
+
       - name: Collect artifacts
         run: |
           set -euo pipefail

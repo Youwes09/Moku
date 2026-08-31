@@ -74,17 +74,19 @@
     }
   }
 
+  async function reloadExtensions() {
+    const [installed, available] = await Promise.all([
+      tsunagu.installedExtensions(),
+      fetchAvailable(),
+    ]);
+    const byPkg = new Map<string, Extension>();
+    for (const e of available) byPkg.set(e.packageName, e);
+    for (const e of installed)  byPkg.set(e.packageName, e);
+    extensions = Array.from(byPkg.values());
+  }
+
   async function load() {
-    try {
-      const [installed, available] = await Promise.all([
-        tsunagu.installedExtensions(),
-        fetchAvailable(),
-      ]);
-      const byPkg = new Map<string, Extension>();
-      for (const e of available) byPkg.set(e.packageName, e);
-      for (const e of installed)  byPkg.set(e.packageName, e);
-      extensions = Array.from(byPkg.values());
-    } catch (e) { console.error(e); }
+    try { await reloadExtensions(); } catch (e) { console.error(e); }
 
     const byPkg: Record<string, SourceEntry[]> = {};
     for (const e of extensions) {
@@ -135,19 +137,19 @@
   }
 
   async function fetchFromRepo() {
+    if (refreshing) return;
     refreshing = true;
     try {
-      const [installed, available] = await Promise.all([
-        tsunagu.installedExtensions(),
-        fetchAvailable(),
-      ]);
-      const byPkg = new Map<string, Extension>();
-      for (const e of available) byPkg.set(e.packageName, e);
-      for (const e of installed)  byPkg.set(e.packageName, e);
-      extensions = Array.from(byPkg.values());
-      addToast({ kind: "success", title: "Extensions refreshed", body: "Extension list is up to date" });
-    } catch (e) { console.error(e); }
-    finally { refreshing = false; }
+      await tsunagu.syncRepositories();
+      await reloadExtensions();
+      const updates = extensions.filter((e) => e.needsUpdate).length;
+      addToast(updates
+        ? { kind: "info", title: "Extensions refreshed", body: `${updates} update${updates === 1 ? "" : "s"} available` }
+        : { kind: "success", title: "Extensions refreshed", body: "Everything is up to date" });
+    } catch (e) {
+      console.error(e);
+      addToast({ kind: "error", title: "Refresh failed", body: e instanceof Error ? e.message : String(e) });
+    } finally { refreshing = false; }
   }
 
   let repoObjs = $state<{ id: string; indexUrl: string }[]>([]);
@@ -190,21 +192,21 @@
     } finally { savingRepos = false; }
   }
 
-  async function mutate(pkgName: string, op: "install" | "update" | "uninstall") {
+  async function mutate(pkgName: string, op: "install" | "update" | "uninstall", reload = true) {
     working = new Set(working).add(pkgName);
     const label = extensions.find((e) => e.packageName === pkgName)?.name ?? pkgName;
     try {
       if      (op === "install")   await tsunagu.installExtension(pkgName);
       else if (op === "update")    await tsunagu.updateExtension(pkgName);
       else                         await tsunagu.uninstallExtension(pkgName);
-      await load();
-      addToast({
+      if (reload) await load();
+      if (reload) addToast({
         install:   { kind: "download" as const, title: "Extension installed", body: label },
         update:    { kind: "success"  as const, title: "Extension updated",   body: label },
         uninstall: { kind: "info"     as const, title: "Extension removed",   body: label },
       }[op]);
     } catch (e: any) {
-      await load();
+      if (reload) await load();
       addToast({ kind: "error", title: "Extension error", body: e instanceof Error ? e.message : String(e) });
     } finally {
       working.delete(pkgName); working = new Set(working);
@@ -215,7 +217,8 @@
     const pending = extensions.filter((e) => e.needsUpdate);
     if (!pending.length || updatingAll) return;
     updatingAll = true;
-    for (const ext of pending) await mutate(ext.packageName, "update");
+    for (const ext of pending) await mutate(ext.packageName, "update", false);
+    await load();
     updatingAll = false;
     addToast({ kind: "success", title: "All extensions updated", body: `${pending.length} extension${pending.length === 1 ? "" : "s"} updated` });
   }
@@ -290,7 +293,6 @@
       loadLocalManga();
       await load();
       loading = false;
-      fetchFromRepo();
     });
   });
 

@@ -266,7 +266,7 @@
   }
   .seg { padding-bottom: var(--sp-10); }
   .seg-head {
-    font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider);
+    font-family: var(--font-ui); font-size: 0.72em; letter-spacing: var(--tracking-wider);
     text-transform: uppercase; opacity: 0.45; margin: 0 0 1.4em; padding-bottom: 0.5em;
     border-bottom: 1px solid currentColor;
   }

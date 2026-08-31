@@ -2,7 +2,7 @@
   import { settingsState } from "$lib/state/settings.svelte";
   import { getBlobUrl }    from "$lib/core/cache/imageCache";
   import { appState } from "$lib/state/app.svelte";
-  import { coverBust } from "$lib/core/cover/coverBust.svelte";
+  import { coverBustToken } from "$lib/core/cover/coverBust.svelte";
 
 
 
@@ -43,7 +43,7 @@
     const key = coverKey(url);
     if (key == null) return url;
     const sep = url.includes('?') ? '&' : '?';
-    const v = coverBust[key];
+    const v = coverBustToken(key);
     return `${url}${sep}id=${key}${v ? `&v=${v}` : ''}`;
   }
 

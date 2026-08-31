@@ -7,6 +7,9 @@ jobs:
   linux:
     name: AppImage + deb
     runs-on: ubuntu-22.04
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+      NO_STRIP: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +23,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf libfuse2 fuse desktop-file-utils \
+            librsvg2-bin librsvg2-common libgtk-3-bin libgdk-pixbuf2.0-bin \
+            gsettings-desktop-schemas adwaita-icon-theme \
+            libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
 
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: x86_64-unknown-linux-gnu }
@@ -59,10 +67,7 @@ jobs:
           src-tauri/resources/sandbox/runtime/bin/java -version
 
       - name: Build
-        env:
-          NO_STRIP: "true"
-          APPIMAGE_EXTRACT_AND_RUN: "1"
-        run: pnpm tauri build --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.conf.json
+        run: pnpm tauri build --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.conf.json --verbose
 
       - name: Collect artifacts
         run: |
@@ -151,7 +156,7 @@ jobs:
       - name: Build flatpak
         run: |
           rm -rf build-dir repo
-          flatpak-builder --user --disable-rofiles-fuse --install-deps-from=flathub \
+          flatpak-builder --verbose --user --disable-rofiles-fuse --install-deps-from=flathub \
             --repo=repo --force-clean build-dir io.github.MokuProject.Moku.yml
 
       - name: Bundle

@@ -82,19 +82,21 @@ modules:
   - name: libayatana-ido
     buildsystem: cmake-ninja
     config-opts:
+      - -DCMAKE_INSTALL_LIBDIR=lib
       - -DENABLE_TESTS=OFF
       - -DGSETTINGS_COMPILE=OFF
     sources:
       - type: git
         url: https://github.com/AyatanaIndicators/ayatana-ido.git
-        tag: 0.10.3
+        tag: 0.10.4
 
   - name: libayatana-indicator
     buildsystem: cmake-ninja
     build-options:
       env:
-        PKG_CONFIG_PATH: /app/lib/pkgconfig:/app/share/pkgconfig
+        PKG_CONFIG_PATH: /app/lib/pkgconfig:/app/lib/x86_64-linux-gnu/pkgconfig:/app/share/pkgconfig
     config-opts:
+      - -DCMAKE_INSTALL_LIBDIR=lib
       - -DENABLE_TESTS=OFF
       - -DGSETTINGS_COMPILE=OFF
     sources:
@@ -106,8 +108,9 @@ modules:
     buildsystem: cmake-ninja
     build-options:
       env:
-        PKG_CONFIG_PATH: /app/lib/pkgconfig:/app/share/pkgconfig
+        PKG_CONFIG_PATH: /app/lib/pkgconfig:/app/lib/x86_64-linux-gnu/pkgconfig:/app/share/pkgconfig
     config-opts:
+      - -DCMAKE_INSTALL_LIBDIR=lib
       - -DENABLE_TESTS=OFF
       - -DENABLE_BINDINGS_MONO=OFF
       - -DENABLE_BINDINGS_VALA=OFF

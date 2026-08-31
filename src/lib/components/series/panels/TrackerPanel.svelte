@@ -367,8 +367,11 @@
           {:else}
             {#each searchResults as r (r.remoteId)}
               {@const isBound = bound?.remoteId === r.remoteId}
-              <button class="result-row" class:result-bound={isBound} disabled={binding}
-                onclick={() => (isBound && bound ? (confirmUnlinkId = bound.id) : bind(activeTab, r))}>
+              {@const pick = () => { if (binding) return; isBound && bound ? (confirmUnlinkId = bound.id) : bind(activeTab, r); }}
+              <div class="result-row" class:result-bound={isBound} class:result-disabled={binding}
+                role="button" tabindex={binding ? -1 : 0}
+                onclick={pick}
+                onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } }}>
                 {#if r.coverUrl}
                   <Thumbnail src={r.coverUrl} alt="" class="result-cover" />
                 {:else}
@@ -385,8 +388,8 @@
                     <p class="result-summary">{r.summary.slice(0, 140)}{r.summary.length > 140 ? "…" : ""}</p>
                   {/if}
                 </div>
-                <span class="result-action" class:result-action-on={isBound}>{isBound ? "✓ Linked" : "Link"}</span>
-              </button>
+                <span class="result-action" class:result-action-on={isBound}>{isBound ? "Linked" : "Link"}</span>
+              </div>
             {/each}
           {/if}
         </div>
@@ -534,14 +537,15 @@
   .search-results { flex: 1; overflow-y: auto; padding: var(--sp-2); scrollbar-width: none; }
   .search-results::-webkit-scrollbar { display: none; }
 
-  .result-row { display: flex; align-items: flex-start; gap: var(--sp-3); width: 100%; padding: var(--sp-3); border-radius: var(--radius-md); border: none; background: none; text-align: left; cursor: pointer; transition: background var(--t-fast); }
-  .result-row:hover:not(:disabled) { background: var(--bg-raised); }
-  .result-row:disabled { opacity: 0.4; cursor: default; }
+  .result-row { display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: var(--sp-3); border-radius: var(--radius-md); text-align: left; cursor: pointer; user-select: none; transition: background var(--t-fast); }
+  .result-row:hover:not(.result-disabled) { background: var(--bg-raised); }
+  .result-row:focus-visible { outline: none; background: var(--bg-raised); box-shadow: inset 0 0 0 1px var(--accent-dim); }
+  .result-disabled { opacity: 0.4; cursor: default; }
   .result-bound { background: color-mix(in srgb, var(--accent) 8%, transparent); }
   :global(.result-cover) { width: 40px; height: 56px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); flex-shrink: 0; }
   .result-cover-empty { background: var(--bg-raised); }
-  .result-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
-  .result-title { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); }
+  .result-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .result-title { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
   .result-meta { display: flex; flex-wrap: wrap; gap: 4px; }
   .result-tag { font-family: var(--font-ui); font-size: 10px; letter-spacing: var(--tracking-wide); padding: 1px 5px; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); }
   .result-summary { font-size: var(--text-xs); color: var(--text-faint); line-height: var(--leading-snug); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

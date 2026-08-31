@@ -49,7 +49,7 @@ pkgs.stdenv.mkDerivation {
 
   buildPhase = ''
     export HOME=$(mktemp -d)
-    pnpm exec tauri build --config '{"bundle":{"resources":null}}'
+    pnpm exec tauri build --no-bundle --config '{"bundle":{"resources":null}}'
   '';
 
   installPhase = ''

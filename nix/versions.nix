@@ -4,7 +4,7 @@
   tsunagu = "0.1.0";
 
   frontend = {
-    pnpmHash = "sha256-XPqmjzeb6p/zkucxAWjY8CmD3A8HR9O1873UITwbgUI=";
+    pnpmHash = "sha256-RsO4Hhi+D/+8vUZIzops3OouH8T88GBHkngW+9MAyoo=";
   };
 
   gitDeps = {

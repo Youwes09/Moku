@@ -1,0 +1,177 @@
+app-id: io.github.MokuProject.Moku
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: moku
+separate-locales: false
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --share=network
+
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.portal.FileTransfer
+
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=com.canonical.AppMenu.Registrar
+  - --talk-name=com.canonical.indicator.application
+
+  - --filesystem=xdg-run/discord-ipc-0:ro
+  - --filesystem=xdg-download
+
+  - --env=WEBKIT_DISABLE_DMABUF_RENDERER=1
+
+add-extensions:
+  org.freedesktop.Platform.ffmpeg-full:
+    directory: lib/ffmpeg
+    version: '24.08'
+    add-ld-path: .
+    autodelete: false
+
+cleanup-commands:
+  - mkdir -p /app/lib/ffmpeg
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/moku/cargo
+
+modules:
+  - name: intltool
+    buildsystem: autotools
+    sources:
+      - type: archive
+        url: https://launchpad.net/intltool/trunk/0.51.0/+download/intltool-0.51.0.tar.gz
+        sha256: 67c74d94196b153b774ab9f89b2fa6c6ba79352407037c8c14d5aeb334e959cd
+
+  - name: libdbusmenu
+    buildsystem: autotools
+    build-options:
+      cflags: -Wno-error
+      env:
+        HAVE_VALGRIND_FALSE: '#'
+        HAVE_VALGRIND_TRUE: ''
+    config-opts:
+      - --with-gtk=3
+      - --disable-static
+      - --disable-dumper
+      - --disable-tests
+      - --disable-gtk-doc
+      - --disable-vala
+      - --disable-introspection
+    cleanup:
+      - /include
+      - /libexec
+      - /lib/pkgconfig
+      - /lib/*.la
+      - /share/doc
+      - /share/libdbusmenu
+      - /share/gtk-doc
+      - /share/gir-1.0
+    sources:
+      - type: archive
+        url: https://launchpad.net/libdbusmenu/16.04/16.04.0/+download/libdbusmenu-16.04.0.tar.gz
+        sha256: b9cc4a2acd74509435892823607d966d424bd9ad5d0b00938f27240a1bfa878a
+
+  - name: libayatana-ido
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DENABLE_TESTS=OFF
+      - -DGSETTINGS_COMPILE=OFF
+    sources:
+      - type: git
+        url: https://github.com/AyatanaIndicators/ayatana-ido.git
+        tag: 0.10.3
+
+  - name: libayatana-indicator
+    buildsystem: cmake-ninja
+    build-options:
+      env:
+        PKG_CONFIG_PATH: /app/lib/pkgconfig:/app/share/pkgconfig
+    config-opts:
+      - -DENABLE_TESTS=OFF
+      - -DGSETTINGS_COMPILE=OFF
+    sources:
+      - type: git
+        url: https://github.com/AyatanaIndicators/libayatana-indicator.git
+        tag: 0.9.4
+
+  - name: libayatana-appindicator
+    buildsystem: cmake-ninja
+    build-options:
+      env:
+        PKG_CONFIG_PATH: /app/lib/pkgconfig:/app/share/pkgconfig
+    config-opts:
+      - -DENABLE_TESTS=OFF
+      - -DENABLE_BINDINGS_MONO=OFF
+      - -DENABLE_BINDINGS_VALA=OFF
+      - -DGSETTINGS_COMPILE=OFF
+    sources:
+      - type: git
+        url: https://github.com/AyatanaIndicators/libayatana-appindicator.git
+        tag: 0.5.93
+      - type: shell
+        commands:
+          - sed -i '/add_subdirectory(docs)/d' CMakeLists.txt
+
+  - name: tsunagu-backend
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/lib/moku/sandbox
+      - install -Dm755 tsunagu-linux-amd64 /app/lib/moku/tsunagu
+      - install -Dm644 sandbox.jar /app/lib/moku/sandbox/sandbox.jar
+      - cp -r runtime /app/lib/moku/sandbox/runtime
+      - chmod +x /app/lib/moku/sandbox/runtime/bin/java
+    sources:
+      - type: dir
+        path: tsunagu
+
+  - name: moku
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/moku/cargo
+        TAURI_SKIP_DEVSERVER_CHECK: 'true'
+        PKG_CONFIG_PATH: /usr/lib/pkgconfig:/usr/share/pkgconfig:/app/lib/pkgconfig
+        TAURI_CONFIG: '{"build":{"beforeBuildCommand":"","devUrl":null}}'
+    build-commands:
+      - . /usr/lib/sdk/rust-stable/enable.sh && cargo build --release --manifest-path src-tauri/Cargo.toml
+      - install -Dm755 src-tauri/target/release/moku /app/bin/moku.bin
+      - |
+        cat > /app/bin/moku << 'EOF'
+        #!/bin/sh
+        export TSUNAGU_BIN=/app/lib/moku/tsunagu
+        export TSUNAGU_RESOURCE_DIR=/app/lib/moku
+        exec /app/bin/moku.bin "$@"
+        EOF
+      - chmod +x /app/bin/moku
+      - install -Dm644 packaging/io.github.MokuProject.Moku.desktop /app/share/applications/io.github.MokuProject.Moku.desktop
+      - install -Dm644 packaging/io.github.MokuProject.Moku.metainfo.xml /app/share/metainfo/io.github.MokuProject.Moku.metainfo.xml
+      - install -Dm644 src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/io.github.MokuProject.Moku.png
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.MokuProject.Moku.png
+      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/io.github.MokuProject.Moku.png
+    sources:
+      - type: dir
+        path: src-tauri
+        dest: src-tauri
+      - type: dir
+        path: dist
+        dest: dist
+      - type: dir
+        path: packaging
+        dest: packaging
+      - cargo-sources.json
+      - type: inline
+        dest: src-tauri/.cargo
+        dest-filename: config.toml
+        contents: |
+          [source.crates-io]
+          replace-with = "vendored-sources"
+          [source.vendored-sources]
+          directory = "/run/build/moku/cargo/vendor"

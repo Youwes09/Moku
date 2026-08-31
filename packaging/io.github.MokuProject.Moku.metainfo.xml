@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.MokuProject.Moku</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Moku</name>
+  <summary>Reader and player for manga, light novels, and anime</summary>
+
+  <description>
+    <p>
+      Moku is a cross-platform desktop app for manga, light novels, and anime.
+      It bundles the Tsunagu backend and its sandboxed extension engine, so
+      browsing sources, reading, watching, downloads, and tracker sync work
+      out of the box with nothing else to install.
+    </p>
+    <p>
+      Features include library management, reading and watch history, chapter
+      and episode tracking, AniList and MyAnimeList sync, AniSkip for anime,
+      a built-in reader and player, and Discord Rich Presence.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.MokuProject.Moku.desktop</launchable>
+
+  <url type="homepage">https://github.com/moku-project/Moku</url>
+  <url type="bugtracker">https://github.com/moku-project/Moku/issues</url>
+
+  <provides>
+    <binary>moku</binary>
+  </provides>
+
+  <categories>
+    <category>Graphics</category>
+    <category>Viewer</category>
+  </categories>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.10.5" date="2026-08-30"/>
+  </releases>
+</component>

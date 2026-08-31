@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "targets": ["appimage", "deb"],
+    "externalBin": [],
+    "resources": {
+      "resources/tsunagu": "tsunagu",
+      "resources/sandbox": "sandbox"
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Moku
+Comment=Manga, light novel, and anime reader for the Tsunagu backend
+Exec=moku %U
+Icon=io.github.MokuProject.Moku
+Terminal=false
+Type=Application
+Categories=Graphics;Viewer;
+Keywords=manga;comics;anime;novel;reader;tsunagu;
+StartupWMClass=moku

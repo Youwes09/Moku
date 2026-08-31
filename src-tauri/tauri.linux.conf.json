@@ -9,7 +9,7 @@
     "linux": {
       "appimage": {
         "files": {
-          "usr/lib/Moku/sandbox/runtime": "src-tauri/resources/sandbox/runtime"
+          "usr/lib/Moku/sandbox/runtime": "resources/sandbox/runtime"
         }
       }
     }

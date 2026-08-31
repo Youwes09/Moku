@@ -158,8 +158,8 @@ jobs:
       - name: Build flatpak
         run: |
           rm -rf build-dir repo
-          flatpak run org.flatpak.Builder --verbose --user --disable-rofiles-fuse \
-            --install-deps-from=flathub \
+          dbus-run-session -- flatpak run org.flatpak.Builder --verbose --user \
+            --disable-rofiles-fuse \
             --repo=repo --force-clean build-dir io.github.MokuProject.Moku.yml
 
       - name: Bundle

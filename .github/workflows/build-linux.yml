@@ -1,11 +1,11 @@
-name: Build Linux (test)
+name: Build AppImage (test)
 
 on:
   workflow_dispatch:
 
 jobs:
   linux:
-    name: AppImage + deb
+    name: AppImage
     runs-on: ubuntu-22.04
     env:
       APPIMAGE_EXTRACT_AND_RUN: "1"
@@ -77,19 +77,31 @@ jobs:
           APPIMAGE=$(find "$B" -name '*.AppImage' | head -1)
           [ -n "$APPIMAGE" ] || { echo "no AppImage produced"; exit 1; }
           NAME=$(basename "$APPIMAGE")
+
+          curl -fsSL -o /tmp/appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+
           cd "$B"
+          rm -rf squashfs-root
           "./$NAME" --appimage-extract >/dev/null
+
           RT=squashfs-root/usr/lib/Moku/sandbox/runtime
+          rm -rf "$RT"
           mkdir -p "$(dirname "$RT")"
           cp -r "$GITHUB_WORKSPACE/src-tauri/resources/sandbox/runtime" "$RT"
           chmod +x "$RT/bin/java"
           test -f "$RT/lib/modules"
           "$RT/bin/java" -version
-          curl -fsSL -o /tmp/appimagetool \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x /tmp/appimagetool
+
           rm -f "$NAME"
-          ARCH=x86_64 /tmp/appimagetool squashfs-root "$NAME"
+          ARCH=x86_64 /tmp/appimagetool --no-appstream squashfs-root "$NAME"
+          rm -rf squashfs-root
+
+          test -f "$NAME"
+          chmod +x "$NAME"
+          "./$NAME" --appimage-extract 'usr/lib/Moku/sandbox/runtime/bin/java' >/dev/null
+          test -x squashfs-root/usr/lib/Moku/sandbox/runtime/bin/java
           rm -rf squashfs-root
 
       - name: Collect artifacts
@@ -110,88 +122,3 @@ jobs:
           path: out/*
           if-no-files-found: error
 
-  flatpak:
-    name: Flatpak
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Read versions
-        run: |
-          source .github/read_versions.sh
-          echo "MOKU_VERSION=$MOKU_VERSION" >> "$GITHUB_ENV"
-          echo "TSUNAGU_VERSION=$TSUNAGU_VERSION" >> "$GITHUB_ENV"
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet /opt/hostedtoolcache/CodeQL
-          sudo docker image prune -af || true
-
-      - uses: pnpm/action-setup@v4
-        with: { version: 10 }
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Build frontend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build:static
-
-      - name: Generate cargo-sources.json
-        run: |
-          python3 -m pip install --quiet aiohttp PyYAML tomlkit
-          python3 packaging/flatpak-cargo-generator.py src-tauri/Cargo.lock -o cargo-sources.json
-
-      - name: Stage Tsunagu backend
-        env:
-          GH_TOKEN: ${{ secrets.TSUNAGU_TOKEN || secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh release download "v${TSUNAGU_VERSION}" --repo moku-project/Tsunagu \
-            --pattern 'tsunagu-linux-amd64' \
-            --pattern 'sandbox.jar' \
-            --pattern 'runtime-linux-amd64.tar.gz' \
-            --pattern 'sha256sums.txt' \
-            --dir tsunagu-dl --clobber
-          cd tsunagu-dl
-          for f in tsunagu-linux-amd64 sandbox.jar runtime-linux-amd64.tar.gz; do
-            grep " $f\$" sha256sums.txt | sha256sum -c -
-          done
-          cd ..
-          mkdir -p tsunagu
-          cp tsunagu-dl/tsunagu-linux-amd64 tsunagu/tsunagu-linux-amd64
-          cp tsunagu-dl/sandbox.jar         tsunagu/sandbox.jar
-          tar -xzf tsunagu-dl/runtime-linux-amd64.tar.gz -C tsunagu/
-          test -f tsunagu/runtime/lib/modules
-
-      - name: Install flatpak tooling
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak
-          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y --noninteractive flathub \
-            org.flatpak.Builder \
-            org.gnome.Platform//48 org.gnome.Sdk//48 \
-            org.freedesktop.Sdk.Extension.rust-stable//24.08 \
-            org.freedesktop.Platform.ffmpeg-full//24.08
-
-      - name: Build flatpak
-        run: |
-          rm -rf build-dir repo
-          dbus-run-session -- flatpak run org.flatpak.Builder --verbose --user \
-            --disable-rofiles-fuse \
-            --repo=repo --force-clean build-dir io.github.MokuProject.Moku.yml
-
-      - name: Bundle
-        run: |
-          flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
-            repo moku.flatpak io.github.MokuProject.Moku
-          mkdir -p out && cp moku.flatpak "out/Moku-${MOKU_VERSION}.flatpak"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: moku-flatpak
-          path: out/*
-          if-no-files-found: error

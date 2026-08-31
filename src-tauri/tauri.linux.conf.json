@@ -3,6 +3,7 @@
     "targets": ["appimage"],
     "externalBin": [],
     "resources": {
+      "resources/sandbox": null,
       "resources/tsunagu": "tsunagu",
       "resources/sandbox/sandbox.jar": "sandbox/sandbox.jar"
     }

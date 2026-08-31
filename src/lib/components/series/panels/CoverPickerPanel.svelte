@@ -1,21 +1,27 @@
 <script lang="ts">
   import { X, CaretLeft, CaretRight, CircleNotch } from "phosphor-svelte";
   import { setPref }                               from "$lib/state/series.svelte";
-  import { coverCandidatesSync, dedupeByImage }    from "$lib/core/cover/coverResolver";
+  import { coverCandidatesSync, dedupeByImage, resolvedCover } from "$lib/core/cover/coverResolver";
+  import { bustCover }                              from "$lib/core/cover/coverBust.svelte";
   import { tsunagu }                               from "$lib/server-adapters/tsunagu";
   import { addToast }                              from "$lib/state/notifications.svelte";
   import Thumbnail                                 from "$lib/components/shared/manga/Thumbnail.svelte";
   import type { Manga }                            from "$lib/types";
 
   interface Props {
-    manga:      Manga;
-    mediaId?:   string;
-    allManga:   Manga[];
-    onApplied?: (url: string | null) => void;
-    onClose:    () => void;
+    manga:          Manga;
+    mediaId?:       string;
+    allManga:       Manga[];
+    anilistCoverUrl?: string | null;
+    onApplied?:     (url: string | null) => void;
+    onClose:        () => void;
   }
 
-  let { manga, mediaId, allManga, onApplied, onClose }: Props = $props();
+  let { manga, mediaId, allManga, anilistCoverUrl = null, onApplied, onClose }: Props = $props();
+
+  function normUrl(u: string): string {
+    try { const x = new URL(u); x.search = ""; return x.href.toLowerCase(); } catch { return u.toLowerCase(); }
+  }
 
   let saving = $state(false);
 
@@ -38,6 +44,10 @@
     index       = 0;
 
     dedupeByImage(snap).then(merged => {
+      const current = resolvedCover(manga.id, manga.thumbnailUrl);
+      if (anilistCoverUrl && !merged.some(c => normUrl(c.url) === normUrl(anilistCoverUrl))) {
+        merged = [...merged, { mangaId: "__anilist__", url: anilistCoverUrl, label: "AniList", isActive: normUrl(anilistCoverUrl) === normUrl(current) }];
+      }
       candidates  = merged;
       index       = Math.max(0, merged.findIndex(c => c.isActive));
       hashingDone = true;
@@ -67,6 +77,7 @@
     }
 
     setPref(manga.id, "coverUrl", (reset ? undefined : url) as any);
+    bustCover(mediaId, manga.id, manga.mediaId);
     onApplied?.(url);
     onClose();
   }

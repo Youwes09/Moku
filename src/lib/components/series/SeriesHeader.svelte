@@ -2,7 +2,7 @@
   import {
     ArrowLeft, BookmarkSimple, ArrowSquareOut, Play, CaretDown,
     ArrowsClockwise, LinkSimpleHorizontalBreak,
-    Gear, Trash, Image, Broadcast,
+    Gear, Trash, Image, Broadcast, Database,
   } from 'phosphor-svelte'
   import { goto }          from '$app/navigation'
   import { page }          from '$app/stores'
@@ -44,6 +44,7 @@
     onMigrateOpen:    () => void
     onAutoOpen:       () => void
     onTrackerOpen:    () => void
+    onMetadataOpen:   () => void
     onLinkPickerOpen: () => void
     onCoverPickerOpen:() => void
     onGenreClick:     (genre: string) => void
@@ -56,7 +57,7 @@
     linkedIds, allMangaForLink, loadingLinkList,
     mangaFolders, togglingLibrary, trackLinkCount = 0,
     onRead, onToggleLibrary, onDeleteAll, onMigrateOpen,
-    onAutoOpen, onTrackerOpen, onLinkPickerOpen, onCoverPickerOpen,
+    onAutoOpen, onTrackerOpen, onMetadataOpen, onLinkPickerOpen, onCoverPickerOpen,
     onGenreClick, isLocal = false,
   }: Props = $props()
 
@@ -220,6 +221,11 @@
             <button class="detail-action-btn" class:detail-action-active={hasCoverOverride} onclick={onCoverPickerOpen}>
               <Image size={12} weight={hasCoverOverride ? 'fill' : 'light'} /> Cover Image
             </button>
+            {#if !isLocal}
+              <button class="detail-action-btn" class:detail-action-active={!!manga?.metadata} onclick={onMetadataOpen}>
+                <Database size={12} weight={manga?.metadata ? 'fill' : 'light'} /> Metadata
+              </button>
+            {/if}
             {#if manga?.inLibrary && !isLocal}
               <button class="detail-action-btn" class:detail-action-active={hasAnyAutomation} onclick={onAutoOpen}>
                 <Gear size={12} weight={hasAnyAutomation ? 'fill' : 'light'} /> Automation

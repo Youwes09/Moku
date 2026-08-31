@@ -13,13 +13,14 @@
     isRunning:  boolean;
     dequeueing: Set<string>;
     selected:   Set<string>;
+    limit?:     number;
     onRemove: (chapterId: string) => void;
     onRetry:  (chapterId: string) => void;
     onSelect: (chapterId: string, e: MouseEvent) => void;
   }
 
   const {
-    queue, loading, isRunning, dequeueing, selected,
+    queue, loading, isRunning, dequeueing, selected, limit,
     onRemove, onRetry, onSelect,
   }: Props = $props();
 
@@ -77,6 +78,8 @@
 
     return groups;
   })());
+
+  const shownGroups = $derived(limit != null ? seriesGroups.slice(0, limit) : seriesGroups);
 
   function toggleExpand(mangaId: string, e: MouseEvent) {
     e.stopPropagation();
@@ -156,7 +159,7 @@
   <div class="empty">Queue is empty.</div>
 {:else}
   <div class="list">
-    {#each seriesGroups as group (group.mangaId)}
+    {#each shownGroups as group (group.mangaId)}
       {@const isExpanded = expandedSeriesIds.has(group.mangaId)}
       <div class="series-card-wrap">
         <div

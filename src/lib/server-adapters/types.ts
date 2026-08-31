@@ -60,6 +60,7 @@ export interface LibraryEntry {
 	genres: string[]
 	folders: Folder[]
 	trackLinks?: TrackLink[]
+	metadata?: MediaMetadata | null
 }
 
 export interface Chapter {
@@ -241,6 +242,31 @@ export interface TrackLink {
 	finishedAt: string | null
 	private: boolean
 	lastSyncedAt: string | null
+}
+
+export interface MediaMetadata {
+	mediaId: string
+	provider: string
+	providerId: string
+	url: string
+	coverUrl: string | null
+	malId: number | null
+	malUrl: string | null
+	confidence: number | null
+	locked: boolean
+	matchedAt: string | null
+}
+
+export interface MetadataCandidate {
+	provider: string
+	providerId: string
+	title: string
+	url: string
+	coverUrl: string | null
+	description: string | null
+	status: string | null
+	genres: string[]
+	startYear: number | null
 }
 
 export interface LibraryUpdateStatus {

@@ -63,6 +63,7 @@
           artist: entry.artist,
           genre: entry.genres,
           tags: entry.tags,
+          metadata: entry.metadata ?? null,
         });
         readerState.activeChapter     = chapter;
         booted = true;

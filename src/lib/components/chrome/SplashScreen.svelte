@@ -56,6 +56,9 @@
     windowsHelloEnabled?: boolean
     errorMessage?:   string
     errorLog?:       string
+    serverUrl?:      string
+    autoStart?:      boolean
+    onSetServerUrl?: (url: string) => void
     onReady?:        () => void
     onUnlock?:       () => void
     onRetry?:        () => void
@@ -71,10 +74,25 @@
     notConfigured = false, authRequired = false, showCards = true, showFps = false, showDevOverlay = false,
     pinLen = 4, pinCorrect = '', windowsHelloEnabled = false,
     errorMessage = '', errorLog = '',
+    serverUrl = '', autoStart = true, onSetServerUrl,
     onReady, onUnlock, onRetry, onBypass, onSkip, onDismiss, onCopyLog, onOpenDataDir,
   }: Props = $props()
 
   let logCopied = $state(false)
+
+  let urlEditing = $state(false)
+  let urlDraft   = $state('')
+
+  function openUrlEditor() {
+    urlDraft = serverUrl
+    urlEditing = true
+  }
+
+  function saveUrl() {
+    const v = urlDraft.trim()
+    if (v) onSetServerUrl?.(v)
+    urlEditing = false
+  }
 
   let fpsEl    = $state<HTMLSpanElement | undefined>(undefined)
   let dots     = $state('')
@@ -596,6 +614,20 @@
       {/if}
     </div>
   {/if}
+
+  {#if isTauri && autoStart === false && mode === 'loading'}
+    <div class="server-switch">
+      {#if urlEditing}
+        <input class="server-switch-input" bind:value={urlDraft} spellcheck="false"
+          placeholder="http://localhost:6007"
+          onkeydown={(e) => { if (e.key === 'Enter') saveUrl(); if (e.key === 'Escape') urlEditing = false }} />
+        <button class="server-switch-btn" onclick={saveUrl}>Save</button>
+      {:else}
+        <span class="server-switch-url">{serverUrl || 'no server url'}</span>
+        <button class="server-switch-btn" onclick={openUrlEditor}>Change</button>
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -639,6 +671,13 @@
   .error-label   { font-family:var(--font-ui); font-size:11px; font-weight:500; color:var(--text-muted); letter-spacing:0.06em; margin:0; }
   .error-log     { font-family:var(--font-mono,monospace); font-size:10px; line-height:1.45; color:var(--text-faint); background:var(--bg-void); border:1px solid var(--border-dim); border-radius:var(--radius-md); padding:8px 10px; margin:0; max-height:160px; max-width:100%; overflow:auto; white-space:pre-wrap; text-align:left; }
   .error-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
+
+  .server-switch { position:absolute; right:16px; bottom:16px; z-index:2; display:flex; align-items:center; gap:6px; font-family:var(--font-ui); font-size:11px; color:var(--text-faint); }
+  .server-switch-url { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .server-switch-input { width:220px; padding:3px 7px; font:inherit; color:var(--text-secondary); background:var(--bg-surface); border:1px solid var(--border-base); border-radius:var(--radius-sm); outline:none; }
+  .server-switch-input:focus { border-color:var(--accent-dim); }
+  .server-switch-btn { padding:3px 9px; font:inherit; color:var(--text-muted); background:none; border:1px solid var(--border-base); border-radius:var(--radius-sm); cursor:pointer; transition:color var(--t-fast), border-color var(--t-fast); }
+  .server-switch-btn:hover { color:var(--text-primary); border-color:var(--border-strong); }
   .err-btn       { padding:5px 14px; border-radius:var(--radius-md); border:1px solid var(--border-base); background:transparent; color:var(--text-muted); cursor:pointer; font-family:var(--font-ui); font-size:11px; letter-spacing:0.04em; transition:border-color 0.15s, color 0.15s; }
   .err-btn:hover { border-color:var(--border-strong); color:var(--text-secondary); }
   .err-btn--primary       { border-color:var(--accent-dim); color:var(--accent-fg); background:var(--accent-muted); }

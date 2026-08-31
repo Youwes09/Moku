@@ -2,6 +2,7 @@
   import { settingsState } from "$lib/state/settings.svelte";
   import { getBlobUrl }    from "$lib/core/cache/imageCache";
   import { appState } from "$lib/state/app.svelte";
+  import { coverBust } from "$lib/core/cover/coverBust.svelte";
 
 
 
@@ -32,8 +33,18 @@
     return typeof url === "string" && url.trim() ? url.replace(/\/$/, "") : "http://localhost:6007";
   }
 
+  function coverKey(url: string): string | null {
+    if (id != null) return String(id);
+    const m = /\/(?:proxy\/cover|cover|thumbnail)\/([^/?#]+)/.exec(url);
+    return m ? m[1] : null;
+  }
+
   function withBust(url: string): string {
-    return id != null ? `${url}${url.includes('?') ? '&' : '?'}id=${id}` : url;
+    const key = coverKey(url);
+    if (key == null) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    const v = coverBust[key];
+    return `${url}${sep}id=${key}${v ? `&v=${v}` : ''}`;
   }
 
   function plainThumbUrl(path: string | null | undefined): string {

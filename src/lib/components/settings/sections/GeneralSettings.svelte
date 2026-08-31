@@ -139,6 +139,18 @@
           placeholder="http://localhost:6007" spellcheck="false" />
       </div>
 
+      <label class="s-row">
+        <div class="s-row-info">
+          <span class="s-label">Auto-start bundled server</span>
+          <span class="s-desc">Launch and manage Tsunagu on startup. Turn off to run your own server at the URL above.</span>
+        </div>
+        <button role="switch" aria-checked={settingsState.settings.serverAutoStart ?? true} aria-label="Auto-start bundled server"
+          class="s-toggle" class:on={settingsState.settings.serverAutoStart ?? true}
+          onclick={() => updateSettings({ serverAutoStart: !(settingsState.settings.serverAutoStart ?? true) })}>
+          <span class="s-toggle-thumb"></span>
+        </button>
+      </label>
+
     </div>
   </div>
 

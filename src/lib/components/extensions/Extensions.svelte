@@ -26,7 +26,15 @@
     tabIndicator = { left: active.offsetLeft, width: active.offsetWidth };
   }
 
-  let extensions: Extension[] = $state([]);
+  const PAGE = 60;
+  let installedExts: Extension[] = $state([]);
+  let browse:        Extension[] = $state([]);
+  let browseTotal   = $state(0);
+  let browseLanguages = $state<string[]>([]);
+  let browseLoading  = $state(false);
+  let browseGen      = 0;
+  let listEl         = $state<HTMLDivElement | undefined>(undefined);
+
   let localMangaCount = $state<string>("0");
   let loading      = $state(true);
   let refreshing   = $state(false);
@@ -38,6 +46,14 @@
   let updatingAll  = $state(false);
   let expanded     = $state(new Set<string>());
   let panel        = $state<Panel>(null);
+
+  const serverTab = $derived(filter === "available" || filter === "all");
+
+  const extensions = $derived(
+    filter === "installed" ? installedExts
+    : filter === "updates" ? installedExts.filter((e) => e.needsUpdate)
+    : browse
+  );
 
   type SourceEntry  = { id: string; displayName: string };
   type SettingsTarget = { extensionName: string; iconUrl: string; sources: SourceEntry[] };
@@ -61,41 +77,71 @@
   let repoError    = $state<string | null>(null);
   let savingRepos  = $state(false);
 
-  async function fetchAvailable(): Promise<Extension[]> {
+  async function loadInstalled() {
+    const acc: Extension[] = [];
+    let offset = 0;
+    for (;;) {
+      const { items, total } = await tsunagu.extensions({ installed: true, limit: 200, offset });
+      acc.push(...items);
+      offset += items.length;
+      if (items.length === 0 || offset >= total) break;
+    }
+    installedExts = acc;
+  }
+
+  async function loadMoreBrowse(gen = browseGen) {
+    if (browseLoading || gen !== browseGen) return;
+    if (browse.length > 0 && browse.length >= browseTotal) return;
+    browseLoading = true;
     try {
-      const repos = await tsunagu.repositories();
-      const perRepo = await Promise.all(
-        repos.map((r) => tsunagu.availableExtensions(r.id).catch((e) => { console.error(e); return []; }))
-      );
-      return perRepo.flat();
+      const { items, total, languages } = await tsunagu.extensions({
+        query: search.trim() || undefined,
+        contentType: contentTypeFilter === "all" ? undefined : contentTypeFilter,
+        lang: langFilter ?? undefined,
+        installed: filter === "available" ? false : undefined,
+        limit: PAGE,
+        offset: browse.length,
+      });
+      if (gen !== browseGen) return;
+      const seen = new Set(browse.map((e) => e.packageName));
+      browse = [...browse, ...items.filter((e) => !seen.has(e.packageName))];
+      browseTotal = total;
+      if (!langFilter && languages?.length) browseLanguages = languages;
     } catch (e) {
       console.error(e);
-      return [];
+    } finally {
+      if (gen === browseGen) browseLoading = false;
     }
   }
 
-  async function reloadExtensions() {
-    const [installed, available] = await Promise.all([
-      tsunagu.installedExtensions(),
-      fetchAvailable(),
-    ]);
-    const byPkg = new Map<string, Extension>();
-    for (const e of available) byPkg.set(e.packageName, e);
-    for (const e of installed)  byPkg.set(e.packageName, e);
-    extensions = Array.from(byPkg.values());
+  async function resetBrowse() {
+    const gen = ++browseGen;
+    browse = [];
+    browseTotal = 0;
+    browseLoading = false;
+    if (!langFilter) browseLanguages = [];
+    await loadMoreBrowse(gen);
   }
 
-  async function load() {
-    try { await reloadExtensions(); } catch (e) { console.error(e); }
+  function onListScroll() {
+    if (!serverTab || !listEl || browseLoading) return;
+    if (browse.length >= browseTotal && browseTotal > 0) return;
+    if (listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 480) loadMoreBrowse();
+  }
 
+  function rebuildSources() {
     const byPkg: Record<string, SourceEntry[]> = {};
-    for (const e of extensions) {
-      if (!e.installed) continue;
+    for (const e of installedExts) {
       (byPkg[e.packageName] ??= []).push({ id: e.id, displayName: e.displayName });
     }
     sourcesByPkg = byPkg;
+  }
 
-    const pkgNameOf = (sourceId: string) => extensions.find((e) => e.id === sourceId)?.packageName;
+  async function load() {
+    try { await loadInstalled(); } catch (e) { console.error(e); }
+    rebuildSources();
+
+    const pkgNameOf = (sourceId: string) => installedExts.find((e) => e.id === sourceId)?.packageName;
     try {
       const libraryEntries = await tsunagu.library();
       const mapped: LibraryManga[] = libraryEntries.map((entry) => ({
@@ -141,8 +187,9 @@
     refreshing = true;
     try {
       await tsunagu.syncRepositories();
-      await reloadExtensions();
-      const updates = extensions.filter((e) => e.needsUpdate).length;
+      await load();
+      if (serverTab) await resetBrowse();
+      const updates = installedExts.filter((e) => e.needsUpdate).length;
       addToast(updates
         ? { kind: "info", title: "Extensions refreshed", body: `${updates} update${updates === 1 ? "" : "s"} available` }
         : { kind: "success", title: "Extensions refreshed", body: "Everything is up to date" });
@@ -192,21 +239,33 @@
     } finally { savingRepos = false; }
   }
 
+  function syncBrowseFlags() {
+    if (browse.length === 0) return;
+    const map = new Map(installedExts.map((e) => [e.packageName, e]));
+    browse = browse.map((e) => map.get(e.packageName) ?? { ...e, installed: false, needsUpdate: false, installedVersion: null });
+  }
+
+  async function refreshAfterMutate() {
+    await load();
+    syncBrowseFlags();
+  }
+
   async function mutate(pkgName: string, op: "install" | "update" | "uninstall", reload = true) {
     working = new Set(working).add(pkgName);
-    const label = extensions.find((e) => e.packageName === pkgName)?.name ?? pkgName;
+    const label = extensions.find((e) => e.packageName === pkgName)?.name
+      ?? browse.find((e) => e.packageName === pkgName)?.name ?? pkgName;
     try {
       if      (op === "install")   await tsunagu.installExtension(pkgName);
       else if (op === "update")    await tsunagu.updateExtension(pkgName);
       else                         await tsunagu.uninstallExtension(pkgName);
-      if (reload) await load();
+      if (reload) await refreshAfterMutate();
       if (reload) addToast({
         install:   { kind: "download" as const, title: "Extension installed", body: label },
         update:    { kind: "success"  as const, title: "Extension updated",   body: label },
         uninstall: { kind: "info"     as const, title: "Extension removed",   body: label },
       }[op]);
     } catch (e: any) {
-      if (reload) await load();
+      if (reload) await refreshAfterMutate();
       addToast({ kind: "error", title: "Extension error", body: e instanceof Error ? e.message : String(e) });
     } finally {
       working.delete(pkgName); working = new Set(working);
@@ -214,11 +273,11 @@
   }
 
   async function updateAll() {
-    const pending = extensions.filter((e) => e.needsUpdate);
+    const pending = installedExts.filter((e) => e.needsUpdate);
     if (!pending.length || updatingAll) return;
     updatingAll = true;
     for (const ext of pending) await mutate(ext.packageName, "update", false);
-    await load();
+    await refreshAfterMutate();
     updatingAll = false;
     addToast({ kind: "success", title: "All extensions updated", body: `${pending.length} extension${pending.length === 1 ? "" : "s"} updated` });
   }
@@ -231,7 +290,7 @@
     try {
       await tsunagu.installExternalExtension(url);
       installSuccess = true; externalUrl = "";
-      await load();
+      await refreshAfterMutate();
       addToast({ kind: "download", title: "Extension installed", body: url.split("/").pop() ?? url });
       setTimeout(() => { panel = null; installSuccess = false; }, 1500);
     } catch (e: any) {
@@ -277,16 +336,27 @@
   }));
 
   const availableLangs = $derived(
-    [...new Set(
-      extensions
-        .filter((e) => matchesFilter(e, filter))
-        .filter((e) => contentTypeFilter === "all" || e.contentType === contentTypeFilter)
-        .map((e) => e.lang)
-    )].sort()
+    serverTab
+      ? [...new Set(browseLanguages)].filter((l) => l.toLowerCase() !== "all").sort()
+      : [...new Set(
+          extensions
+            .filter((e) => matchesFilter(e, filter))
+            .filter((e) => contentTypeFilter === "all" || e.contentType === contentTypeFilter)
+            .map((e) => e.lang)
+        )].sort()
   );
 
 
-  const updateCount = $derived(extensions.filter((e) => e.needsUpdate).length);
+  const updateCount = $derived(installedExts.filter((e) => e.needsUpdate).length);
+
+  let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const active = serverTab;
+    search; contentTypeFilter; langFilter; filter;
+    if (!active) return;
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => { resetBrowse(); }, 250);
+  });
 
   $effect(() => {
     untrack(async () => {
@@ -399,7 +469,7 @@
     {#if loading}
       <div class="empty"><CircleNotch size={16} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
     {:else}
-      <div class="list">
+      <div class="list" bind:this={listEl} onscroll={onListScroll}>
         {#if showLocal}
           <button type="button" class="local-row" onclick={rescanLocal} disabled={rescanning} title="Rescan {'{mediaDir}'}/local for hand-added files">
             <div class="local-icon">
@@ -423,8 +493,13 @@
             onLibrary={(pkgName, extensionName, iconUrl) => libraryTarget = { pkgName, extensionName, iconUrl }}
           />
         {/each}
-        {#if !showLocal && groups.length === 0}
+        {#if !showLocal && groups.length === 0 && !browseLoading}
           <div class="empty" style="flex:1">No extensions found.</div>
+        {/if}
+        {#if serverTab && browseLoading}
+          <div class="more-row"><CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
+        {:else if serverTab && browse.length > 0 && browse.length >= browseTotal}
+          <div class="more-row more-end">{browseTotal} extension{browseTotal === 1 ? "" : "s"}</div>
         {/if}
       </div>
     {/if}
@@ -444,6 +519,8 @@
   .root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
   .list { flex: 1; overflow-y: auto; padding: 0 var(--sp-4) var(--sp-4); display: flex; flex-direction: column; gap: 1px; }
   .empty { display: flex; align-items: center; justify-content: center; flex: 1; color: var(--text-faint); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); }
+  .more-row { display: flex; align-items: center; justify-content: center; padding: var(--sp-4) 0; font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wider); text-transform: uppercase; color: var(--text-faint); }
+  .more-end { opacity: 0.6; }
   :global(.icon-btn) { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   :global(.icon-btn:hover:not(:disabled)) { color: var(--text-primary); border-color: var(--border-strong); }
   :global(.icon-btn-active) { color: var(--accent-fg); border-color: var(--accent-dim); background: var(--accent-muted); }

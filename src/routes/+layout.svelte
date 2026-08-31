@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte'
 	import { page } from '$app/stores'
 	import { appState, app, type AppStatus, checkForChangelog } from '$lib/state/app.svelte'
-	import { boot, registerPlatformAdapter, initApp, startProbe, retryBoot, bypassBoot, subscribeBackend, openBackendDataDir } from '$lib/state/boot.svelte'
+	import { boot, registerPlatformAdapter, initApp, startProbe, retryBoot, bypassBoot, subscribeBackend, openBackendDataDir, maybeStartBackend, setServerUrl } from '$lib/state/boot.svelte'
 	import { notifications } from '$lib/state/notifications.svelte'
 	import { settingsState, loadSettingsIntoState, updateSettings } from '$lib/state/settings.svelte'
 	import { applyTheme, mountSystemThemeSync } from '$lib/core/theme'
@@ -115,6 +115,7 @@
 
 				applyTheme(settingsState.settings.theme ?? 'dark', settingsState.settings.customThemes ?? [])
 
+				await maybeStartBackend()
 				await startProbe(100)
 
 				polling = true
@@ -251,6 +252,8 @@
 		windowsHelloEnabled={settingsState.settings.appLockWindowsHello ?? false}
 		errorMessage={boot.errorMessage}
 		errorLog={boot.errorLog}
+		serverUrl={settingsState.settings.serverUrl ?? ''}
+		autoStart={settingsState.settings.serverAutoStart ?? true}
 		onReady={onSplashReady}
 		onUnlock={onSplashUnlock}
 		onBypass={onSplashBypass}
@@ -258,6 +261,7 @@
 		onRetry={onSplashRetry}
 		onCopyLog={() => navigator.clipboard.writeText(boot.errorLog).catch(() => {})}
 		onOpenDataDir={openBackendDataDir}
+		onSetServerUrl={setServerUrl}
 	/>
 {/if}
 

@@ -106,15 +106,11 @@ pub fn run() {
             backend::backend_url,
             backend::backend_data_dir,
             backend::get_backend_log,
+            backend::start_backend,
             backend::restart_backend,
         ])
         .setup(|app| {
             start_instance_listener(app.handle().clone());
-
-            let h = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = backend::start(h).await;
-            });
 
             let show = MenuItem::with_id(app, "show", "Show Moku", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;

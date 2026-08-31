@@ -149,6 +149,7 @@ export interface Settings {
 	compactSidebar: boolean
 	gpuAcceleration: boolean
 	serverUrl: string
+	serverAutoStart: boolean
 	serverAuthUser: string
 	serverAuthPass: string
 	preferredExtensionLang: string
@@ -249,6 +250,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	compactSidebar: false,
 	gpuAcceleration: true,
 	serverUrl: 'http://localhost:6007',
+	serverAutoStart: true,
 	preferredExtensionLang: 'en',
 	keybinds: DEFAULT_KEYBINDS,
 	idleTimeoutMin: 5,

@@ -30,6 +30,7 @@
   let src_submitted                   = $state("");
   let src_hasNextPage                 = $state(false);
   let src_currentPage                 = $state(1);
+  let src_browseError: string | null  = $state(null);
   let src_abortCtrl: AbortController | null = null;
 
   let ctx_x      = $state(0);
@@ -93,7 +94,7 @@
     src_abortCtrl?.abort();
     const ctrl = new AbortController();
     src_abortCtrl = ctrl;
-    if (page === 1) { src_loadingBrowse = true; src_browseResults = []; }
+    if (page === 1) { src_loadingBrowse = true; src_browseResults = []; src_browseError = null; }
     try {
       const pkgName = src.id;
       const result = type === "SEARCH" && q
@@ -107,7 +108,14 @@
       src_hasNextPage   = result.hasNextPage;
       src_currentPage   = page;
     } catch (e: any) {
-      if (e?.name !== "AbortError") console.error(e);
+      if (e?.name !== "AbortError") {
+        console.error(e);
+        if (!ctrl.signal.aborted && page === 1) {
+          src_browseError = /connection reset|socket|timeout|timed out|ECONN|unreachable|handshake/i.test(String(e?.message ?? e))
+            ? "The source site could not be reached. It may be down, blocking requests, or rate-limiting."
+            : (e?.message ?? "Failed to load from this source.");
+        }
+      }
     } finally {
       if (!ctrl.signal.aborted) src_loadingBrowse = false;
     }
@@ -294,6 +302,18 @@
               </button>
             </div>
           {/if}
+        </div>
+      {:else if src_browseError}
+        <div class="empty">
+          <p class="emptyText">Couldn't load</p>
+          <p class="emptyHint">{src_browseError}</p>
+          <button
+            class="searchBtn"
+            style="margin-top:var(--sp-3)"
+            onclick={() => src_activeSource && srcFetchBrowse(src_activeSource, src_submitted ? "SEARCH" : "POPULAR", src_submitted || undefined, 1)}
+          >
+            Retry
+          </button>
         </div>
       {:else if !src_loadingBrowse}
         <div class="empty">

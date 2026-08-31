@@ -40,8 +40,8 @@ function formatChapter(chapter: Chapter): string {
   return `Chapter ${Number.isInteger(n) ? n : n.toFixed(1)}`
 }
 
-async function resolveCover(_manga: Manga): Promise<string> {
-  return FALLBACK_IMAGE
+async function resolveCover(manga: Manga): Promise<string> {
+  return manga.metadata?.coverUrl || FALLBACK_IMAGE
 }
 
 function buildReadingPresence(manga: Manga, chapter: Chapter, cover: string) {

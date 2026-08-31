@@ -1,5 +1,5 @@
 import { gql, baseUrl } from './gql'
-import type { Extension } from '$lib/server-adapters/types'
+import type { ContentType, Extension } from '$lib/server-adapters/types'
 
 const EXT_FIELDS = `
 	id repositoryId packageName name displayName version contentType lang iconUrl
@@ -7,7 +7,38 @@ const EXT_FIELDS = `
 	apkUrl jarUrl jarPath installed enabled discoveredAt installedAt installedVersion needsUpdate
 `
 
+export interface ExtensionPage {
+	items: Extension[]
+	total: number
+	languages: string[]
+}
+
+export interface ExtensionQuery {
+	repositoryId?: string
+	query?: string
+	contentType?: ContentType
+	lang?: string
+	installed?: boolean
+	limit?: number
+	offset?: number
+}
+
 export const extensions = {
+	async extensions(opts: ExtensionQuery = {}): Promise<ExtensionPage> {
+		const data = await gql<{ extensions: ExtensionPage }>(
+			`query Extensions($repositoryId: ID, $query: String, $contentType: ContentType, $lang: String, $installed: Boolean, $limit: Int, $offset: Int) {
+				extensions(repositoryId: $repositoryId, query: $query, contentType: $contentType, lang: $lang, installed: $installed, limit: $limit, offset: $offset) {
+					items { ${EXT_FIELDS} }
+					total
+					languages
+				}
+			}`,
+			opts as Record<string, unknown>,
+			baseUrl()
+		)
+		return data.extensions
+	},
+
 	async availableExtensions(repositoryId: string): Promise<Extension[]> {
 		const data = await gql<{ availableExtensions: Extension[] }>(
 			`query AvailableExtensions($repositoryId: ID!) {

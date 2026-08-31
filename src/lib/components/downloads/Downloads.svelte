@@ -9,6 +9,14 @@
 
   let tab: "queue" | "history" = $state("queue");
 
+  const PAGE = 30;
+  let shown = $state(PAGE);
+  $effect(() => { tab; shown = PAGE; });
+  function onContentScroll(e: Event) {
+    const el = e.currentTarget as HTMLElement;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 600) shown += PAGE;
+  }
+
   onMount(() => {
     downloadStore.drawerOpen = true;
     void downloadStore.poll();
@@ -181,21 +189,22 @@
     </div>
   </div>
 
-  <div class="content" role="none" onclick={handleClickOff} onkeydown={(e) => e.key === "Escape" && handleClickOff()}>
+  <div class="content" role="none" onscroll={onContentScroll} onclick={handleClickOff} onkeydown={(e) => e.key === "Escape" && handleClickOff()}>
     <DownloadQueue
       queue={downloadStore.queue}
       loading={downloadStore.loading}
       isRunning={downloadStore.isRunning}
       dequeueing={downloadStore.dequeueing}
       selected={downloadStore.selected}
+      limit={shown}
       onRemove={(id: string) => downloadStore.dequeue(id)}
       onRetry={(id: string) => downloadStore.retryOne(id)}
       onSelect={handleSelect}
     />
   </div>
   {:else}
-  <div class="content">
-    <DownloadHistory completed={downloadStore.completed} loading={downloadStore.loading} />
+  <div class="content" onscroll={onContentScroll}>
+    <DownloadHistory completed={downloadStore.completed} loading={downloadStore.loading} limit={shown} />
   </div>
   {/if}
 </div>

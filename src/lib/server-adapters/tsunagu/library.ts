@@ -1,5 +1,7 @@
 import { gql, baseUrl } from './gql'
-import type { ContentType, LibraryEntry, Chapter } from '$lib/server-adapters/types'
+import type { ContentType, LibraryEntry, Chapter, MediaMetadata, MetadataCandidate } from '$lib/server-adapters/types'
+
+const METADATA_FIELDS = `mediaId provider providerId url coverUrl malId malUrl confidence locked matchedAt`
 
 export const library = {
 	async library(contentType?: ContentType): Promise<LibraryEntry[]> {
@@ -54,6 +56,7 @@ export const library = {
 						status statusName lastChapterRead totalChapters score
 						startedAt finishedAt private lastSyncedAt
 					}
+					metadata { ${METADATA_FIELDS} }
 				}
 			}`,
 			{ id },
@@ -140,5 +143,55 @@ export const library = {
 			baseUrl()
 		)
 		return data.setMediaCover
+	},
+
+	async searchMetadata(query: string, contentType?: ContentType | null): Promise<MetadataCandidate[]> {
+		const data = await gql<{ searchMetadata: MetadataCandidate[] }>(
+			`query SearchMetadata($query: String!, $contentType: ContentType!) {
+				searchMetadata(query: $query, contentType: $contentType) {
+					provider providerId title url coverUrl description status genres startYear
+				}
+			}`,
+			{ query, contentType: contentType ?? 'MANGA' },
+			baseUrl()
+		)
+		return data.searchMetadata
+	},
+
+	async applyMetadataMatch(mediaId: string, providerId: string, provider: string): Promise<MediaMetadata | null> {
+		const data = await gql<{ applyMetadataMatch: { metadata: MediaMetadata | null } }>(
+			`mutation ApplyMetadataMatch($mediaId: ID!, $providerId: String!, $provider: String) {
+				applyMetadataMatch(mediaId: $mediaId, providerId: $providerId, provider: $provider) {
+					id metadata { ${METADATA_FIELDS} }
+				}
+			}`,
+			{ mediaId, providerId, provider },
+			baseUrl()
+		)
+		return data.applyMetadataMatch.metadata
+	},
+
+	async refreshMetadataMatch(mediaId: string): Promise<MediaMetadata | null> {
+		const data = await gql<{ refreshMetadataMatch: { metadata: MediaMetadata | null } }>(
+			`mutation RefreshMetadataMatch($mediaId: ID!) {
+				refreshMetadataMatch(mediaId: $mediaId) {
+					id metadata { ${METADATA_FIELDS} }
+				}
+			}`,
+			{ mediaId },
+			baseUrl()
+		)
+		return data.refreshMetadataMatch.metadata
+	},
+
+	async unlinkMetadata(mediaId: string): Promise<boolean> {
+		const data = await gql<{ unlinkMetadata: boolean }>(
+			`mutation UnlinkMetadata($mediaId: ID!) {
+				unlinkMetadata(mediaId: $mediaId)
+			}`,
+			{ mediaId },
+			baseUrl()
+		)
+		return !!data.unlinkMetadata
 	},
 }

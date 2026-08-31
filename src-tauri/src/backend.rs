@@ -314,6 +314,14 @@ pub async fn get_backend_log(state: State<'_, Backend>) -> Result<Vec<String>, (
 }
 
 #[tauri::command]
+pub async fn start_backend(app: AppHandle) -> Result<(), String> {
+    if app.state::<Backend>().child.lock().await.is_some() {
+        return Ok(());
+    }
+    start(app).await
+}
+
+#[tauri::command]
 pub async fn restart_backend(app: AppHandle, state: State<'_, Backend>) -> Result<(), String> {
     stop(&state).await;
     *state.url.lock().await = None;

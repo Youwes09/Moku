@@ -2,7 +2,7 @@ import { detectAdapter } from '$lib/platform-adapters'
 import { initPlatformService, platformService } from '$lib/platform-service'
 import { tsunagu } from '$lib/server-adapters/tsunagu'
 import { appState } from '$lib/state/app.svelte'
-import { settingsState } from '$lib/state/settings.svelte'
+import { settingsState, updateSettings } from '$lib/state/settings.svelte'
 
 
 const MAX_ATTEMPTS = 40
@@ -21,6 +21,29 @@ function isRemoteServer(): boolean {
 	const u = (settingsState.settings.serverUrl ?? '').trim()
 	if (!u) return false
 	return !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/i.test(u)
+}
+
+function managesBackend(): boolean {
+	return appState.platform === 'tauri' && !isRemoteServer() && settingsState.settings.serverAutoStart !== false
+}
+
+export async function maybeStartBackend(): Promise<void> {
+	if (!managesBackend()) return
+	try {
+		const { invoke } = await import('@tauri-apps/api/core')
+		await invoke('start_backend')
+	} catch {
+		return
+	}
+}
+
+export function setServerUrl(url: string): void {
+	const next = url.trim()
+	if (!next) return
+	liveServerUrl = null
+	updateSettings({ serverUrl: next })
+	appState.serverUrl = next
+	startProbe(0)
 }
 
 let backendUnlisten: (() => void) | null = null
@@ -165,7 +188,7 @@ export function retryBoot(): void {
 	boot.skipped = false
 	boot.errorMessage = ''
 	boot.errorLog = ''
-	if (appState.platform === 'tauri' && !isRemoteServer()) {
+	if (managesBackend()) {
 		import('@tauri-apps/api/core')
 			.then(({ invoke }) => invoke('restart_backend'))
 			.catch(() => {})

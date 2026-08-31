@@ -29,6 +29,7 @@
   import AutomationPanel  from '$lib/components/series/panels/AutomationPanel.svelte'
   import CoverPickerPanel from '$lib/components/series/panels/CoverPickerPanel.svelte'
   import TrackerPanel     from '$lib/components/series/panels/TrackerPanel.svelte'
+  import MetadataMatchPanel from '$lib/components/series/panels/MetadataMatchPanel.svelte'
   import MigrateModal     from '$lib/components/shared/manga/MigrateModal.svelte'
   import SeriesLinkPanel  from '$lib/components/shared/manga/SeriesLinkPanel.svelte'
 
@@ -63,6 +64,7 @@
   let catsLoading:     boolean      = $state(false)
   let trackLinks:      TrackLink[]  = $state([])
   let trackerOpen:     boolean      = $state(false)
+  let metadataOpen:    boolean      = $state(false)
   let chapterListEl:   HTMLDivElement | null = $state(null)
   let chapterListRef:  ChapterList | undefined = $state(undefined)
 
@@ -180,6 +182,7 @@
       sourceEntryId:  entry.externalId,
       mediaId:        entry.id,
       libraryEntryId: entry.inLibrary ? entry.id : null,
+      metadata:       entry.metadata ?? null,
     }
   }
 
@@ -571,6 +574,7 @@
     onMigrateOpen={() => migrateOpen = true}
     onAutoOpen={() => autoOpen = true}
     onTrackerOpen={() => trackerOpen = true}
+    onMetadataOpen={() => metadataOpen = true}
     onLinkPickerOpen={openLinkPicker}
     onCoverPickerOpen={openCoverPicker}
     onGenreClick={(genre) => goto(`/browse?genre=${encodeURIComponent(genre)}`)}
@@ -650,6 +654,16 @@
 {/if}
 
 
+{#if metadataOpen && manga && realMediaId}
+  <MetadataMatchPanel
+    {manga}
+    mediaId={realMediaId}
+    metadata={manga.metadata ?? null}
+    onChanged={(m) => { if (manga) manga.metadata = m; mangaCache.delete(mangaId) }}
+    onClose={() => metadataOpen = false}
+  />
+{/if}
+
 {#if linkPickerOpen && manga}
   <div class="modal-overlay" role="presentation" onclick={() => linkPickerOpen = false}>
     <div class="modal-dialog" role="presentation" onclick={(e) => e.stopPropagation()}>
@@ -665,6 +679,7 @@
         {manga}
         mediaId={realMediaId}
         allManga={allMangaForLink}
+        anilistCoverUrl={manga.metadata?.coverUrl ?? null}
         onApplied={(url) => { if (manga) manga.thumbnailUrl = url ?? manga.thumbnailUrl; mangaCache.delete(mangaId); loadLibrary(true) }}
         onClose={() => coverPickerOpen = false}
       />

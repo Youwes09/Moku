@@ -164,7 +164,7 @@
     try {
       const { entry } = await migrateMedia(
         manga.id,
-        selectedExtension.packageName ?? selectedExtension.id,
+        selectedExtension.id,
         selectedMatch.hit.sourceEntryId,
       );
       onMigrated({

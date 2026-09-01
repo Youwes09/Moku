@@ -124,6 +124,7 @@ export interface SearchResult {
 	inLibrary: boolean
 	status: string | null
 	genres: string[]
+	metadata?: { coverUrl: string | null } | null
 }
 
 export interface SearchResponse {
@@ -328,6 +329,27 @@ export interface ServerSetting {
 export interface UpdateSettingResult {
 	setting: ServerSetting
 	restartRequired: boolean
+}
+
+export type FilterField = 'GENRE' | 'TAG' | 'TITLE' | 'DESCRIPTION'
+export type ContentBlockLevel = 'MODERATE' | 'STRICT'
+
+export interface ContentFilterRule {
+	id: string
+	category: string
+	field: FilterField
+	keyword: string
+	minWeight: number
+	blockLevel: ContentBlockLevel
+	isDefault: boolean
+}
+
+export interface AddContentFilterRuleInput {
+	category: string
+	field: FilterField
+	keyword: string
+	minWeight?: number
+	blockLevel: ContentBlockLevel
 }
 
 export type CloudflareSolverState = 'NOT_INSTALLED' | 'DOWNLOADING' | 'INSTALLED' | 'RUNNING' | 'ERROR'

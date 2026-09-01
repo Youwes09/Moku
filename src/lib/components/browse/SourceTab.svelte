@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
   import { tsunagu }            from "$lib/server-adapters/tsunagu";
-  import { toBrowseManga }      from "$lib/components/browse/lib/searchFilter";
+  import { toBrowseManga, coverFirst } from "$lib/components/browse/lib/searchFilter";
   import { settingsState, updateSettings } from "$lib/state/settings.svelte";
   import { shouldHideNsfw } from "$lib/core/util";
+  import { resolvedCover } from "$lib/core/cover/coverResolver";
   import Thumbnail              from "$lib/components/shared/manga/Thumbnail.svelte";
   import ExtensionIcon          from "$lib/components/extensions/ExtensionIcon.svelte";
   import ContextMenu            from "$lib/components/shared/ui/ContextMenu.svelte";
@@ -104,7 +105,7 @@
       const incoming = result.results
         .map((r) => toBrowseManga(r, pkgName, src.id, src.contentType))
         .filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
-      src_browseResults = page === 1 ? incoming : [...src_browseResults, ...incoming];
+      src_browseResults = coverFirst(page === 1 ? incoming : [...src_browseResults, ...incoming]);
       src_hasNextPage   = result.hasNextPage;
       src_currentPage   = page;
     } catch (e: any) {
@@ -285,7 +286,7 @@
           {#each src_browseResults as m, i (`${m.extensionId}-${m.sourceEntryId}`)}
             <button class="card" onclick={() => onPreview(m)}>
               <div class="coverWrap">
-                <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} contentType={m.contentType} />
+                <Thumbnail src={resolvedCover(m.prefsKey ?? m.id, m.thumbnailUrl)} fallbackSrc={m.metadata?.coverUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} contentType={m.contentType} />
                 {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
               </div>
               <p class="cardTitle">{m.title}</p>

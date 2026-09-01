@@ -8,6 +8,7 @@ import { extensions } from './extensions'
 import { folders } from './folders'
 import { trackers } from './trackers'
 import { serverSettings } from './serverSettings'
+import { contentFilter } from './contentFilter'
 
 export const tsunagu = {
 	...meta,
@@ -20,4 +21,5 @@ export const tsunagu = {
 	...folders,
 	...trackers,
 	...serverSettings,
+	...contentFilter,
 }

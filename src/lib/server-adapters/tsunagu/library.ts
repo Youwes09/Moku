@@ -14,6 +14,7 @@ export const library = {
 						unreadCount downloadCount: downloadedCount chapterCount
 						latestChapter { number uploadedAt }
 						genres tags
+						metadata { coverUrl }
 						folders { id }
 						source { id }
 					}

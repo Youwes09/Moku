@@ -333,6 +333,8 @@ export function mapEntryToManga(entry: LibraryEntry): Manga {
     sourceEntryId:  entry.externalId,
     mediaId:        entry.id,
     libraryEntryId: entry.id,
+    prefsKey:       entry.extensionId ? `${entry.extensionId}:${entry.externalId}` : entry.id,
+    metadata:       entry.metadata ?? null,
   } as Manga;
 }
 

@@ -4,11 +4,12 @@
   import { settingsState }       from "$lib/state/settings.svelte";
   import { setPreviewManga }     from "$lib/state/series.svelte";
   import { dedupeMangaById, shouldHideNsfw } from "$lib/core/util";
+  import { resolvedCover } from "$lib/core/cover/coverResolver";
   import Thumbnail               from "$lib/components/shared/manga/Thumbnail.svelte";
   import ContextMenu             from "$lib/components/shared/ui/ContextMenu.svelte";
   import { ArrowLeftIcon, BookmarkSimpleIcon, CircleNotchIcon } from "phosphor-svelte";
   import type { Manga, Source }  from "$lib/types";
-  import { toBrowseManga, toSource } from "$lib/components/browse/lib/searchFilter";
+  import { toBrowseManga, toSource, coverFirst } from "$lib/components/browse/lib/searchFilter";
   import {
     PAGE_SIZE, INITIAL_PAGES, MAX_SOURCES,
     parseTags, tagsLabel, matchesAllTags, runConcurrent,
@@ -50,7 +51,7 @@
   const filtered = $derived.by(() => {
     const libMatches = libraryManga.filter((m) => matchesAllTags(m, tags) && !shouldHideNsfw(m as any, settingsState.settings));
     const libIds     = new Set(libMatches.map((m) => m.id));
-    return dedupeMangaById([...libMatches, ...sourceManga.filter((m) => !libIds.has(m.id) && !shouldHideNsfw(m as any, settingsState.settings))]);
+    return coverFirst(dedupeMangaById([...libMatches, ...sourceManga.filter((m) => !libIds.has(m.id) && !shouldHideNsfw(m as any, settingsState.settings))]));
   });
 
   const visibleItems   = $derived(filtered.slice(0, visibleCount));
@@ -197,7 +198,7 @@
       {#each visibleItems as m, i (`${m.extensionId}-${m.sourceEntryId}`)}
         <button class="card" onclick={() => setPreviewManga(m)} oncontextmenu={(e) => { e.stopPropagation(); openCtx(e, m); }}>
           <div class="cover-wrap">
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} contentType={m.contentType} />
+            <Thumbnail src={resolvedCover(m.prefsKey ?? m.id, m.thumbnailUrl)} fallbackSrc={m.metadata?.coverUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} contentType={m.contentType} />
             {#if m.inLibrary}<span class="in-library-badge">Saved</span>{/if}
           </div>
           <p class="card-title">{m.title}</p>

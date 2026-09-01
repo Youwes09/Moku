@@ -144,7 +144,7 @@ export function toBrowseManga(
   return {
     id:             r.id ?? `${extensionId}-${r.externalId}`,
     title:          r.title,
-    thumbnailUrl:   r.thumbnailUrl ?? "",
+    thumbnailUrl:   r.thumbnailUrl || r.metadata?.coverUrl || "",
     inLibrary:      r.inLibrary,
     status:         r.status ?? undefined,
     genre:          r.genres,
@@ -152,8 +152,15 @@ export function toBrowseManga(
     sourceId:       sourceId ?? extensionId,
     sourceEntryId:  r.externalId,
     extensionId,
+    prefsKey:       `${extensionId}:${r.externalId}`,
+    metadata:       r.metadata?.coverUrl ? { coverUrl: r.metadata.coverUrl } : undefined,
     libraryEntryId: r.inLibrary ? r.id : null,
   };
+}
+
+export function coverFirst<T extends { thumbnailUrl?: string | null; metadata?: { coverUrl?: string | null } | null }>(list: T[]): T[] {
+  const has = (m: T) => !!(m.thumbnailUrl || m.metadata?.coverUrl);
+  return [...list].sort((a, b) => (has(a) ? 0 : 1) - (has(b) ? 0 : 1));
 }
 
 export async function resolveMangaDetail(

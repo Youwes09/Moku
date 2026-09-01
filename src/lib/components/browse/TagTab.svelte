@@ -3,7 +3,8 @@
   import { tsunagu }             from "$lib/server-adapters/tsunagu";
   import { settingsState }       from "$lib/state/settings.svelte";
   import { shouldHideNsfw, dedupeMangaById, dedupeMangaByTitle, normalizeTitle } from "$lib/core/util";
-  import { runConcurrent, filterSourceCache, buildTagFilter, COMMON_GENRES, MANGA_STATUSES, toBrowseManga, type TagMode, type CachedManga } from "$lib/components/browse/lib/searchFilter";
+  import { runConcurrent, filterSourceCache, buildTagFilter, COMMON_GENRES, MANGA_STATUSES, toBrowseManga, type TagMode, type CachedManga, coverFirst } from "$lib/components/browse/lib/searchFilter";
+  import { resolvedCover } from "$lib/core/cover/coverResolver";
   import Thumbnail               from "$lib/components/shared/manga/Thumbnail.svelte";
   import type { Manga, Source }  from "$lib/types";
 
@@ -186,10 +187,10 @@
     const cacheMapped: Manga[] = tag_sourceFiltered
       .filter((m) => !tag_localIds.has(m.id) && !fanOutMapped.some((f) => f.id === m.id))
       .map((m) => ({ id: m.id, title: m.title, thumbnailUrl: m.thumbnailUrl, inLibrary: m.inLibrary, genre: m.genre, status: m.status } as Manga));
-    return dedupeMangaByTitle(
+    return coverFirst(dedupeMangaByTitle(
       dedupeMangaById([...tag_localResults, ...fanOutMapped, ...cacheMapped]),
       settingsState.settings.mangaLinks,
-    );
+    ));
   });
 
   const tag_totalVisible = $derived(tag_mergedResults.length);
@@ -339,7 +340,7 @@
           {#each tag_mergedResults as m, i (`${m.extensionId}-${m.sourceEntryId}`)}
             <button class="card" onclick={() => onPreview(m)}>
               <div class="coverWrap">
-                <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} contentType={m.contentType} />
+                <Thumbnail src={resolvedCover(m.prefsKey ?? m.id, m.thumbnailUrl)} fallbackSrc={m.metadata?.coverUrl} alt={m.title} class="cover" priority={i < 12 ? 12 - i : 0} id={m.id} contentType={m.contentType} />
                 {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
               </div>
               <p class="cardTitle">{m.title}</p>

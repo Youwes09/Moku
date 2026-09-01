@@ -58,6 +58,6 @@ export interface Manga {
   source?: { id: string; name: string; displayName: string; isNsfw?: boolean; iconUrl?: string | null } | null
   sourceName?: string | null
   chapters?: { totalCount: number }
-  metadata?: import('$lib/server-adapters/types').MediaMetadata | null
+  metadata?: Partial<import('$lib/server-adapters/types').MediaMetadata> | null
 }
 

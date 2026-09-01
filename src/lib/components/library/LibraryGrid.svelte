@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CheckSquare, Trash, Folder, FolderPlus, FolderMinus, ImageSquare, BookOpenText, FilmSlate } from 'phosphor-svelte'
   import Thumbnail from '$lib/components/shared/manga/Thumbnail.svelte'
+  import { resolvedCover } from '$lib/core/cover/coverResolver'
   import { settingsState } from '$lib/state/settings.svelte'
   import type { Manga } from '$lib/types'
   import type { Folder as FolderType } from '$lib/server-adapters/types'
@@ -170,7 +171,7 @@
           oncontextmenu={(e) => onCardContextMenu(e, m)}
         >
           <div class="thumb" class:cover-contain={!cropCovers}>
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="thumb-img" id={m.id} contentType={m.contentType} />
+            <Thumbnail src={resolvedCover(m.prefsKey ?? m.id, m.thumbnailUrl)} fallbackSrc={m.metadata?.coverUrl} alt={m.title} class="thumb-img" id={m.id} contentType={m.contentType} />
           </div>
           <div class="info">
             <span class="row-title">{m.title}</span>
@@ -216,7 +217,7 @@
           oncontextmenu={(e) => onCardContextMenu(e, m)}
         >
           <div class="cover-wrap" class:completed={isCompleted} class:cover-contain={!cropCovers}>
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" id={m.id} contentType={m.contentType} />
+            <Thumbnail src={resolvedCover(m.prefsKey ?? m.id, m.thumbnailUrl)} fallbackSrc={m.metadata?.coverUrl} alt={m.title} class="cover" id={m.id} contentType={m.contentType} />
             {#if showTypeTag && m.contentType}
               <span class="type-tag" title={m.contentType}>
                 {#if m.contentType === 'ANIME'}<FilmSlate size={12} weight="fill" />

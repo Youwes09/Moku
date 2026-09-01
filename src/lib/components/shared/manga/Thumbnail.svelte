@@ -9,6 +9,7 @@
 
   let {
     src,
+    fallbackSrc = undefined,
     id          = undefined,
     alt         = "",
     class: cls  = "",
@@ -20,6 +21,7 @@
     ...rest
   }: {
     src:       string | null | undefined;
+    fallbackSrc?: string | null;
     id?:       string | number;
     alt?:      string;
     class?:    string;
@@ -31,10 +33,12 @@
     [key: string]: any;
   } = $props();
 
-  let broke = $state(false);
-  $effect(() => { src; broke = false; });
+  let broke   = $state(false);
+  let usedAlt = $state(false);
+  $effect(() => { src; fallbackSrc; broke = false; usedAlt = false; });
 
   function handleError(e: Event) {
+    if (fallbackSrc && !usedAlt && fallbackSrc !== src) { usedAlt = true; return; }
     broke = true;
     onerror?.(e);
   }
@@ -87,7 +91,7 @@
       .catch(() => { if (myId === reqId) blobUrl = ""; });
   });
 
-  const plainUrl = $derived(plainThumbUrl(src));
+  const plainUrl = $derived(plainThumbUrl(usedAlt && fallbackSrc ? fallbackSrc : src));
   const resolved = $derived(isAuth ? (blobUrl || undefined) : (plainUrl || undefined));
 
   const showFallback = $derived(!!contentType && (!resolved || broke));

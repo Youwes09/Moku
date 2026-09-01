@@ -49,7 +49,7 @@ export const discovery = {
 		const data = await gql<{ search: SearchResponse }>(
 			`query Search($extensionId: ID!, $query: String!, $page: Int, $filters: [FilterInput!]) {
 				search(extensionId: $extensionId, query: $query, page: $page, filters: $filters) {
-					results { id externalId title thumbnailUrl inLibrary status genres }
+					results { id externalId title thumbnailUrl inLibrary status genres metadata { coverUrl } }
 					hasNextPage
 				}
 			}`,
@@ -64,7 +64,7 @@ export const discovery = {
 		const data = await gql<{ popularManga: SearchResponse }>(
 			`query PopularManga($extensionId: ID!, $page: Int) {
 				popularManga(extensionId: $extensionId, page: $page) {
-					results { id externalId title thumbnailUrl inLibrary status genres }
+					results { id externalId title thumbnailUrl inLibrary status genres metadata { coverUrl } }
 					hasNextPage
 				}
 			}`,
@@ -79,7 +79,7 @@ export const discovery = {
 		const data = await gql<{ latestUpdates: SearchResponse }>(
 			`query LatestUpdates($extensionId: ID!, $page: Int) {
 				latestUpdates(extensionId: $extensionId, page: $page) {
-					results { id externalId title thumbnailUrl inLibrary status genres }
+					results { id externalId title thumbnailUrl inLibrary status genres metadata { coverUrl } }
 					hasNextPage
 				}
 			}`,

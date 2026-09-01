@@ -3,9 +3,10 @@
   import { tsunagu }            from "$lib/server-adapters/tsunagu";
   import { settingsState }      from "$lib/state/settings.svelte";
   import { shouldHideNsfw, dedupeMangaById, dedupeMangaByTitle } from "$lib/core/util";
+  import { resolvedCover } from "$lib/core/cover/coverResolver";
   import Thumbnail              from "$lib/components/shared/manga/Thumbnail.svelte";
   import type { Manga, Source } from "$lib/types";
-  import { toBrowseManga }      from "$lib/components/browse/lib/searchFilter";
+  import { toBrowseManga, coverFirst } from "$lib/components/browse/lib/searchFilter";
 
   interface Props {
     allSources:        Source[];
@@ -140,7 +141,7 @@
       dedupeMangaById(all),
       settingsState.settings.mangaLinks,
     ) as (Manga & { _sourceName?: string })[];
-    return deduped.map((m, i) => ({ ...m, _priority: i < 12 ? 12 - i : 0 }));
+    return coverFirst(deduped).map((m, i) => ({ ...m, _priority: i < 12 ? 12 - i : 0 }));
   });
 
   onDestroy(() => {
@@ -219,7 +220,7 @@
       {#each popularResults as m (`${m.extensionId}-${m.sourceEntryId}`)}
         <button class="srchCard" onclick={() => onPreview(m)}>
           <div class="srchCoverWrap">
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={m._priority} id={m.id} contentType={m.contentType} />
+            <Thumbnail src={resolvedCover(m.prefsKey ?? m.id, m.thumbnailUrl)} fallbackSrc={m.metadata?.coverUrl} alt={m.title} class="cover" priority={m._priority} id={m.id} contentType={m.contentType} />
             <div class="srchGradient"></div>
             {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
             <div class="srchFooter">
@@ -261,7 +262,7 @@
       {#each kw_flatResults as m (`${m.extensionId}-${m.sourceEntryId}`)}
         <button class="srchCard" onclick={() => onPreview(m)}>
           <div class="srchCoverWrap">
-            <Thumbnail src={m.thumbnailUrl} alt={m.title} class="cover" priority={m._priority} id={m.id} contentType={m.contentType} />
+            <Thumbnail src={resolvedCover(m.prefsKey ?? m.id, m.thumbnailUrl)} fallbackSrc={m.metadata?.coverUrl} alt={m.title} class="cover" priority={m._priority} id={m.id} contentType={m.contentType} />
             <div class="srchGradient"></div>
             {#if m.inLibrary}<span class="inLibBadge">Saved</span>{/if}
             <div class="srchFooter">

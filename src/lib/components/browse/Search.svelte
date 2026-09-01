@@ -5,7 +5,7 @@
   import { tsunagu }            from "$lib/server-adapters/tsunagu";
   import { settingsState }      from "$lib/state/settings.svelte";
   import { setPreviewManga }    from "$lib/state/series.svelte";
-  import { toCachedManga, toBrowseManga, toSource, shouldHideNsfw, runConcurrent, type CachedManga } from "$lib/components/browse/lib/searchFilter";
+  import { toCachedManga, toBrowseManga, toSource, shouldHideNsfw, runConcurrent, type CachedManga, coverFirst } from "$lib/components/browse/lib/searchFilter";
   import type { Manga, Source } from "$lib/types";
 
   import KeywordTab from "$lib/components/browse/KeywordTab.svelte";
@@ -98,7 +98,7 @@
   let popular_seenIds    = new Set<string>();
   let popular_seenTitles = new Set<string>();
 
-  const popular_results = $derived(popular_raw.map((m, i) => ({ ...m, _priority: Math.max(0, 50 - i) })));
+  const popular_results = $derived(coverFirst(popular_raw).map((m, i) => ({ ...m, _priority: Math.max(0, 50 - i) })));
 
   function popular_push(incoming: Manga[]) {
     const toAdd: Manga[] = [];

@@ -156,7 +156,21 @@ pub async fn start(app: AppHandle) -> Result<(), String> {
         });
     }
 
-    let mut child = cmd.spawn().map_err(|e| format!("spawn tsunagu: {e}"))?;
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            let msg = format!("could not launch the server ({}): {e}", bin.display());
+            app.emit(
+                "backend",
+                BackendEvent::Failed {
+                    message: msg.clone(),
+                    log: String::new(),
+                },
+            )
+            .ok();
+            return Err(msg);
+        }
+    };
 
     if let Some(stderr) = child.stderr.take() {
         let app2 = app.clone();

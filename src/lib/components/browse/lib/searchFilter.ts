@@ -1,6 +1,6 @@
 import type { Settings } from "$lib/types/settings";
 import type { Manga } from "$lib/types";
-import type { SearchResult, Extension } from "$lib/server-adapters/types";
+import type { SearchResult, Extension, FilterNode, FilterInput } from "$lib/server-adapters/types";
 import type { Source } from "$lib/types";
 import { shouldHideNsfw } from "$lib/core/util";
 
@@ -93,6 +93,44 @@ export function buildTagFilter(
   return { and: [genrePart, statusPart] };
 }
 
+export function matchesTagMode(m: { genre?: string[] }, tags: string[], mode: TagMode): boolean {
+  if (tags.length === 0) return true;
+  const g = (m.genre ?? []).map((x) => x.toLowerCase());
+  if (g.length === 0) return false;
+  const hit = (t: string) => g.some((x) => x.includes(t.toLowerCase()));
+  return mode === "AND" ? tags.every(hit) : tags.some(hit);
+}
+
+export function matchesStatus(m: { status?: string | null }, statuses: string[]): boolean {
+  if (statuses.length === 0) return true;
+  return !!m.status && statuses.includes(m.status);
+}
+
+export function buildGenreFilterInputs(
+  nodes: FilterNode[],
+  genres: string[],
+): { inputs: FilterInput[]; matched: number } {
+  const want = new Set(genres.map((g) => g.toLowerCase()));
+  let matched = 0;
+  const walk = (list: FilterNode[]): FilterInput[] => {
+    const out: FilterInput[] = [];
+    for (const n of list) {
+      if (n.__typename === "GroupFilter") {
+        const kids = walk(n.children);
+        if (kids.length) out.push({ name: n.name, group: { children: kids } });
+      } else if (n.__typename === "TriStateFilter" && want.has(n.name.toLowerCase())) {
+        out.push({ name: n.name, tristate: { state: 1 } });
+        matched++;
+      } else if (n.__typename === "CheckBoxFilter" && want.has(n.name.toLowerCase())) {
+        out.push({ name: n.name, checkbox: { state: true } });
+        matched++;
+      }
+    }
+    return out;
+  };
+  return { inputs: walk(nodes), matched };
+}
+
 export function filterSourceCache(
   sourceCache: Map<string, CachedManga>,
   tags:        string[],
@@ -182,6 +220,7 @@ export async function resolveMangaDetail(
         title:          entry.title,
         thumbnailUrl:   entry.thumbnailUrl ?? "",
         inLibrary:      true,
+        contentType:    entry.contentType ?? m.contentType,
         description:    entry.description,
         status:         entry.status,
         author:         entry.author,
@@ -212,6 +251,7 @@ export async function resolveMangaDetail(
         title:          info.title,
         thumbnailUrl:   info.thumbnailUrl ?? m.thumbnailUrl,
         inLibrary:      info.inLibrary,
+        contentType:    info.contentType ?? m.contentType,
         description:    info.description,
         status:         info.status,
         author:         info.author,

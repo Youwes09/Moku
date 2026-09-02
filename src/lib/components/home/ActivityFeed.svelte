@@ -48,22 +48,12 @@
         </button>
       {/each}
     {:else}
-      <div class="placeholder">
-        {#each Array(5) as _, i}
-          <div class="row row-sk">
-            <div class="sk-thumb"></div>
-            <div class="row-info">
-              <div class="sk sk-title" style="width: {55 + (i * 7) % 30}%"></div>
-              <div class="sk sk-sub" style="width: {30 + (i * 11) % 25}%"></div>
-            </div>
-            <div class="sk sk-time"></div>
-          </div>
-        {/each}
-        <div class="placeholder-overlay">
-          <button class="placeholder-cta" onclick={onopenlibrary}>
-            <BookOpen size={12} weight="light" /> Start reading
-          </button>
-        </div>
+      <div class="empty">
+        <BookOpen size={18} weight="light" />
+        <span class="empty-text">No recent activity yet</span>
+        <button class="empty-cta" onclick={onopenlibrary}>
+          <BookOpen size={12} weight="light" /> Start reading
+        </button>
       </div>
     {/if}
   </div>
@@ -121,30 +111,22 @@
   }
   .row-play { color: var(--accent-fg); flex-shrink: 0; opacity: 0; transition: opacity var(--t-base); }
 
-  .row-sk { cursor: default; pointer-events: none; }
-  .sk-thumb { width: 33px; height: 48px; border-radius: var(--radius-sm); background: rgba(255,255,255,0.06); flex-shrink: 0; }
-  .sk { background: var(--bg-raised); border-radius: var(--radius-sm); animation: pulse 1.6s ease-in-out infinite; }
-  .sk-title { height: 11px; margin-bottom: 5px; }
-  .sk-sub { height: 9px; }
-  .sk-time { width: 32px; height: 9px; flex-shrink: 0; background: rgba(255,255,255,0.06); border-radius: var(--radius-sm); }
-
-  .placeholder { position: relative; }
-  .placeholder-overlay {
-    position: absolute; left: 0; right: 0; top: 0; bottom: -1px;
-    display: flex; align-items: flex-end; justify-content: center; padding-bottom: var(--sp-4);
-    pointer-events: none;
-    background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.6) 100%);
+  .empty {
+    display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+    padding: var(--sp-6) var(--sp-4);
+    color: var(--text-faint);
   }
-  .placeholder-cta {
-    pointer-events: all;
+  .empty-text {
+    font-family: var(--font-ui); font-size: var(--text-sm);
+    letter-spacing: var(--tracking-wide);
+  }
+  .empty-cta {
     display: inline-flex; align-items: center; gap: 6px;
     font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
-    padding: 7px 16px; border-radius: var(--radius-full);
-    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.13);
-    color: rgba(255,255,255,0.62); cursor: pointer;
-    transition: background var(--t-base), color var(--t-base);
+    padding: 6px 14px; border-radius: var(--radius-full);
+    background: var(--bg-raised); border: 1px solid var(--border-dim);
+    color: var(--text-muted); cursor: pointer;
+    transition: background var(--t-base), color var(--t-base), border-color var(--t-base);
   }
-  .placeholder-cta:hover { background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.9); }
-
-  @keyframes pulse { 0%, 100% { opacity: 0.4 } 50% { opacity: 0.7 } }
+  .empty-cta:hover { color: var(--text-primary); border-color: var(--border-strong); }
 </style>

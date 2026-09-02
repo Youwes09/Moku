@@ -22,7 +22,7 @@
 	import ThemeEditor from '$lib/components/settings/ThemeEditor.svelte'
 	import { downloadStore } from '$lib/state/downloads.svelte'
 	import { seriesState } from '$lib/state/series.svelte'
-	import MangaPreview from '$lib/components/shared/manga/MangaPreview.svelte'
+	import MediaPreview from '$lib/components/shared/manga/MediaPreview.svelte'
 	import { loadSettings, loadLibrary } from '$lib/core/persistence/persist'
 	import '../app.css'
 
@@ -313,7 +313,7 @@
 <ChangelogModal />
 <Toaster toasts={notifications.toasts} />
 {#if seriesState.previewManga}
-	<MangaPreview />
+	<MediaPreview />
 {/if}
 
 <style>

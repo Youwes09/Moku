@@ -245,7 +245,7 @@
         if (!cache.has(key)) cache.get(key, () => Promise.resolve(fullManga));
       }
       if (ctrl.signal.aborted) return;
-      manga = fullManga;
+      manga = { ...fullManga, contentType: fullManga.contentType ?? seriesState.previewManga?.contentType };
     } catch (e: any) {
       if (e?.name === "AbortError") return;
       console.error("loadDetail failed:", e);

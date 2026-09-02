@@ -153,9 +153,19 @@
 
   {:else if items.length === 0}
     <div class="empty">
-      {tab === 'downloaded'
-        ? 'No downloaded manga.'
-        : 'No manga in this library — browse sources to add some.'}
+      <ImageSquare size={26} weight="light" />
+      <span class="empty-title">
+        {tab === 'downloaded'
+          ? 'Nothing downloaded yet'
+          : isFolderTab
+            ? 'This folder is empty'
+            : 'Your library is empty'}
+      </span>
+      <span class="empty-sub">
+        {tab === 'downloaded'
+          ? 'Downloaded chapters and episodes show up here.'
+          : 'Browse sources and add series to get started.'}
+      </span>
     </div>
 
   {:else if viewMode === 'list'}
@@ -437,10 +447,12 @@
   .sentinel { height: 1px; width: 100%; }
 
   .empty {
-    display: flex; align-items: center; justify-content: center;
-    height: 60%; color: var(--text-muted); font-size: var(--text-sm);
-    text-align: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: var(--sp-2); min-height: 50vh; padding: var(--sp-8);
+    color: var(--text-faint); text-align: center;
   }
+  .empty-title { font-size: var(--text-base); color: var(--text-secondary); }
+  .empty-sub { font-family: var(--font-ui); font-size: var(--text-sm); letter-spacing: var(--tracking-wide); }
 
   @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
   @keyframes pulse  { 0%, 100% { opacity: 1 } 50% { opacity: 0.4 } }

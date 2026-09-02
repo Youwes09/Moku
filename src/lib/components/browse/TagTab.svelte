@@ -3,10 +3,11 @@
   import { tsunagu }             from "$lib/server-adapters/tsunagu";
   import { settingsState }       from "$lib/state/settings.svelte";
   import { shouldHideNsfw, dedupeMangaById, dedupeMangaByTitle, normalizeTitle } from "$lib/core/util";
-  import { runConcurrent, filterSourceCache, buildTagFilter, COMMON_GENRES, MANGA_STATUSES, toBrowseManga, type TagMode, type CachedManga, coverFirst } from "$lib/components/browse/lib/searchFilter";
+  import { runConcurrent, filterSourceCache, buildGenreFilterInputs, matchesTagMode, matchesStatus, COMMON_GENRES, MANGA_STATUSES, toBrowseManga, type TagMode, type CachedManga, coverFirst } from "$lib/components/browse/lib/searchFilter";
   import { resolvedCover } from "$lib/core/cover/coverResolver";
   import Thumbnail               from "$lib/components/shared/manga/Thumbnail.svelte";
   import type { Manga, Source }  from "$lib/types";
+  import type { FilterNode }     from "$lib/server-adapters/types";
 
   interface Props {
     allSources:           Source[];
@@ -22,8 +23,8 @@
     onPreview,
   }: Props = $props();
 
-  const SEARCH_LIMIT  = 200;
-  const preferredLang = $derived(settingsState.settings.preferredExtensionLang ?? "en");
+  const SEARCH_LIMIT   = 300;
+  const PAGES_PER_PASS  = 2;
 
   let tag_activeTags:     string[] = $state([]);
   let tag_activeStatuses: string[] = $state([]);
@@ -36,110 +37,82 @@
   });
   const tag_hasActiveFilters = $derived(tag_activeTags.length > 0 || tag_activeStatuses.length > 0);
 
-  let tag_localResults:   Manga[]  = $state([]);
-  let tag_totalCount               = $state(0);
-  let tag_loadingLocal             = $state(false);
-  let tag_loadingMoreLocal         = $state(false);
-  let tag_localOffset              = $state(0);
-  let tag_localHasNext             = $state(false);
-  let tag_abortLocal:     AbortController | null = null;
-  let tag_abortLoadMore:  AbortController | null = null;
+  let tag_fanOut:      Manga[] = $state([]);
+  let tag_loading              = $state(false);
+  let tag_loadingMore          = $state(false);
+  let tag_page                 = $state(1);
+  let tag_hasMore              = $state(false);
+  let tag_abort: AbortController | null = null;
 
-  const renderLimit = $derived(settingsState.settings.renderLimit ?? 48);
+  const filterNodeCache = new Map<string, FilterNode[] | null>();
+
+  async function getFilterNodes(sourceId: string, signal: AbortSignal): Promise<FilterNode[] | null> {
+    if (filterNodeCache.has(sourceId)) return filterNodeCache.get(sourceId) ?? null;
+    try {
+      const nodes = await tsunagu.filterOptions(sourceId);
+      if (signal.aborted) return null;
+      filterNodeCache.set(sourceId, nodes);
+      return nodes;
+    } catch {
+      filterNodeCache.set(sourceId, null);
+      return null;
+    }
+  }
 
   $effect(() => {
     const _tags     = tag_activeTags;
     const _mode     = tag_tagMode;
     const _statuses = tag_activeStatuses;
-    untrack(() => tagFetchLocal(_tags, _mode, _statuses));
+    void allSources.length;
+    untrack(() => runTagSearch(_tags, _mode, _statuses, 1, false));
   });
 
-
-  async function tagFetchLocal(activeTags: string[], tagMode: TagMode, activeStatuses: string[]) {
-    if (activeTags.length === 0 && activeStatuses.length === 0) {
-      tag_localResults = []; tag_totalCount = 0; tag_localHasNext = false; tag_localOffset = 0;
+  async function runTagSearch(tags: string[], mode: TagMode, statuses: string[], startPage: number, append: boolean) {
+    tag_abort?.abort();
+    if (tags.length === 0 && statuses.length === 0) {
+      tag_fanOut = []; tag_loading = false; tag_hasMore = false; tag_page = 1;
       return;
     }
-    tag_abortLocal?.abort();
-    tag_abortLoadMore?.abort();
     const ctrl = new AbortController();
-    tag_abortLocal = ctrl;
-    tag_localResults = []; tag_totalCount = 0; tag_localOffset = 0; tag_localHasNext = false;
-    tag_loadingLocal = true;
-    const limit = renderLimit;
-    tag_loadingLocal = false;
-  }
-
-  async function tagLoadMoreLocal() {
-    if (tag_loadingMoreLocal || !tag_localHasNext) return;
-    tag_abortLoadMore?.abort();
-    const ctrl = new AbortController();
-    tag_abortLoadMore    = ctrl;
-    tag_loadingMoreLocal = true;
-    const limit = renderLimit;
-    tag_loadingMoreLocal = false;
-  }
-
-  let tag_searchSources   = $state(false);
-  let tag_sourceFiltered: CachedManga[] = $state([]);
-  let tag_sourceFanOut:   Manga[]  = $state([]);
-  let tag_fanOutLoading            = $state(false);
-  let tag_fanOutAbort: AbortController | null = null;
-
-  $effect(() => {
-    const _tags     = tag_activeTags;
-    const _mode     = tag_tagMode;
-    const _statuses = tag_activeStatuses;
-    const _ready    = sourceCacheReady;
-    const _search   = tag_searchSources;
-    untrack(() => {
-      if (_search && _ready && (_tags.length > 0 || _statuses.length > 0)) {
-        tag_sourceFiltered = filterSourceCache(sourceCache, _tags, _mode, _statuses, settingsState.settings);
-      } else {
-        tag_sourceFiltered = [];
-      }
-    });
-  });
-
-  $effect(() => {
-    const _tags   = tag_activeTags;
-    const _search = tag_searchSources;
-    untrack(() => {
-      if (_search && _tags.length === 1 && tag_activeStatuses.length === 0) {
-        tagStartFanOut(_tags[0]);
-      } else {
-        tag_fanOutAbort?.abort();
-        tag_fanOutAbort  = null;
-        tag_sourceFanOut = [];
-        tag_fanOutLoading = false;
-      }
-    });
-  });
-
-  async function tagStartFanOut(genre: string) {
-    tag_fanOutAbort?.abort();
-    const ctrl = new AbortController();
-    tag_fanOutAbort  = ctrl;
-    tag_sourceFanOut = [];
-    tag_fanOutLoading = true;
-
-    const seenIds    = new Set<string>();
-    const seenTitles = new Set<string>();
-    const genreLower = genre.toLowerCase();
+    tag_abort = ctrl;
+    if (append) tag_loadingMore = true;
+    else { tag_fanOut = []; tag_loading = true; tag_page = 1; }
 
     const srcs = allSources.filter((s) => !shouldHideNsfw(s as any, settingsState.settings));
+    const seenIds    = new Set(tag_fanOut.map((m) => m.id));
+    const seenTitles = new Set(tag_fanOut.map((m) => normalizeTitle(m.title)));
+    let anySourceHasMore = false;
 
     await runConcurrent(srcs, async (src) => {
-      for (let page = 1; page <= 2; page++) {
+      const nodes = tags.length > 0 ? await getFilterNodes(src.id, ctrl.signal) : null;
+      if (ctrl.signal.aborted) return;
+      const built = nodes ? buildGenreFilterInputs(nodes, tags) : { inputs: [], matched: 0 };
+
+      for (let p = startPage; p < startPage + PAGES_PER_PASS; p++) {
         if (ctrl.signal.aborted) return;
-        let result: { results: { id: string; externalId: string; title: string; thumbnailUrl: string | null; inLibrary: boolean; status: string | null; genres: string[] }[]; hasNextPage: boolean } | null = null;
+        let result;
         try {
-          result = await tsunagu.search(src.id, genre, page, undefined, ctrl.signal);
+          if (tags.length > 0 && built.matched > 0) {
+            result = await tsunagu.search(src.id, "", p, built.inputs, ctrl.signal);
+          } else if (tags.length > 0) {
+            result = await tsunagu.search(src.id, tags[0], p, undefined, ctrl.signal);
+          } else {
+            result = await tsunagu.popularManga(src.id, p, ctrl.signal);
+          }
         } catch { return; }
         if (!result || ctrl.signal.aborted) return;
+
+        const sourceFiltered = built.matched > 0;
         const candidates = result.results
           .map((r) => toBrowseManga(r, src.id, undefined, src.contentType))
-          .filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
+          .filter((m) => !shouldHideNsfw(m as any, settingsState.settings))
+          .filter((m) => {
+            if (!matchesStatus(m, statuses)) return false;
+            if (tags.length === 0) return true;
+            if ((m.genre ?? []).length === 0) return sourceFiltered;
+            return matchesTagMode(m, tags, mode);
+          });
+
         const toAdd: Manga[] = [];
         for (const m of candidates) {
           if (seenIds.has(m.id)) continue;
@@ -149,46 +122,37 @@
           seenTitles.add(norm);
           toAdd.push(m);
         }
-        if (toAdd.length) {
-          tag_sourceFanOut = [...tag_sourceFanOut, ...toAdd].slice(0, SEARCH_LIMIT);
-        }
-        if (!result.hasNextPage) return;
+        if (toAdd.length) tag_fanOut = [...tag_fanOut, ...toAdd].slice(0, SEARCH_LIMIT);
+        if (result.hasNextPage) anySourceHasMore = true;
+        if (!result.hasNextPage) break;
       }
     }, ctrl.signal);
 
-    if (!ctrl.signal.aborted) tag_fanOutLoading = false;
+    if (ctrl.signal.aborted) return;
+    tag_hasMore = anySourceHasMore && tag_fanOut.length < SEARCH_LIMIT;
+    tag_loading = false;
+    tag_loadingMore = false;
   }
 
-  let tag_autoSearchFired = $state(false);
-  $effect(() => {
-    void tag_activeTags;
-    void tag_activeStatuses;
-    untrack(() => { tag_autoSearchFired = false; });
-  });
-  $effect(() => {
-    const _loadingLocal = tag_loadingLocal;
-    const _hasFilters   = tag_hasActiveFilters;
-    const _resultLen    = tag_localResults.length;
-    const _cacheReady   = sourceCacheReady;
-    if (!_loadingLocal && _hasFilters && _cacheReady) {
-      untrack(() => {
-        if (!tag_autoSearchFired && !tag_searchSources && _resultLen < 20) {
-          tag_autoSearchFired = true;
-          tag_searchSources   = true;
-        }
-      });
-    }
+  function tagLoadMore() {
+    if (tag_loading || tag_loadingMore || !tag_hasMore) return;
+    tag_page += PAGES_PER_PASS;
+    runTagSearch(tag_activeTags, tag_tagMode, tag_activeStatuses, tag_page, true);
+  }
+
+  const tag_cacheFiltered = $derived.by(() => {
+    if (!tag_hasActiveFilters) return [] as CachedManga[];
+    return filterSourceCache(sourceCache, tag_activeTags, tag_tagMode, tag_activeStatuses, settingsState.settings);
   });
 
-  const tag_localIds = $derived(new Set(tag_localResults.map((m) => m.id)));
+  const tag_fanOutIds = $derived(new Set(tag_fanOut.map((m) => m.id)));
 
   const tag_mergedResults = $derived.by(() => {
-    const fanOutMapped  = tag_sourceFanOut.filter((m) => !tag_localIds.has(m.id));
-    const cacheMapped: Manga[] = tag_sourceFiltered
-      .filter((m) => !tag_localIds.has(m.id) && !fanOutMapped.some((f) => f.id === m.id))
+    const cacheMapped: Manga[] = tag_cacheFiltered
+      .filter((m) => !tag_fanOutIds.has(m.id))
       .map((m) => ({ id: m.id, title: m.title, thumbnailUrl: m.thumbnailUrl, inLibrary: m.inLibrary, genre: m.genre, status: m.status } as Manga));
     return coverFirst(dedupeMangaByTitle(
-      dedupeMangaById([...tag_localResults, ...fanOutMapped, ...cacheMapped]),
+      dedupeMangaById([...tag_fanOut, ...cacheMapped]),
       settingsState.settings.mangaLinks,
     ));
   });
@@ -208,9 +172,7 @@
   }
 
   onDestroy(() => {
-    tag_abortLocal?.abort();
-    tag_abortLoadMore?.abort();
-    tag_fanOutAbort?.abort();
+    tag_abort?.abort();
   });
 </script>
 
@@ -280,24 +242,6 @@
               <button class="tagModeBtn" class:tagModeBtnActive={tag_tagMode === "OR"}  title="Match ANY tag"  onclick={() => (tag_tagMode = "OR")}>OR</button>
             </div>
           {/if}
-          <button
-            class="tagModeBtn"
-            class:tagModeBtnActive={tag_searchSources}
-            title={sourceCacheLoading ? "Building source cache…" : sourceCacheReady ? "Search across sources" : "Sources unavailable"}
-            disabled={!sourceCacheReady && !sourceCacheLoading}
-            onclick={() => (tag_searchSources = !tag_searchSources)}
-          >
-            {#if sourceCacheLoading || tag_fanOutLoading}
-              <svg width="11" height="11" viewBox="0 0 256 256" fill="currentColor" class="anim-spin" aria-hidden="true">
-                <path d="M232,128a104,104,0,0,1-208,0c0-41,23.81-78.36,60.66-95.27a8,8,0,0,1,6.68,14.54C60.15,61.59,40,93.27,40,128a88,88,0,0,0,176,0c0-34.73-20.15-66.41-51.34-80.73a8,8,0,0,1,6.68-14.54C208.19,49.64,232,87,232,128Z"/>
-              </svg>
-            {:else}
-              <svg width="11" height="11" viewBox="0 0 256 256" fill="currentColor" style="margin-right:3px;vertical-align:middle" aria-hidden="true">
-                <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24ZM101.63,168h52.74C149,186.34,140,202.87,128,215.89,116,202.87,107,186.34,101.63,168ZM98,152a145.72,145.72,0,0,1,0-48h60a145.72,145.72,0,0,1,0,48ZM40,128a87.61,87.61,0,0,1,3.33-24H81.79a161.79,161.79,0,0,0,0,48H43.33A87.61,87.61,0,0,1,40,128ZM154.37,88H101.63C107,69.66,116,53.13,128,40.11,140,53.13,149,69.66,154.37,88ZM174.21,104h38.46a88.15,88.15,0,0,1,0,48H174.21a161.79,161.79,0,0,0,0-48Zm32.32-16H170.71a133.32,133.32,0,0,0-22.7-45.8A88.21,88.21,0,0,1,206.53,88ZM108,42.2A133.32,133.32,0,0,0,85.29,88H49.47A88.21,88.21,0,0,1,108,42.2ZM49.47,168H85.29A133.32,133.32,0,0,0,108,213.8,88.21,88.21,0,0,1,49.47,168Zm98.53,45.8A133.32,133.32,0,0,0,170.71,168h35.82A88.21,88.21,0,0,1,148,213.8Z"/>
-              </svg>
-            {/if}
-            Sources{sourceCacheEnriching ? " ·" : ""}
-          </button>
           <button class="tagClearAll" onclick={() => { tag_activeTags = []; tag_activeStatuses = []; }}>Clear all</button>
         </div>
       </div>
@@ -311,25 +255,22 @@
           {:else}
             {[...tag_activeStatuses.map((s) => MANGA_STATUSES.find((x) => x.value === s)?.label ?? s), ...tag_activeTags].join(` ${tag_tagMode} `)}
           {/if}
-          {#if tag_searchSources}
-            <span style="margin-left:6px;font-weight:400;opacity:0.55;font-size:0.9em">+ sources</span>
-          {/if}
         </span>
-        {#if tag_loadingLocal}
+        {#if tag_loading}
           <svg width="13" height="13" viewBox="0 0 256 256" fill="currentColor" class="anim-spin" style="color:var(--text-faint)" aria-hidden="true">
             <path d="M232,128a104,104,0,0,1-208,0c0-41,23.81-78.36,60.66-95.27a8,8,0,0,1,6.68,14.54C60.15,61.59,40,93.27,40,128a88,88,0,0,0,176,0c0-34.73-20.15-66.41-51.34-80.73a8,8,0,0,1,6.68-14.54C208.19,49.64,232,87,232,128Z"/>
           </svg>
         {:else}
           <span class="splitResultCount">
-            {tag_totalVisible}{tag_localHasNext ? "+" : ""} results
-            {#if tag_searchSources && sourceCacheReady}
-              · {sourceCache.size} cached
+            {tag_totalVisible}{tag_hasMore ? "+" : ""} results
+            {#if sourceCacheLoading || sourceCacheEnriching}
+              · caching…
             {/if}
           </span>
         {/if}
       </div>
 
-      {#if tag_loadingLocal}
+      {#if tag_loading && tag_mergedResults.length === 0}
         <div class="tagGrid">
           {#each Array(48) as _, i (i)}
             <div class="skCard"><div class="skeleton skCover"></div><div class="skeleton skTitle"></div></div>
@@ -346,13 +287,13 @@
               <p class="cardTitle">{m.title}</p>
             </button>
           {/each}
-          {#if tag_loadingMoreLocal}
+          {#if tag_loadingMore}
             {#each Array(12) as _, i (i)}
               <div class="skCard"><div class="skeleton skCover"></div><div class="skeleton skTitle"></div></div>
             {/each}
-          {:else if tag_localHasNext}
+          {:else if tag_hasMore}
             <div class="loadMoreRow">
-              <button class="loadMoreBtn" onclick={tagLoadMoreLocal}>Load more</button>
+              <button class="loadMoreBtn" onclick={tagLoadMore}>Load more</button>
             </div>
           {/if}
         </div>
@@ -360,8 +301,8 @@
         <div class="empty">
           <p class="emptyText">No results</p>
           <p class="emptyHint">
-            {#if tag_searchSources}Try OR mode or broader tags.
-            {:else}Try OR mode, enable Sources, or check your library.
+            {#if tag_activeTags.length > 1 && tag_tagMode === "AND"}Try OR mode or fewer tags.
+            {:else}Try a different genre or status.
             {/if}
           </p>
         </div>

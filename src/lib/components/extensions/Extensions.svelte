@@ -218,9 +218,14 @@
     repoError = null; newRepoUrl = "";
     savingRepos = true;
     try {
-      await tsunagu.addRepository(url);
+      const repo = await tsunagu.addRepository(url);
       await loadRepos();
       addToast({ kind: "success", title: "Repo added", body: url });
+      try {
+        await tsunagu.syncRepository(repo.id);
+        await load();
+        if (serverTab) await resetBrowse();
+      } catch (e) { console.error(e); }
     } catch (e: any) {
       repoError = e instanceof Error ? e.message : "Failed to save";
     } finally { savingRepos = false; }

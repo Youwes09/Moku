@@ -58,7 +58,7 @@
       <button
         class="tab"
         class:active={activeIndex === TABS.indexOf(tab)}
-        data-tour="sidebar-nav"
+        data-tour={tab.path === '/browse' ? 'global-search' : 'sidebar-nav'}
         title={tab.label}
         onclick={() => goto(tab.path)}
       >
@@ -67,7 +67,7 @@
     {/each}
   </nav>
 
-  <div class="content-type-group" role="group" aria-label="Content type">
+  <div class="content-type-group" role="group" aria-label="Content type" data-tour="content-switch">
     {#each CONTENT_TYPES as ct}
       <button
         class="ct-pill"
@@ -82,7 +82,7 @@
   </div>
 
   <div class="bottom">
-    <button class="settings-btn" onclick={() => app.setSettingsOpen(true)} title="Settings">
+    <button class="settings-btn" data-tour="settings-btn" onclick={() => app.setSettingsOpen(true)} title="Settings">
       <GearSix size={18} weight="light" />
     </button>
   </div>

@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { X, Book, FilmSlate, Image, Sliders, Info, Keyboard, Gear, HardDrives, FolderSimple, Wrench, PaintBrush, ShieldCheck, Robot, Bug, Broadcast, Database } from 'phosphor-svelte'
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
+  import { app } from '$lib/state/app.svelte'
   import { eventToKeybind } from '$lib/core/keybinds/keybindEngine'
   import type { Keybinds } from '$lib/core/keybinds/defaultBinds'
   import { selectPortal } from '$lib/core/ui/selectPortal'
@@ -47,7 +48,7 @@
   ]
 
   const anims = $derived(settingsState.settings.qolAnimations ?? true)
-  let tab: Tab           = $state('general')
+  let tab: Tab           = $state((TABS.some(t => t.id === app.settingsTab) ? app.settingsTab : 'general') as Tab)
   let prevTabIndex       = $state(0)
   let tabSlideDir        = $state<'up'|'down'>('down')
   let tabIconKey         = $state(0)
@@ -66,6 +67,11 @@
     }
     tab = id
   }
+
+  $effect(() => {
+    const t = app.settingsTab
+    untrack(() => { if (t !== tab && TABS.some(x => x.id === t)) setTab(t as Tab) })
+  })
 
   function close() { onclose?.() }
 
@@ -137,7 +143,7 @@
       <p class="s-sidebar-title">Settings</p>
       <nav>
         {#each TABS as t}
-          <button class="s-nav-item" class:active={tab === t.id} class:anims onclick={() => setTab(t.id)}>
+          <button class="s-nav-item" class:active={tab === t.id} class:anims data-tour={`settings-tab-${t.id}`} onclick={() => setTab(t.id)}>
             <span class="s-nav-icon"
               class:slide-down={anims && tab === t.id && tabSlideDir === 'down'}
               class:slide-up={anims && tab === t.id && tabSlideDir === 'up'}>

@@ -3,12 +3,21 @@
   import { fade } from 'svelte/transition'
   import { goto } from '$app/navigation'
   import { settingsState } from '$lib/state/settings.svelte'
+  import { app } from '$lib/state/app.svelte'
   import { tourState, TOUR_STEPS, nextTourStep, endTour } from '$lib/state/onboarding.svelte'
 
   const step   = $derived(TOUR_STEPS[tourState.step])
   const isLast = $derived(tourState.step === TOUR_STEPS.length - 1)
 
-  const zoom = $derived(settingsState.settings.uiZoom ?? 1)
+  const zoom = $derived.by(() => {
+    void viewport
+    void settingsState.settings.uiZoom
+    const applied = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom-factor'))
+    if (Number.isFinite(applied) && applied > 0) return applied
+    const w = viewport.w || window.innerWidth
+    const h = viewport.h || window.innerHeight
+    return Math.max(0.6, Math.min(4, Math.max(0.8, Math.min(w / 1440, h / 820)) * (settingsState.settings.uiZoom ?? 1)))
+  })
 
   let rect     = $state<DOMRect | null>(null)
   let viewport = $state({ w: 0, h: 0 })
@@ -38,10 +47,13 @@
     let cancelled = false
     let ro: ResizeObserver | null = null
     let mo: MutationObserver | null = null
+    let pollTimer: ReturnType<typeof setInterval> | null = null
 
     rect = null
 
     async function setup() {
+      if (step.settingsTab) app.setSettingsOpen(true, step.settingsTab)
+      else app.setSettingsOpen(false)
       if (step.route) await goto(step.route)
       await tick()
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
@@ -49,14 +61,22 @@
 
       measure()
 
+      if (!rect) {
+        let tries = 0
+        pollTimer = setInterval(() => {
+          if (cancelled || rect || ++tries > 20) { if (pollTimer) clearInterval(pollTimer); pollTimer = null; return }
+          measure()
+        }, 120)
+      }
+
       const els = Array.from(document.querySelectorAll(step.selector))
       if (els.length) {
         ro = new ResizeObserver(measure)
         for (const el of els) ro.observe(el)
         ro.observe(document.body)
-        mo = new MutationObserver(measure)
-        mo.observe(document.body, { attributes: true, childList: true, subtree: true })
       }
+      mo = new MutationObserver(measure)
+      mo.observe(document.body, { attributes: true, childList: true, subtree: true })
       window.addEventListener('resize', measure)
       document.addEventListener('scroll', measure, true)
     }
@@ -65,6 +85,7 @@
 
     return () => {
       cancelled = true
+      if (pollTimer) clearInterval(pollTimer)
       ro?.disconnect()
       mo?.disconnect()
       window.removeEventListener('resize', measure)

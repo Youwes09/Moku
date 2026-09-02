@@ -29,22 +29,52 @@ export interface TourStep {
   placement?: 'right' | 'bottom'
   route?:     string
   padding?:   number
+  settingsTab?: string
 }
 
 export const TOUR_STEPS: TourStep[] = [
   {
     selector:  '[data-tour="sidebar-nav"]',
     title:     'Navigation',
-    body:      'Library, Browse, Downloads, Extensions, and Tracking all live here.',
+    body:      'Library, Downloads, Recent, Tracking and Extensions all live in this rail.',
     placement: 'right',
     padding:   16,
   },
   {
+    selector:  '[data-tour="global-search"]',
+    title:     'Search everything',
+    body:      'Browse searches every installed source at once — by title, tag or genre.',
+    placement: 'right',
+    padding:   12,
+  },
+  {
+    selector:  '[data-tour="content-switch"]',
+    title:     'Manga, novels or anime',
+    body:      'Switch the whole app between content types. “All” shows them together.',
+    placement: 'right',
+    padding:   12,
+  },
+  {
     selector:  '[data-tour="add-source"]',
     title:     'Add a source',
-    body:      'Add a repo here to install extensions and start browsing manga.',
+    body:      'Add an extension repo here, then install sources to start browsing.',
     placement: 'bottom',
     route:     '/extensions',
+  },
+  {
+    selector:  '[data-tour="settings-btn"]',
+    title:     'Settings',
+    body:      'Reader and player options, content filtering, themes, server config and backups.',
+    placement: 'right',
+    padding:   12,
+  },
+  {
+    selector:  '[data-tour="settings-tab-tracking"]',
+    title:     'Track your progress',
+    body:      'Connect AniList or MyAnimeList under Settings → Tracking to sync what you read and watch.',
+    placement: 'right',
+    padding:   8,
+    settingsTab: 'tracking',
   },
 ]
 
@@ -70,10 +100,12 @@ export function nextTourStep() {
 export function endTour() {
   tourState.active   = false
   tourState.finished = false
+  app.setSettingsOpen(false)
 }
 
 async function finishTourSteps() {
   tourState.active = false
+  app.setSettingsOpen(false)
   const { goto } = await import('$app/navigation')
   await goto('/')
   tourState.finished = true

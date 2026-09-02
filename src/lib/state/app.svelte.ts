@@ -7,10 +7,12 @@ export type AppStatus = 'booting' | 'not-configured' | 'locked' | 'ready' | 'err
 
 class AppStore {
 	settingsOpen: boolean = $state(false)
+	settingsTab: string = $state('general')
 	navPage: string = $state('')
 	scrollPositions: Map<string, number> = $state(new Map())
 
-	setSettingsOpen(next: boolean) {
+	setSettingsOpen(next: boolean, tab?: string) {
+		if (tab) this.settingsTab = tab
 		this.settingsOpen = next
 	}
 	setNavPage(next: string) {
@@ -51,8 +53,8 @@ export const appState = $state({
 	activeManga: null as SearchResult | null,
 })
 
-export function setSettingsOpen(next: boolean) {
-	app.setSettingsOpen(next)
+export function setSettingsOpen(next: boolean, tab?: string) {
+	app.setSettingsOpen(next, tab)
 }
 export function saveScroll(key: string, top: number) {
 	app.saveScroll(key, top)

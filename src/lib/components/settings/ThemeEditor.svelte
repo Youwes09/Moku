@@ -282,9 +282,9 @@
   @keyframes backdropIn { from { opacity: 0 } to { opacity: 1 } }
 
   .shell {
-    width:  min(calc(100vw - var(--sp-12)), calc(100vh - var(--sp-12)), 820px);
-    height: min(calc(100vw - var(--sp-12)), calc(100vh - var(--sp-12)), 820px);
-    display: flex; flex-direction: column;
+    width:  min(calc(100vw - var(--sp-10)), calc(100vh - var(--sp-10)), 820px);
+    height: min(calc(100vw - var(--sp-10)), calc(100vh - var(--sp-10)), 820px);
+    display: flex; flex-direction: column; min-height: 0;
     background: var(--bg-base);
     border: 1px solid var(--border-base);
     border-radius: var(--radius-xl);

@@ -125,6 +125,7 @@ function handleProbeSuccess(gen: number) {
 	tsunagu.rescanLocalMedia()
 		.then(found => { if (found.length) import('$lib/state/library.svelte').then(m => m.loadLibrary(true)) })
 		.catch(() => {})
+	tsunagu.syncRepositories().catch(() => {})
 }
 
 export async function startProbe(initialDelay = 100): Promise<void> {

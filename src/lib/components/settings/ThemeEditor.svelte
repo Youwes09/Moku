@@ -282,8 +282,8 @@
   @keyframes backdropIn { from { opacity: 0 } to { opacity: 1 } }
 
   .shell {
-    width: calc(100% - var(--sp-12)); max-width: 1100px;
-    height: calc(100% - var(--sp-12)); max-height: 760px;
+    width:  min(calc(100vw - var(--sp-12)), calc(100vh - var(--sp-12)), 820px);
+    height: min(calc(100vw - var(--sp-12)), calc(100vh - var(--sp-12)), 820px);
     display: flex; flex-direction: column;
     background: var(--bg-base);
     border: 1px solid var(--border-base);
@@ -487,7 +487,7 @@
     opacity: 0; cursor: pointer; padding: 0; border: none;
   }
 
-  .token-name { flex: 1; font-size: var(--text-xs); color: var(--text-secondary); }
+  .token-name { flex: 1; min-width: 0; font-size: var(--text-xs); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .token-key  {
     font-family: var(--font-ui); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide);
     color: var(--text-faint); flex-shrink: 0;

@@ -172,10 +172,30 @@ export interface AboutServer {
 	buildTime: string
 }
 
+export interface StorageCategory {
+	key: string
+	label: string
+	path: string
+	bytes: number
+	fileCount: number
+	clearable: boolean
+}
+
 export interface StorageInfo {
 	usedBytes: number
 	totalBytes: number
 	freeBytes: number
+	dataDir?: string
+	mediaDir?: string
+	databasePath?: string
+	categories?: StorageCategory[]
+}
+
+export interface DatabaseBackup {
+	name: string
+	path: string
+	bytes: number
+	createdAt: string
 }
 
 export interface Folder {

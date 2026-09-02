@@ -1,5 +1,5 @@
 import { gql, baseUrl } from './gql'
-import type { Download, StorageInfo, DownloaderStatus, DownloadStatus } from '$lib/server-adapters/types'
+import type { Download, DownloaderStatus, DownloadStatus } from '$lib/server-adapters/types'
 
 const DOWNLOAD_FIELDS = `
 	id mediaId chapterId status progress downloadedBytes bytesPerSec finalSizeBytes error createdAt completedAt
@@ -121,15 +121,6 @@ export const downloads = {
 			baseUrl()
 		)
 		return data.clearImageCache
-	},
-
-	async storageInfo(): Promise<StorageInfo> {
-		const data = await gql<{ storageInfo: StorageInfo }>(
-			`query StorageInfo { storageInfo { usedBytes totalBytes freeBytes } }`,
-			undefined,
-			baseUrl()
-		)
-		return data.storageInfo
 	},
 
 	async downloadStatus(mediaId: string, chapterId: string): Promise<Download | null> {

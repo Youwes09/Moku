@@ -285,6 +285,63 @@
   let backupError   = $state<string | null>(null)
   let backupList    = $state<{ url: string; name: string; deleting?: boolean }[]>([])
 
+  let srvStorage    = $state<import('$lib/server-adapters/types').StorageInfo | null>(null)
+  let srvLoading    = $state(false)
+  let srvError      = $state<string | null>(null)
+  let srvClearing   = $state<string | null>(null)
+
+  let dbBackups     = $state<import('$lib/server-adapters/types').DatabaseBackup[]>([])
+  let dbBackupsErr  = $state<string | null>(null)
+  let backingUp     = $state(false)
+  let deletingBk    = $state<string | null>(null)
+
+  async function loadServerStorage() {
+    srvLoading = true; srvError = null
+    try { srvStorage = await tsunagu.storageInfo() }
+    catch (e) { srvError = e instanceof Error ? e.message : String(e); srvStorage = null }
+    finally { srvLoading = false }
+  }
+
+  async function clearCategory(key: string) {
+    if (srvClearing) return
+    srvClearing = key
+    try {
+      srvStorage = await tsunagu.clearStorageCategory(key)
+      toast({ kind: 'success', title: 'Cleared', body: key })
+    } catch (e) {
+      toast({ kind: 'error', title: 'Clear failed', body: e instanceof Error ? e.message : String(e) })
+    } finally { srvClearing = null }
+  }
+
+  async function loadDbBackups() {
+    dbBackupsErr = null
+    try { dbBackups = await tsunagu.databaseBackups() }
+    catch (e) { dbBackupsErr = e instanceof Error ? e.message : String(e); dbBackups = [] }
+  }
+
+  async function makeDbBackup() {
+    if (backingUp) return
+    backingUp = true
+    try {
+      await tsunagu.createDatabaseBackup()
+      await loadDbBackups()
+      toast({ kind: 'success', title: 'Database backed up' })
+    } catch (e) {
+      toast({ kind: 'error', title: 'Backup failed', body: e instanceof Error ? e.message : String(e) })
+    } finally { backingUp = false }
+  }
+
+  async function deleteDbBackup(name: string) {
+    if (deletingBk) return
+    deletingBk = name
+    try {
+      await tsunagu.deleteDatabaseBackup(name)
+      dbBackups = dbBackups.filter(b => b.name !== name)
+    } catch (e) {
+      toast({ kind: 'error', title: 'Delete failed', body: e instanceof Error ? e.message : String(e) })
+    } finally { deletingBk = null }
+  }
+
   async function loadBackupList() {
     backupList = (await loadBackups()).map(b => ({ ...b }))
   }
@@ -327,7 +384,7 @@
     }
   }
 
-  $effect(() => { untrack(() => { loadBackupList(); fetchStorage() }) })
+  $effect(() => { untrack(() => { loadBackupList(); fetchStorage(); loadServerStorage(); loadDbBackups() }) })
 </script>
 
 <div class="s-panel">
@@ -355,17 +412,33 @@
   <div class="s-section">
     <p class="s-section-title">
       Disk Usage
-      <button class="s-btn" onclick={fetchStorage} disabled={storageLoading}>{storageLoading ? '…' : '↻'}</button>
+      <button class="s-btn" onclick={() => { loadServerStorage(); fetchStorage() }} disabled={srvLoading || storageLoading}>{srvLoading || storageLoading ? '…' : '↻'}</button>
     </p>
     <div class="s-section-body">
-      {#if storageLoading}
-        <p class="s-empty">Reading filesystem…</p>
-      {:else if storageError}
-        <p class="s-empty" style="color:var(--color-error)">{storageError}</p>
-      {:else if !supportsFilesystem}
-        <p class="s-empty">Disk usage is unavailable in web mode.</p>
-      {:else if isExternalServer}
-        <p class="s-empty">Disk usage needs a local server connection.</p>
+      {#if srvStorage}
+        {@const limitGb    = settingsState.settings.storageLimitGb ?? null}
+        {@const limitBytes = limitGb !== null ? limitGb * 1024 ** 3 : null}
+        {@const cap        = limitBytes !== null ? Math.min(limitBytes, srvStorage.totalBytes) : srvStorage.totalBytes}
+        {@const pct        = cap > 0 ? Math.min(100, (srvStorage.usedBytes / cap) * 100) : 0}
+        <div class="s-storage-wrap">
+          <div class="s-storage-header">
+            <span class="s-storage-label">Server data</span>
+            <span class="s-storage-used">{fmtBytes(srvStorage.usedBytes)} of {fmtBytes(cap)}</span>
+          </div>
+          <div class="s-storage-bar">
+            <div class="s-storage-fill" class:critical={pct > 90} class:warn={pct > 75 && pct <= 90} style="width:{pct}%"></div>
+          </div>
+          <div class="s-storage-footer">
+            <span>{srvStorage.mediaDir ?? srvStorage.dataDir ?? ''}</span>
+            <span>{fmtBytes(srvStorage.freeBytes)} free</span>
+          </div>
+        </div>
+        {#each srvStorage.categories ?? [] as c (c.key)}
+          <div class="s-row">
+            <div class="s-row-info"><span class="s-label">{c.label}</span></div>
+            <span class="s-desc" style="flex-shrink:0;white-space:nowrap">{fmtBytes(c.bytes)} · {c.fileCount} {c.fileCount === 1 ? 'file' : 'files'}</span>
+          </div>
+        {/each}
       {:else if multiStorageInfos.length > 0}
         {#each multiStorageInfos as info}
           {@const limitGb    = settingsState.settings.storageLimitGb ?? null}
@@ -387,8 +460,14 @@
             </div>
           </div>
         {/each}
+      {:else if srvLoading || storageLoading}
+        <p class="s-empty">Reading storage…</p>
+      {:else if srvError || storageError}
+        <p class="s-empty" style="color:var(--color-error)">{srvError ?? storageError}</p>
+      {:else if !supportsFilesystem}
+        <p class="s-empty">Disk usage is unavailable in web mode.</p>
       {:else}
-        <p class="s-empty">No download path configured.</p>
+        <p class="s-empty">No storage data available.</p>
       {/if}
     </div>
   </div>
@@ -519,6 +598,22 @@
             {/if}
           </div>
         </div>
+
+        {#if (srvStorage?.categories ?? []).some(c => c.clearable)}
+          <p class="s-subsection-title">Clear caches</p>
+          {#if srvError}<div class="s-banner s-banner-error">{srvError}</div>{/if}
+          {#each (srvStorage?.categories ?? []).filter(c => c.clearable) as c (c.key)}
+            <div class="s-row">
+              <div class="s-row-info">
+                <span class="s-label">{c.label}</span>
+                <span class="s-desc">{fmtBytes(c.bytes)} · {c.fileCount} {c.fileCount === 1 ? 'file' : 'files'}</span>
+              </div>
+              <button class="s-btn s-btn-danger" disabled={srvClearing === c.key || c.bytes === 0} onclick={() => clearCategory(c.key)}>
+                {srvClearing === c.key ? '…' : 'Clear'}
+              </button>
+            </div>
+          {/each}
+        {/if}
       </div>
     {/if}
   </div>
@@ -530,6 +625,33 @@
     </button>
     {#if backupSectionOpen}
       <div class="s-collapsible-body">
+
+        <p class="s-subsection-title">Database backup</p>
+
+        <div class="s-row">
+          <div class="s-row-info">
+            <span class="s-label">Server database</span>
+            <span class="s-desc">Online SQLite snapshot. Restore is manual: stop the server, swap the database file, start it again.</span>
+          </div>
+          <button class="s-btn s-btn-accent" onclick={makeDbBackup} disabled={backingUp}>{backingUp ? 'Backing up…' : 'Back up now'}</button>
+        </div>
+
+        {#if dbBackupsErr}<div class="s-banner s-banner-error">{dbBackupsErr}</div>{/if}
+
+        {#each dbBackups as b (b.name)}
+          <div class="s-row">
+            <div class="s-row-info">
+              <span class="s-label mono" style="font-family:monospace;font-size:var(--text-xs)">{b.name}</span>
+              <span class="s-desc">{fmtBytes(b.bytes)} · {new Date(b.createdAt).toLocaleString()}</span>
+            </div>
+            <div class="s-btn-row">
+              <button class="s-btn" onclick={() => platformService.openPath(b.path)}>Reveal</button>
+              <button class="s-btn s-btn-danger" disabled={deletingBk === b.name} onclick={() => deleteDbBackup(b.name)}>
+                {deletingBk === b.name ? '…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        {/each}
 
         <p class="s-subsection-title">Library backup</p>
 

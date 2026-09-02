@@ -223,10 +223,6 @@
     }
   }
 
-  function toggleLibraryUpdate() {
-    if (updaterRunning) { void pollUpdateStatus(); return }
-    void runLibraryUpdate()
-  }
 </script>
 
 <div class="root anim-fade-in">
@@ -243,7 +239,6 @@
     onUpdatesSearchChange={(v) => updatesSearch = v}
     onHistoryClear={handleHistoryClear}
     onRefreshUpdates={runLibraryUpdate}
-    onToggleUpdate={toggleLibraryUpdate}
   />
 
   <div class="content">

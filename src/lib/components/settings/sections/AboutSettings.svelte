@@ -81,12 +81,16 @@
 
   function fmtDate(iso: string) {
     if (!iso) return ''
-    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+    const t = Date.parse(iso)
+    if (Number.isNaN(t)) return iso
+    return new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
   function fmtBuildTime(iso: string) {
-    if (!iso) return ''
-    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+    if (!iso || iso.toLowerCase() === 'unknown') return ''
+    const t = Date.parse(iso)
+    if (Number.isNaN(t)) return iso
+    return new Date(t).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
 
   function fmtBytes(bytes: number) {
@@ -197,7 +201,7 @@
             <span class="s-desc">{serverInfo.version}</span>
           </div>
         </div>
-        {#if serverInfo.buildTime}
+        {#if fmtBuildTime(serverInfo.buildTime)}
           <div class="s-row">
             <div class="s-row-info">
               <span class="s-label">Built</span>

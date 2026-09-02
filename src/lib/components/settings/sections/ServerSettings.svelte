@@ -259,7 +259,8 @@
 <style>
   .ss-err { color: var(--color-error); }
   .ss-r { margin-left: 6px; color: var(--text-faint); cursor: help; }
-  .ss-cf { padding-top: 0; }
+  .ss-cf { gap: var(--sp-3); }
+  .ss-cf .s-desc { flex: 1; }
   .ss-bar { flex: 1; height: 4px; border-radius: var(--radius-full); background: var(--bg-overlay); overflow: hidden; }
   .ss-bar span { display: block; height: 100%; background: var(--accent); transition: width var(--t-base); }
 </style>

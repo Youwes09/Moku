@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     ArrowsClockwise, BookOpen, CircleNotch,
-    MagnifyingGlass, NewspaperClipping, Trash, X,
+    MagnifyingGlass, NewspaperClipping, Trash,
   } from 'phosphor-svelte'
 
   interface Props {
@@ -17,14 +17,13 @@
     onUpdatesSearchChange: (v: string) => void
     onHistoryClear:        () => void
     onRefreshUpdates:      () => void
-    onToggleUpdate:        () => void
   }
 
   let {
     tab, historySearch, updatesSearch, historyConfirmClear, hasHistory,
     updatesLoading, updaterRunning,
     onTabChange, onHistorySearchChange, onUpdatesSearchChange,
-    onHistoryClear, onRefreshUpdates, onToggleUpdate,
+    onHistoryClear, onRefreshUpdates,
   }: Props = $props()
 </script>
 
@@ -60,14 +59,12 @@
       <button
         class="icon-btn"
         class:running={updaterRunning}
-        onclick={updaterRunning ? onToggleUpdate : onRefreshUpdates}
-        disabled={updatesLoading && !updaterRunning}
-        title={updaterRunning ? 'Stop library update' : 'Run library update'}
+        onclick={onRefreshUpdates}
+        disabled={updaterRunning || updatesLoading}
+        title={updaterRunning ? 'Updating library…' : 'Run library update'}
       >
-        {#if updatesLoading && !updaterRunning}
+        {#if updaterRunning || updatesLoading}
           <CircleNotch size={14} weight="light" class="anim-spin" />
-        {:else if updaterRunning}
-          <X size={14} weight="bold" />
         {:else}
           <ArrowsClockwise size={14} weight="bold" />
         {/if}

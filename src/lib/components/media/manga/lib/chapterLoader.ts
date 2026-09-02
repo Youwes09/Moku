@@ -28,12 +28,20 @@ async function getPagesForChapter(
   priorityPage = 0,
 ): Promise<string[]> {
   const chapter = seriesState.chaptersFor(mangaId).find(c => c.id === chapterId);
+  const contentPages = (count: number) =>
+    Array.from({ length: count }, (_, i) =>
+      absolutePageUrl(`/content/${mangaId}/${chapterId}/pages/${i + 1}`));
+
+  // Downloaded chapters always go through the backend, which decides local-vs-remote.
+  // Never hand the reader a pre-resolved source URL for one.
+  if (chapter?.downloaded && chapter.pageCount && chapter.pageCount > 0) {
+    return contentPages(chapter.pageCount);
+  }
   if (chapter?.pages && chapter.pages.length > 0) {
     return chapter.pages.map(absolutePageUrl);
   }
   if (chapter?.pageCount && chapter.pageCount > 0) {
-    return Array.from({ length: chapter.pageCount }, (_, i) =>
-      absolutePageUrl(`/content/${mangaId}/${chapterId}/pages/${i + 1}`));
+    return contentPages(chapter.pageCount);
   }
   return fetchPages(mangaId, chapterId, useBlob, signal, priorityPage);
 }

@@ -6,6 +6,7 @@ import { settingsState, updateSettings }              from '$lib/state/settings.
 import { tsunagu }                                    from '$lib/server-adapters/tsunagu'
 import type { LibraryEntry, Chapter as TsunaguChapter, MangaInfo } from '$lib/server-adapters/types'
 import { buildChapterList }                           from '$lib/components/series/lib/chapterList'
+import { clearPageCache }                             from '$lib/core/cache/pageCache'
 import { goto }                                       from '$app/navigation'
 
 export type { BookmarkEntry } from '$lib/types/history'
@@ -215,6 +216,35 @@ class SeriesStore {
     const current = this.#rawChapters.get(mangaId)
     if (!current) return
     this.#rawChapters = new Map(this.#rawChapters).set(mangaId, updater(current))
+  }
+
+  // Promote cached chapters to downloaded:true when their download finishes while
+  // the list is on screen. Only ever flips ON — deletes drive the reverse via
+  // markChaptersDeleted, since `doneIds` is the recent queue, not full history.
+  reconcileDownloadsCompleted(doneIds: Set<string>) {
+    if (doneIds.size === 0) return
+    let next: Map<string, Chapter[]> | null = null
+    for (const [mangaId, list] of this.#rawChapters) {
+      if (!list.some(c => doneIds.has(c.id) && !c.downloaded)) continue
+      const patched = list.map(c => {
+        if (!doneIds.has(c.id) || c.downloaded) return c
+        clearPageCache(c.id)                    // local files now exist; drop the source URL list + blobs
+        return { ...c, downloaded: true }
+      })
+      next ??= new Map(this.#rawChapters)
+      next.set(mangaId, patched)
+      this.#fetchedAt.delete(mangaId)           // force a real reload so pageCount lands
+    }
+    if (next) this.#rawChapters = next
+  }
+
+  markChaptersDeleted(mangaId: string, chapterIds: string[]) {
+    if (!chapterIds.length) return
+    const ids = new Set(chapterIds)
+    ids.forEach(clearPageCache)
+    this.patchChapters(mangaId, list =>
+      list.map(c => ids.has(c.id) ? { ...c, downloaded: false, pageCount: 0, pages: [] } : c))
+    this.#fetchedAt.delete(mangaId)
   }
 
   setActiveManga(manga: Manga | null)  { this.activeManga  = manga }

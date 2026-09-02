@@ -18,8 +18,8 @@
   function showTip(e: MouseEvent, cell: { dateStr: string; count: number }) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const label = cell.count === 0
-      ? `No chapters — ${fmtDate(cell.dateStr)}`
-      : `${cell.count} chapter${cell.count !== 1 ? 's' : ''} — ${fmtDate(cell.dateStr)}`
+      ? `Nothing — ${fmtDate(cell.dateStr)}`
+      : `${cell.count} chapter${cell.count !== 1 ? 's' : ''} / episode${cell.count !== 1 ? 's' : ''} — ${fmtDate(cell.dateStr)}`
     if (!tipEl) {
       tipEl = document.createElement('div')
       tipEl.className = 'moku-heatmap-tip'
@@ -61,7 +61,7 @@
     const obs = new ResizeObserver(() => {
       const h  = wrapEl.clientHeight
       const w  = wrapEl.clientWidth
-      const cs = Math.max(8, Math.floor((h - LEGEND_H - MONTH_H - 2 * GAP - (ROWS - 1) * GAP) / ROWS))
+      const cs = Math.max(11, Math.min(17, Math.floor((h - LEGEND_H - MONTH_H - 2 * GAP - (ROWS - 1) * GAP) / ROWS)))
       cellSize = cs
       numWeeks = Math.max(4, Math.floor((w - DAY_GUTTER - GAP * 3) / (cs + GAP)))
     })
@@ -136,7 +136,7 @@
               class:cell-future={cell.isFuture}
               onmouseover={(e) => showTip(e, cell)}
               onmouseleave={hideTip}
-              aria-label="{cell.count} chapters on {cell.dateStr}"
+              aria-label="{cell.count} chapters or episodes on {cell.dateStr}"
             ></button>
           {/each}
         </div>
@@ -186,7 +186,7 @@
   .week-col { display: flex; flex-direction: column; gap: 3px; }
 
   .cell {
-    width: var(--cell); height: var(--cell); border-radius: 3px;
+    width: var(--cell); height: var(--cell); border-radius: 2px;
     border: none; padding: 0; cursor: pointer;
     transition: filter var(--t-fast), transform var(--t-fast);
   }
@@ -202,7 +202,7 @@
   .cell-future { opacity: 0.2; cursor: default; pointer-events: none; }
 
   .legend { display: flex; align-items: center; gap: 3px; justify-content: flex-end; flex-shrink: 0; padding-top: 2px; }
-  .legend-cell { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .legend-cell { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
   .legend-label { font-family: var(--font-ui); font-size: 9px; color: var(--text-faint); letter-spacing: var(--tracking-wide); }
 
   :global(.moku-heatmap-tip) {

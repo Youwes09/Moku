@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation'
   import { libraryState, loadLibrary } from '$lib/state/library.svelte'
   import { homeState, setHeroSlot } from '$lib/state/home.svelte'
-  import { openReaderForChapter, seriesState, resolveMediaId, seriesHref }   from '$lib/state/series.svelte'
+  import { seriesState, resolveMediaId, seriesHref }   from '$lib/state/series.svelte'
   import { buildChapterList }       from '$lib/components/series/lib/chapterList'
   import { settingsState }          from '$lib/state/settings.svelte'
   import { DEFAULT_MANGA_PREFS } from '$lib/types/settings'
@@ -14,6 +14,7 @@
   import ActivityFeed    from '$lib/components/home/ActivityFeed.svelte'
   import ActivityHeatmap from '$lib/components/home/ActivityHeatmap.svelte'
   import StatsGrid       from '$lib/components/home/StatsGrid.svelte'
+  import { Clock } from 'phosphor-svelte'
   import type { Manga, Chapter } from '$lib/types'
 
   const TOTAL_SLOTS = 4
@@ -136,10 +137,11 @@
   }
 
   async function resumeActive() {
-    if (!heroEntry && heroManga) { goto(seriesHref(heroManga)); return }
-    if (!heroEntry) return
-    const target = heroAllChapters.find(c => c.id === heroEntry!.endChapterId) ?? heroAllChapters[0]
-    if (target) openReaderForChapter(target, heroManga ?? null)
+    if (heroEntry) {
+      goto(`/media/${encodeURIComponent(heroEntry.mangaId)}/${encodeURIComponent(heroEntry.endChapterId)}`)
+      return
+    }
+    if (heroManga) goto(seriesHref(heroManga))
   }
 
   function cycleNext() { activeIdx = (activeIdx + 1) % TOTAL_SLOTS; heroChapters = []; heroAllChapters = [] }
@@ -186,22 +188,24 @@
   </div>
 
   <div class="scroll-body">
-    <div class="mid-row">
-      <ActivityFeed
-        onresume={resumeEntry}
-        onviewhistory={() => goto('/recent')}
-        onopenlibrary={() => goto('/library')}
-      />
-    </div>
-
-    <div class="bottom-row">
-      <div class="bottom-heatmap">
-        <span class="bottom-label">Activity</span>
-        <ActivityHeatmap dailyReadCounts={historyState.dailyReadCounts} />
+    <div class="home-grid">
+      <div class="left-col">
+        <ActivityFeed
+          onresume={resumeEntry}
+          onviewhistory={() => goto('/recent')}
+          onopenlibrary={() => goto('/library')}
+        />
+        <div class="col-divider"></div>
+        <div class="activity-panel">
+          <span class="panel-label"><Clock size={10} weight="bold" /> Activity</span>
+          <ActivityHeatmap dailyReadCounts={historyState.dailyReadCounts} />
+        </div>
       </div>
-      <div class="bottom-divider"></div>
-      <div class="bottom-stats">
-        <StatsGrid stats={historyState.stats} />
+
+      <div class="col-divider col-divider-v"></div>
+
+      <div class="right-col">
+        <StatsGrid stats={historyState.stats} sessions={historyState.sessions} library={libraryState.items} />
       </div>
     </div>
   </div>
@@ -230,23 +234,31 @@
   }
   .scroll-body::-webkit-scrollbar { display: none; }
 
-  .mid-row {
-    border-top: 1px solid var(--border-dim); flex-shrink: 0; min-height: 0;
-    min-width: 0; overflow: hidden;
+  .home-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) 1px minmax(0, 1fr);
+    align-items: stretch;
+    border-top: 1px solid var(--border-dim); flex: 1; min-height: 0;
   }
-  .mid-row :global(.section) { border-top: none; }
+  .left-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .left-col :global(.section) { border-top: none; }
+  .right-col {
+    padding: var(--sp-4) var(--sp-5) var(--sp-5);
+    min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: none;
+  }
+  .right-col::-webkit-scrollbar { display: none; }
 
-  .bottom-row {
-    display: grid; grid-template-columns: 1fr 1px 1fr;
-    border-top: 1px solid var(--border-dim); flex-shrink: 0;
-  }
-  .bottom-divider { background: var(--border-dim); align-self: stretch; }
-  .bottom-heatmap {
+  .col-divider { background: var(--border-dim); flex-shrink: 0; }
+  .col-divider:not(.col-divider-v) { height: 1px; margin: 0 var(--sp-4); }
+  .col-divider-v { background: var(--border-base); }
+
+  .activity-panel {
     display: flex; flex-direction: column; gap: var(--sp-2);
-    padding: var(--sp-4) var(--sp-4) var(--sp-5); min-width: 0;
+    padding: var(--sp-4) var(--sp-4) var(--sp-5);
+    flex: 1; min-height: 220px;
   }
-  .bottom-stats { padding: var(--sp-4) var(--sp-4) var(--sp-5); min-width: 0; overflow: hidden; }
-  .bottom-label {
+  .panel-label {
+    display: inline-flex; align-items: center; gap: var(--sp-2);
     font-family: var(--font-ui); font-size: var(--text-2xs);
     color: var(--text-faint); letter-spacing: var(--tracking-wider); text-transform: uppercase;
   }

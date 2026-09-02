@@ -86,7 +86,7 @@
             <div class="stat-icon-wrap accent"><BookOpen size={14} weight="light" /></div>
             <div class="stat-body">
               <span class="stat-val">{stats.totalChaptersRead}</span>
-              <span class="stat-label">Chapters read</span>
+              <span class="stat-label">Chapters / episodes</span>
             </div>
           </div>
           <div class="stat-card">

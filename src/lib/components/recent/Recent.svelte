@@ -7,7 +7,7 @@
   import { historyState }            from '$lib/state/history.svelte'
   import { libraryState, loadLibrary } from '$lib/state/library.svelte'
   import { settingsState }             from '$lib/state/settings.svelte'
-  import { setActiveManga, openReaderForChapter, setPreviewManga } from '$lib/state/series.svelte'
+  import { setActiveManga, openReaderForChapter, setPreviewManga, seriesState } from '$lib/state/series.svelte'
   import { addToast }           from '$lib/state/notifications.svelte'
   import { downloadStore }      from '$lib/state/downloads.svelte'
   import { collapseAndGroupByDay }                     from './lib/recentHistory'
@@ -218,6 +218,8 @@
     try {
       await tsunagu.deleteDownload(item.mangaId, item.id)
       updates = updates.map(u => u.id === item.id ? { ...u, downloaded: false } : u)
+      seriesState.markChaptersDeleted(item.mangaId, [item.id])
+      libraryState.patchDownloadCount(item.mangaId, -1)
     } catch {
       addToast({ kind: 'error', title: 'Delete failed', body: 'Could not delete download.' })
     }

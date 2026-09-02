@@ -3,6 +3,7 @@ import { tsunagu } from "$lib/server-adapters/tsunagu";
 import { settingsState, updateSettings } from "$lib/state/settings.svelte";
 import { addToast }                      from "$lib/state/notifications.svelte";
 import { libraryState }                  from "$lib/state/library.svelte";
+import { seriesState }                   from "$lib/state/series.svelte";
 import {
   isRunning, getErrored, calcSpeed, estimateEta, estimateQueueBytes,
   type SpeedSample,
@@ -96,16 +97,18 @@ class DownloadStore {
   }
 
   detectTransitions(next: Download[], done: Download[]) {
-    if (this.toastsEnabled) {
-      const nextMap = new Map(next.map(i => [i.chapterId, i]));
-      const doneSet = new Set(done.map(i => i.chapterId));
-      for (const item of this.prevQueue) {
-        if (item.status !== "DOWNLOADING") continue;
-        const nextItem = nextMap.get(item.chapterId);
-        const label    = `${this.mangaTitleFor(item.mediaId)} — ${item.chapter.title ?? "Chapter"}`;
-        if (!nextItem && doneSet.has(item.chapterId)) addToast({ kind: "download", title: "Chapter downloaded", body: label, duration: 4000 });
-        else if (nextItem?.status === "FAILED")       addToast({ kind: "error",    title: "Download failed",    body: label, duration: 5000 });
-      }
+    const nextMap = new Map(next.map(i => [i.chapterId, i]));
+    const doneSet = new Set(done.map(i => i.chapterId));
+    const toasts  = this.toastsEnabled;
+    for (const item of this.prevQueue) {
+      if (item.status !== "DOWNLOADING") continue;
+      const nextItem  = nextMap.get(item.chapterId);
+      const completed = !nextItem && doneSet.has(item.chapterId);
+      if (completed) libraryState.patchDownloadCount(item.mediaId, 1);
+      if (!toasts) continue;
+      const label = `${this.mangaTitleFor(item.mediaId)} — ${item.chapter.title ?? "Chapter"}`;
+      if (completed)                          addToast({ kind: "download", title: "Chapter downloaded", body: label, duration: 4000 });
+      else if (nextItem?.status === "FAILED") addToast({ kind: "error",    title: "Download failed",    body: label, duration: 5000 });
     }
     this.prevQueue = next.slice();
   }
@@ -136,6 +139,7 @@ class DownloadStore {
       this.detectTransitions(active, done);
       this.queue               = active;
       this.completed           = done;
+      seriesState.reconcileDownloadsCompleted(new Set(done.map(d => d.chapterId)));
       this.downloaderStatusVal = status;
       this.updateSpeed();
       await this.syncFreeBytes();

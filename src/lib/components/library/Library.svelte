@@ -6,7 +6,7 @@
   import { updateSettings, settingsState } from '$lib/state/settings.svelte'
   import { readerState } from '$lib/state/mangaReader.svelte'
   import { goto }               from '$app/navigation'
-  import { seriesHref }         from '$lib/state/series.svelte'
+  import { seriesHref, seriesState } from '$lib/state/series.svelte'
   import LibraryToolbar  from '$lib/components/library/LibraryToolbar.svelte'
   import LibraryGrid     from '$lib/components/library/LibraryGrid.svelte'
   import ContextMenu, { type MenuEntry } from '$lib/components/shared/ui/ContextMenu.svelte'
@@ -81,6 +81,7 @@
       libraryState.items = libraryState.items.map(x =>
         x.id === m.id ? { ...x, downloadCount: 0 } : x
       )
+      seriesState.markChaptersDeleted(m.id, downloaded)
     } catch (e) { console.error(e) }
   }
 

@@ -76,6 +76,7 @@
 
   const chapters        = $derived(seriesState.chaptersFor(mangaId))
   const loadingChapters = $derived(seriesState.isLoadingChapters(mangaId))
+
   const sortedChapters  = $derived(seriesState.activeChapterList)
   const hasSelection    = $derived(selectedIds.size > 0)
 
@@ -391,7 +392,8 @@
         const delayMs = (get('deleteDelayHours') as number) * 3_600_000
         const doDelete = async () => {
           await Promise.all((toDelete).map(id => tsunagu.deleteDownload(realMediaId, id))).catch(console.error)
-          seriesState.patchChapters(mangaId, chaps => chaps.map(c => toDelete.includes(c.id) ? { ...c, downloaded: false } : c))
+          seriesState.markChaptersDeleted(mangaId, toDelete)
+          libraryState.patchDownloadCount(realMediaId, -toDelete.length)
         }
         if (delayMs === 0) doDelete(); else setTimeout(doDelete, delayMs)
       }
@@ -402,7 +404,8 @@
     const ids = [...selectedIds].filter(id => seriesState.chaptersFor(mangaId).find(c => c.id === id)?.downloaded)
     if (ids.length) {
       await Promise.all((ids).map(id => tsunagu.deleteDownload(realMediaId, id))).catch(console.error)
-      seriesState.patchChapters(mangaId, chaps => chaps.map(c => ids.includes(c.id) ? { ...c, downloaded: false } : c))
+      seriesState.markChaptersDeleted(mangaId, ids)
+      libraryState.patchDownloadCount(realMediaId, -ids.length)
     }
     clearSelection()
   }
@@ -424,7 +427,8 @@
 
   async function deleteDownloaded(chapterId: string) {
     await Promise.all(([chapterId]).map(id => tsunagu.deleteDownload(realMediaId, id))).catch(console.error)
-    seriesState.patchChapters(mangaId, chaps => chaps.map(c => c.id === chapterId ? { ...c, downloaded: false } : c))
+    seriesState.markChaptersDeleted(mangaId, [chapterId])
+    libraryState.patchDownloadCount(realMediaId, -1)
   }
 
   async function deleteAllDownloads() {
@@ -432,7 +436,8 @@
     if (!ids.length) return
     deletingAll = true
     await Promise.all((ids).map(id => tsunagu.deleteDownload(realMediaId, id))).catch(console.error)
-    seriesState.patchChapters(mangaId, chaps => chaps.map(c => ({ ...c, downloaded: false })))
+    seriesState.markChaptersDeleted(mangaId, ids)
+    libraryState.patchDownloadCount(realMediaId, -ids.length)
     deletingAll = false
   }
 

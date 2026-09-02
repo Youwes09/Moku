@@ -591,13 +591,17 @@
       if (!next || chunks.some(c => c.chapterId === next.id)) return;
       appending = true;
       const nextMediaId = readerState.activeManga?.mediaId ?? readerState.activeManga?.libraryEntryId ?? next.mangaId;
+      const nextContentUrls = (count: number) =>
+        Array.from({ length: count }, (_, i) =>
+          `${settingsState.settings.serverUrl ?? ''}/content/${nextMediaId}/${next.id}/pages/${i + 1}`);
       const nextUrls =
-        next.pages && next.pages.length > 0
-          ? Promise.resolve(next.pages)
-          : next.pageCount && next.pageCount > 0
-            ? Promise.resolve(Array.from({ length: next.pageCount }, (_, i) =>
-                `${settingsState.settings.serverUrl ?? ''}/content/${nextMediaId}/${next.id}/pages/${i + 1}`))
-            : fetchPages(nextMediaId, next.id, useBlob);
+        next.downloaded && next.pageCount && next.pageCount > 0
+          ? Promise.resolve(nextContentUrls(next.pageCount))
+          : next.pages && next.pages.length > 0
+            ? Promise.resolve(next.pages)
+            : next.pageCount && next.pageCount > 0
+              ? Promise.resolve(nextContentUrls(next.pageCount))
+              : fetchPages(nextMediaId, next.id, useBlob);
       nextUrls
         .then(urls => {
           urls.slice(0, 6).forEach(url => preloadImage(url, useBlob));

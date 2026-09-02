@@ -281,6 +281,16 @@ class LibraryState {
     this.folderFrecency = { ...this.folderFrecency, [folderId]: (this.folderFrecency[folderId] ?? 0) + 1 };
   }
 
+  patchDownloadCount(mediaId: string, delta: number) {
+    let hit = false;
+    const next = this.items.map(m => {
+      if (m.id !== mediaId) return m;
+      hit = true;
+      return { ...m, downloadCount: Math.max(0, (m.downloadCount ?? 0) + delta) };
+    });
+    if (hit) this.items = next;
+  }
+
   enterSelect(id?: string) {
     this.selectMode = true;
     if (id !== undefined) this.selected = new Set([id]);

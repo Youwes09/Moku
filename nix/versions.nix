@@ -1,7 +1,7 @@
 {
-  moku = "0.10.5";
+  moku = "0.11.0";
 
-  tsunagu = "0.1.0";
+  tsunagu = "0.2.0";
 
   frontend = {
     pnpmHash = "sha256-RsO4Hhi+D/+8vUZIzops3OouH8T88GBHkngW+9MAyoo=";

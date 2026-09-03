@@ -1,6 +1,11 @@
 {
   description = "Moku — manga/novel/anime reader frontend for Tsunagu";
 
+  nixConfig = {
+    extra-substituters = [ "https://moku.cachix.org" ];
+    extra-trusted-public-keys = [ "moku.cachix.org-1:EnMXp6/uQVI6IRbKW0xEQylSYoV2N4vszOsoW6/Pq1s=" ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";

@@ -35,10 +35,15 @@
     return new DOMRect(left, top, right - left, bottom - top)
   }
 
+  function readRect(): DOMRect | null {
+    if (!tourState.active || !step) return null
+    return unionRect(Array.from(document.querySelectorAll(step.selector)))
+  }
+
   function measure() {
     viewport = { w: window.innerWidth, h: window.innerHeight }
-    if (!tourState.active || !step) { rect = null; return }
-    rect = unionRect(Array.from(document.querySelectorAll(step.selector)))
+    const next = readRect()
+    if (next) rect = next
   }
 
   $effect(() => {
@@ -48,8 +53,6 @@
     let ro: ResizeObserver | null = null
     let mo: MutationObserver | null = null
     let pollTimer: ReturnType<typeof setInterval> | null = null
-
-    rect = null
 
     async function setup() {
       if (step.settingsTab) app.setSettingsOpen(true, step.settingsTab)
@@ -61,10 +64,13 @@
 
       measure()
 
-      if (!rect) {
+      if (!readRect()) {
         let tries = 0
         pollTimer = setInterval(() => {
-          if (cancelled || rect || ++tries > 20) { if (pollTimer) clearInterval(pollTimer); pollTimer = null; return }
+          if (cancelled || readRect() || ++tries > 20) {
+            if (pollTimer) clearInterval(pollTimer)
+            pollTimer = null
+          }
           measure()
         }, 120)
       }
@@ -95,13 +101,18 @@
 
   const box = $derived((() => {
     if (!rect || !step) return null
+    if (rect.width < 1 && rect.height < 1) return null
     const pad = step.padding ?? 6
-    return {
+    const b = {
       l: (rect.left - pad) / zoom,
       t: (rect.top  - pad) / zoom,
       w: (rect.width  + pad * 2) / zoom,
       h: (rect.height + pad * 2) / zoom,
     }
+    const w = viewport.w / zoom, h = viewport.h / zoom
+    if (!w || !h) return null
+    if (b.l > w || b.t > h || b.l + b.w < 0 || b.t + b.h < 0) return null
+    return b
   })())
 
   const vw = $derived(viewport.w / zoom)
@@ -112,7 +123,9 @@
   const MARGIN = 14
 
   const tooltipStyle = $derived((() => {
-    if (!box) return ''
+    if (!box) {
+      return `left:${Math.max(MARGIN, (vw - TOOLTIP_W) / 2)}px; top:${Math.max(MARGIN, (vh - TOOLTIP_H_EST) / 2)}px;`
+    }
     const placement = step?.placement ?? 'bottom'
 
     let left = placement === 'right' ? box.l + box.w + MARGIN : box.l
@@ -125,13 +138,17 @@
   })())
 </script>
 
-{#if tourState.active && step && box}
-  <div class="frame" transition:fade={{ duration: 160 }}>
-    <div class="panel" style="left:0px; top:0px; width:{vw}px; height:{box.t}px;"></div>
-    <div class="panel" style="left:0px; top:{box.t + box.h}px; width:{vw}px; height:{Math.max(0, vh - (box.t + box.h))}px;"></div>
-    <div class="panel" style="left:0px; top:{box.t}px; width:{box.l}px; height:{box.h}px;"></div>
-    <div class="panel" style="left:{box.l + box.w}px; top:{box.t}px; width:{Math.max(0, vw - (box.l + box.w))}px; height:{box.h}px;"></div>
-    <div class="ring" style="left:{box.l}px; top:{box.t}px; width:{box.w}px; height:{box.h}px;"></div>
+{#if tourState.active && step}
+  <div class="frame" transition:fade={{ duration: 280 }}>
+    {#if box}
+      <div class="panel" style="left:0px; top:0px; width:{vw}px; height:{box.t}px;"></div>
+      <div class="panel" style="left:0px; top:{box.t + box.h}px; width:{vw}px; height:{Math.max(0, vh - (box.t + box.h))}px;"></div>
+      <div class="panel" style="left:0px; top:{box.t}px; width:{box.l}px; height:{box.h}px;"></div>
+      <div class="panel" style="left:{box.l + box.w}px; top:{box.t}px; width:{Math.max(0, vw - (box.l + box.w))}px; height:{box.h}px;"></div>
+      <div class="ring" style="left:{box.l}px; top:{box.t}px; width:{box.w}px; height:{box.h}px;"></div>
+    {:else}
+      <div class="panel" style="inset:0;"></div>
+    {/if}
 
     <div class="tooltip" style={tooltipStyle}>
       <div class="tooltip-head">
@@ -147,14 +164,18 @@
 
 <style>
   .frame  { position: fixed; inset: 0; z-index: 10500; pointer-events: none; }
-  .panel  { position: fixed; background: rgba(10,10,12,0.6); pointer-events: none; }
+  .panel  {
+    position: fixed; background: rgba(8,9,11,0.62); pointer-events: none;
+    transition: left 0.34s cubic-bezier(0.16,1,0.3,1), top 0.34s cubic-bezier(0.16,1,0.3,1),
+                width 0.34s cubic-bezier(0.16,1,0.3,1), height 0.34s cubic-bezier(0.16,1,0.3,1);
+  }
   .ring   {
-    position: fixed; border-radius: 10px;
+    position: fixed; border-radius: 8px;
     border: 1.5px solid var(--accent-fg);
-    box-shadow: 0 0 0 3px rgba(107,143,107,0.18);
+    box-shadow: 0 0 0 3px rgba(107,143,107,0.18), 0 0 24px rgba(107,143,107,0.15);
     pointer-events: none;
-    transition: left 0.22s cubic-bezier(0.22,1,0.36,1), top 0.22s cubic-bezier(0.22,1,0.36,1),
-                width 0.22s cubic-bezier(0.22,1,0.36,1), height 0.22s cubic-bezier(0.22,1,0.36,1);
+    transition: left 0.34s cubic-bezier(0.16,1,0.3,1), top 0.34s cubic-bezier(0.16,1,0.3,1),
+                width 0.34s cubic-bezier(0.16,1,0.3,1), height 0.34s cubic-bezier(0.16,1,0.3,1);
   }
 
   .tooltip {
@@ -164,7 +185,7 @@
     background: var(--bg-surface); border: 1px solid var(--border-base);
     border-radius: var(--radius-lg); padding: var(--sp-3) var(--sp-4) var(--sp-4);
     box-shadow: 0 20px 48px rgba(0,0,0,0.55);
-    transition: left 0.22s cubic-bezier(0.22,1,0.36,1), top 0.22s cubic-bezier(0.22,1,0.36,1);
+    transition: left 0.34s cubic-bezier(0.16,1,0.3,1), top 0.34s cubic-bezier(0.16,1,0.3,1);
   }
 
   .tooltip-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-2); }

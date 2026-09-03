@@ -437,6 +437,7 @@
         <div class="panel-header">
           <span class="panel-title-wrap"><span class="panel-title">Extension Repositories</span></span>
         </div>
+        <p class="panel-hint">Compatible with Mihon/Tachiyomi- and Aniyomi-format extension repositories, plus LNReader.</p>
         {#if reposLoading}
           <div class="repo-loading"><CircleNotch size={14} weight="light" class="anim-spin" style="color:var(--text-faint)" /></div>
         {:else}
@@ -546,6 +547,7 @@
   .install-btn.success { background: rgba(107,143,107,0.2); border-color: var(--accent-fg); color: var(--accent-fg); }
   .repo-loading { display: flex; align-items: center; justify-content: center; padding: var(--sp-2); }
   .repo-empty { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); padding: var(--sp-1) 2px; }
+  .panel-hint { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); line-height: 1.5; margin: -2px 0 var(--sp-2); }
   .repo-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--sp-2); }
   .repo-row { display: flex; align-items: center; gap: var(--sp-2); padding: 6px var(--sp-3); border-radius: var(--radius-md); background: var(--bg-base); border: 1px solid var(--border-dim); }
   .repo-url { flex: 1; font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: var(--tracking-wide); }

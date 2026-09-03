@@ -67,18 +67,20 @@
     {/each}
   </nav>
 
-  <div class="content-type-group" role="group" aria-label="Content type" data-tour="content-switch">
-    {#each CONTENT_TYPES as ct}
-      <button
-        class="ct-pill"
-        class:active={settingsState.settings.contentTypeFilter === ct.id}
-        onclick={() => setContentType(ct.id)}
-        title={ct.label}
-        aria-pressed={settingsState.settings.contentTypeFilter === ct.id}
-      >
-        <ct.icon size={16} weight={settingsState.settings.contentTypeFilter === ct.id ? "fill" : "light"} />
-      </button>
-    {/each}
+  <div class="content-type-group" role="group" aria-label="Content type">
+    <div class="ct-pills" data-tour="content-switch">
+      {#each CONTENT_TYPES as ct}
+        <button
+          class="ct-pill"
+          class:active={settingsState.settings.contentTypeFilter === ct.id}
+          onclick={() => setContentType(ct.id)}
+          title={ct.label}
+          aria-pressed={settingsState.settings.contentTypeFilter === ct.id}
+        >
+          <ct.icon size={16} weight={settingsState.settings.contentTypeFilter === ct.id ? "fill" : "light"} />
+        </button>
+      {/each}
+    </div>
   </div>
 
   <div class="bottom">
@@ -181,7 +183,8 @@
   .settings-btn:hover         { color: var(--text-muted); background: var(--bg-raised); transform: rotate(30deg); }
   .settings-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-  .content-type-group { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: var(--sp-3) var(--sp-2) 0; border-top: 1px solid var(--border-dim); margin-top: var(--sp-3); }
+  .content-type-group { flex-shrink: 0; width: 100%; padding: var(--sp-3) var(--sp-2) 0; border-top: 1px solid var(--border-dim); margin-top: var(--sp-3); }
+  .ct-pills { display: flex; flex-direction: column; align-items: center; gap: 4px; }
   .ct-pill { width: 36px; height: 36px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-md); color: var(--text-faint); transition: color var(--t-base), background var(--t-base); }
   .ct-pill:hover { color: var(--text-muted); background: var(--bg-raised); }
   .ct-pill:active { transform: scale(0.88); }

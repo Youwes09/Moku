@@ -45,7 +45,7 @@ Moku is a fast, minimal manga, novel and anime reader. It's a lightweight Tauri 
 - **Per-folder sorting & filtering** — each folder has its own independent sort (unread, A–Z, recently read, latest chapter, and more) and publication status filter (Ongoing, Completed, Hiatus, etc.)
 - **Built-in reader** — single page, long strip, configurable fit modes, customizable keybinds; AniSkip intro/outro markers for anime
 - **Tracking** — link titles to AniList, two-way progress sync
-- **Extension support** — install and manage source extensions directly from the app
+- **Extension support** — install and manage source extensions directly from the app; compatible with Mihon/Tachiyomi- and Aniyomi-format extension repositories, plus LNReader
 - **Download management** — queue and monitor chapter downloads with progress toasts
 - **Automation** — pre-download titles automatically and optionally delete chapters after reading (accessible from Series Detail)
 - **Discord Rich Presence** — shows title, current chapter, and elapsed timer in your Discord status; configurable in Settings → General

@@ -52,7 +52,7 @@ export const TOUR_STEPS: TourStep[] = [
     title:     'Manga, novels or anime',
     body:      'Switch the whole app between content types. “All” shows them together.',
     placement: 'right',
-    padding:   12,
+    padding:   4,
   },
   {
     selector:  '[data-tour="add-source"]',
@@ -73,7 +73,7 @@ export const TOUR_STEPS: TourStep[] = [
     title:     'Track your progress',
     body:      'Connect AniList or MyAnimeList under Settings → Tracking to sync what you read and watch.',
     placement: 'right',
-    padding:   8,
+    padding:   3,
     settingsTab: 'tracking',
   },
 ]

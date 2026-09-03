@@ -80,7 +80,7 @@
   }
   .see-all:hover { color: var(--accent-fg); }
 
-  .list { display: flex; flex-direction: column; padding: 0 var(--sp-3); overflow: hidden; }
+  .list { display: flex; flex-direction: column; padding: 0 var(--sp-3) var(--sp-2); overflow: hidden; min-height: 188px; }
 
   .row {
     display: flex; align-items: center; gap: var(--sp-3);
@@ -112,8 +112,9 @@
   .row-play { color: var(--accent-fg); flex-shrink: 0; opacity: 0; transition: opacity var(--t-base); }
 
   .empty {
-    display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
-    padding: var(--sp-6) var(--sp-4);
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: var(--sp-2); padding: var(--sp-6) var(--sp-4);
     color: var(--text-faint);
   }
   .empty-text {

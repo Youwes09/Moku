@@ -4,6 +4,7 @@
   import { app }    from '$lib/state/app.svelte'
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
   import type { ContentTypeFilter } from '$lib/types/settings'
+  import mokuSplash from '$lib/assets/moku-icon-splash.svg?raw'
   import {
     House, Books, MagnifyingGlass, ClockCounterClockwise,
     DownloadSimple, PuzzlePiece, GearSix,
@@ -46,7 +47,7 @@
 
 <aside class="root">
   <button class="logo" onclick={() => goto('/')} title="Home" aria-label="Go to Home">
-    <div class="logo-icon"></div>
+    <span class="logo-icon">{@html mokuSplash}</span>
   </button>
 
   <nav class="nav">
@@ -100,12 +101,13 @@
     overflow: hidden;
   }
 
-  .logo { width: 56px; height: 56px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-bottom: var(--sp-4); border-radius: var(--radius-lg); transition: opacity var(--t-base), transform var(--t-base); }
+  .logo { width: 75px; height: 75px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-bottom: var(--sp-4); border-radius: var(--radius-lg); transition: opacity var(--t-base), transform var(--t-base); }
   .logo:hover            { opacity: 0.8; transform: scale(0.96); }
   .logo:active           { transform: scale(0.92); }
   .logo:focus-visible    { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  .logo-icon { width: 52px; height: 52px; background-color: var(--accent); mask-image: url("/src/lib/assets/moku-icon-wordmark.svg"); mask-repeat: no-repeat; mask-position: center; mask-size: contain; -webkit-mask-image: url("/src/lib/assets/moku-icon-wordmark.svg"); -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; -webkit-mask-size: contain; filter: drop-shadow(0 0 8px rgba(107,143,107,0.35)); pointer-events: none; }
+  .logo-icon { width: 75px; height: 75px; display: block; pointer-events: none; }
+  .logo-icon :global(svg) { width: 100%; height: 100%; display: block; border-radius: var(--radius-lg); }
 
   .nav {
     position: relative;

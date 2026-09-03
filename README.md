@@ -92,6 +92,31 @@ inputs.moku.url = "github:moku-project/Moku";
 
 The Nix app pulls the Tsunagu backend from its flake and launches it for you. AppImage / deb packaging is a work in progress.
 
+#### Binary cache (Cachix)
+
+Prebuilt artifacts are pushed to [`moku.cachix.org`](https://app.cachix.org/cache/moku) so you don't have to compile Moku or Tsunagu locally.
+
+The cache is declared in `flake.nix` (`nixConfig`), so `nix run`/`nix develop` against this flake will offer to use it — accept the prompt, or pass `--accept-flake-config`:
+
+```bash
+nix run --accept-flake-config github:moku-project/Moku
+```
+
+To trust it permanently (recommended for CI and non-interactive use), add to `/etc/nix/nix.conf` (or `~/.config/nix/nix.conf`):
+
+```
+extra-substituters = https://moku.cachix.org
+extra-trusted-public-keys = moku.cachix.org-1:EnMXp6/uQVI6IRbKW0xEQylSYoV2N4vszOsoW6/Pq1s=
+```
+
+Or, with the [Cachix CLI](https://docs.cachix.org/installation):
+
+```bash
+cachix use moku
+```
+
+On NixOS, add the two lines above under `nix.settings` instead.
+
 ### macOS
 
 Download the `.dmg` from the [releases page](https://github.com/moku-project/Moku/releases/latest).
@@ -122,7 +147,7 @@ pnpm install
 pnpm tauri:dev
 ```
 
-Or with Nix:
+Or with Nix (enable the [binary cache](#binary-cache-cachix) first to skip compiling the toolchain):
 
 ```bash
 nix develop

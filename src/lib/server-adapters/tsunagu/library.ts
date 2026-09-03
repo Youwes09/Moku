@@ -15,6 +15,10 @@ export const library = {
 						latestChapter { number uploadedAt }
 						genres tags
 						metadata { coverUrl }
+						trackLinks {
+							id mediaId trackerKey remoteId title url
+							status statusName lastChapterRead totalChapters score
+						}
 						folders { id }
 						source { id }
 					}

@@ -36,7 +36,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     selector:  '[data-tour="sidebar-nav"]',
     title:     'Navigation',
-    body:      'Library, Downloads, Recent, Tracking and Extensions all live in this rail.',
+    body:      'Library, Downloads, Recent and Extensions all live in this rail.',
     placement: 'right',
     padding:   16,
   },

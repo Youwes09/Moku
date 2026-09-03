@@ -3,6 +3,7 @@
   import { tsunagu } from "$lib/server-adapters/tsunagu";
   import { migrateMedia } from "$lib/components/shared/manga/lib/migrateMedia";
   import Thumbnail     from "$lib/components/shared/manga/Thumbnail.svelte";
+  import ExtensionIcon from "$lib/components/extensions/ExtensionIcon.svelte";
   import { resolvedCover } from "$lib/core/cover/coverResolver";
 
   import { addToast }        from "$lib/state/notifications.svelte";
@@ -16,11 +17,12 @@
     sourceId:      string;
     sourceName:    string;
     sourceIconUrl: string;
+    contentType?:  string | null;
     manga:         LibraryManga[];
     onClose:       () => void;
     onDone:        () => void;
   }
-  let { sourceId, sourceName, sourceIconUrl, manga, onClose, onDone }: Props = $props();
+  let { sourceId, sourceName, sourceIconUrl, contentType = null, manga, onClose, onDone }: Props = $props();
 
   type Phase = "pick-target" | "review" | "migrating" | "done";
 
@@ -81,7 +83,9 @@
   $effect(() => {
     tsunagu.installedExtensions()
       .then(exts => {
-        allSources = exts.filter(e => e.installed && e.id !== sourceId).map(toSource);
+        allSources = exts
+          .filter(e => e.installed && e.id !== sourceId && (!contentType || e.contentType === contentType))
+          .map(toSource);
         const prefLang = settingsState.settings.preferredExtensionLang ?? "";
         const langs    = new Set(allSources.map(s => s.lang));
         if (prefLang && langs.has(prefLang) && langs.size > 1) selectedLang = prefLang;
@@ -172,7 +176,7 @@
     <div class="modal-header">
       <div class="source-context">
         <div class="source-icon-wrap">
-          <Thumbnail src={sourceIconUrl} alt={sourceName} class="src-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+          <ExtensionIcon src={sourceIconUrl} alt={sourceName} class="src-icon" size={36} />
         </div>
         <div class="source-context-info">
           <span class="modal-eyebrow">Source migration</span>
@@ -214,7 +218,7 @@
             {#each visibleSources as src}
               <button class="source-row" onclick={() => startSearch(src)}>
                 <div class="source-icon-wrap">
-                  <Thumbnail src={src.iconUrl} alt={src.name} class="source-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+                  <ExtensionIcon src={src.iconUrl} alt={src.name} class="source-icon" size={36} />
                 </div>
                 <div class="source-info">
                   <span class="source-name">{src.displayName}</span>
@@ -231,7 +235,7 @@
           <div class="review-route">
             <div class="review-source">
               <div class="source-icon-wrap small">
-                <Thumbnail src={sourceIconUrl} alt={sourceName} class="source-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+                <ExtensionIcon src={sourceIconUrl} alt={sourceName} class="source-icon" size={20} />
               </div>
               <span class="review-source-name">{sourceName}</span>
             </div>
@@ -239,7 +243,7 @@
             {#if targetSource}
               <div class="review-source">
                 <div class="source-icon-wrap small">
-                  <Thumbnail src={targetSource.iconUrl} alt={targetSource.name} class="source-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+                  <ExtensionIcon src={targetSource.iconUrl} alt={targetSource.name} class="source-icon" size={20} />
                 </div>
                 <span class="review-source-name">{targetSource.displayName}</span>
               </div>

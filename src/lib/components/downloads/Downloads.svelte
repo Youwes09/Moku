@@ -203,7 +203,7 @@
     />
   </div>
   {:else}
-  <div class="content" onscroll={onContentScroll}>
+  <div class="content content-padded" onscroll={onContentScroll}>
     <DownloadHistory completed={downloadStore.completed} loading={downloadStore.loading} limit={shown} />
   </div>
   {/if}
@@ -262,6 +262,7 @@
   .sel-action-danger:hover:not(:disabled) { color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 40%, transparent); background: color-mix(in srgb, var(--color-error) 8%, transparent); }
 
   .content { flex: 1; overflow-y: auto; padding: 0 var(--sp-6) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-4); }
+  .content-padded { padding-top: var(--sp-4); }
 
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: var(--radius-md); border: 1px solid var(--border-dim); background: var(--bg-raised); color: var(--text-faint); cursor: pointer; flex-shrink: 0; transition: color var(--t-base), border-color var(--t-base), background var(--t-base); }
   .icon-btn:hover:not(:disabled):not(.active) { color: var(--text-primary); border-color: var(--border-strong); }

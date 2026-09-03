@@ -44,7 +44,7 @@
 
   const hasActiveFilters = $derived(Object.values(activeFilters).some(Boolean));
 
-  let migrateTarget: { sourceId: string; sourceName: string; iconUrl: string; manga: LibraryManga[] } | null = $state(null);
+  let migrateTarget: { sourceId: string; sourceName: string; iconUrl: string; contentType: string | null; manga: LibraryManga[] } | null = $state(null);
   const allManga = $derived(isLocal ? localItems : groups.flatMap(g => g.manga));
 
   const filtered = $derived((() => {
@@ -78,6 +78,7 @@
           thumbnailUrl:  e.thumbnailUrl ?? "",
           unreadCount:   e.unreadCount,
           downloadCount: e.downloadCount,
+          contentType:   e.contentType,
           source:        e.source ? { id: e.source.id, displayName: e.source.displayName } : null,
         }));
         sourceNodes = exts.filter((e) => e.installed).map((e) => ({ id: e.id, displayName: e.displayName, iconUrl: e.iconUrl }));
@@ -115,6 +116,7 @@
       sourceId:   group.sourceId,
       sourceName: group.displayName,
       iconUrl:    (node as any)?.iconUrl ?? iconUrl,
+      contentType: group.manga[0]?.contentType ?? null,
       manga:      group.manga,
     };
   }
@@ -308,6 +310,7 @@
     sourceId={migrateTarget.sourceId}
     sourceName={migrateTarget.sourceName}
     sourceIconUrl={migrateTarget.iconUrl}
+    contentType={migrateTarget.contentType}
     manga={migrateTarget.manga}
     onClose={() => migrateTarget = null}
     onDone={() => { migrateTarget = null; load(); }}

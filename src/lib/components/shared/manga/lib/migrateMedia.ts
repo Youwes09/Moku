@@ -6,6 +6,14 @@ import type { Chapter, LibraryEntry } from '$lib/server-adapters/types'
 const numKey = (n: number) => Math.round(n * 100)
 const prefsKey = (extId: string | null, extExternalId: string) => (extId ? `${extId}:${extExternalId}` : '')
 
+async function resolveExtensionId(idOrPkg: string): Promise<string> {
+	if (/^\d+$/.test(idOrPkg)) return idOrPkg
+	const exts = await tsunagu.installedExtensions()
+	const hit = exts.find((e) => e.packageName === idOrPkg || e.id === idOrPkg)
+	if (!hit) throw new Error(`Unknown migration target: ${idOrPkg}`)
+	return hit.id
+}
+
 export interface MigrateResult {
 	entry: LibraryEntry
 	newChapters: Chapter[]
@@ -18,7 +26,8 @@ export async function migrateMedia(
 ): Promise<MigrateResult> {
 	const src = await tsunagu.libraryEntry(fromMediaId)
 
-	const entry = await tsunagu.migrateMedia(fromMediaId, toExtensionId, toExternalId)
+	const extId = await resolveExtensionId(toExtensionId)
+	const entry = await tsunagu.migrateMedia(fromMediaId, extId, toExternalId)
 	const newChapters = entry.chapters ?? []
 
 	if (src) {

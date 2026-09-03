@@ -4,6 +4,7 @@
   import { tsunagu }        from "$lib/server-adapters/tsunagu";
   import { migrateMedia }   from "$lib/components/shared/manga/lib/migrateMedia";
   import Thumbnail          from "$lib/components/shared/manga/Thumbnail.svelte";
+  import ExtensionIcon      from "$lib/components/extensions/ExtensionIcon.svelte";
   import { resolvedCover }  from "$lib/core/cover/coverResolver";
   import { libraryState }   from "$lib/state/library.svelte";
   import type { Manga, Chapter } from "$lib/types";
@@ -100,7 +101,10 @@
   $effect(() => {
     tsunagu.installedExtensions()
       .then((all) => {
-        const filtered = all.filter(e => e.id !== manga.sourceId);
+        const filtered = all.filter(e =>
+          e.id !== manga.sourceId &&
+          (!manga.contentType || e.contentType === manga.contentType)
+        );
         extensions = filtered;
         const langs = new Set(filtered.map(e => e.lang));
         const prefLang = (libraryState as any).preferredExtensionLang ?? "";
@@ -160,10 +164,11 @@
 
   async function migrate() {
     if (!selectedMatch || !selectedExtension) return;
+    const fromMediaId = manga.mediaId ?? manga.libraryEntryId ?? manga.id;
     migrating = true; error = null;
     try {
       const { entry } = await migrateMedia(
-        manga.id,
+        fromMediaId,
         selectedExtension.id,
         selectedMatch.hit.sourceEntryId,
       );
@@ -174,6 +179,10 @@
         inLibrary: true,
         description: entry.description,
         status: entry.status,
+        extensionId:    entry.source?.id ?? entry.extensionId ?? selectedExtension.id,
+        sourceEntryId:  entry.externalId,
+        mediaId:        entry.id,
+        libraryEntryId: entry.id,
       });
     } catch (e: any) {
       error = e.message;
@@ -242,7 +251,7 @@
             {#each visibleExtensions as ext}
               <button class="source-row" class:source-row-active={selectedExtension?.id === ext.id} onclick={() => pickSource(ext)}>
                 <div class="source-icon-wrap">
-                  <Thumbnail src={ext.iconUrl ?? ""} alt={ext.name} class="source-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+                  <ExtensionIcon src={ext.iconUrl} alt={ext.name} class="source-icon" size={28} />
                 </div>
                 <div class="source-info">
                   <span class="source-name">{ext.name}</span>
@@ -259,7 +268,7 @@
           {#if selectedExtension}
             <div class="search-context">
               <div class="source-icon-wrap" style="width:20px;height:20px;border-radius:var(--radius-sm)">
-                <Thumbnail src={selectedExtension.iconUrl ?? ""} alt={selectedExtension.name} class="search-context-icon" onerror={(e) => (e.target as HTMLImageElement).style.display = "none"} />
+                <ExtensionIcon src={selectedExtension.iconUrl} alt={selectedExtension.name} class="search-context-icon" size={20} />
               </div>
               <span class="search-context-name">{selectedExtension.name}</span>
               <button class="search-context-change" onclick={() => { step = "source"; results = []; }}>Change</button>

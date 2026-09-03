@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tsunagu }      from '$lib/server-adapters/tsunagu'
   import { libraryState, loadLibrary, loadFolders } from '$lib/state/library.svelte'
+  import { trackerState } from '$lib/state/trackers.svelte'
   import type { LibrarySortOption, LibraryContentFilter, LibraryStatusFilter } from '$lib/state/library.svelte'
   import { addToast }           from '$lib/state/notifications.svelte'
   import { updateSettings, settingsState } from '$lib/state/settings.svelte'
@@ -42,6 +43,7 @@
   $effect(() => {
     libraryState.syncFromSettings(settingsState.settings)
     loadLibrary()
+    trackerState.load()
   })
   $effect(() => { libraryState.tab; libraryState.exitSelect() })
   $effect(() => { libraryState.guardTab() })

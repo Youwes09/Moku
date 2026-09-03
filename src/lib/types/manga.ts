@@ -59,5 +59,6 @@ export interface Manga {
   sourceName?: string | null
   chapters?: { totalCount: number }
   metadata?: Partial<import('$lib/server-adapters/types').MediaMetadata> | null
+  trackLinks?: import('$lib/server-adapters/types').TrackLink[]
 }
 

@@ -1,8 +1,13 @@
 <script lang="ts">
   import { CheckSquare, Trash, Folder, FolderPlus, FolderMinus, ImageSquare, BookOpenText, FilmSlate } from 'phosphor-svelte'
   import Thumbnail from '$lib/components/shared/manga/Thumbnail.svelte'
+  import TrackerLogo from '$lib/components/tracking/TrackerLogo.svelte'
+  import TrackerPanel from '$lib/components/series/panels/TrackerPanel.svelte'
   import { resolvedCover } from '$lib/core/cover/coverResolver'
   import { settingsState } from '$lib/state/settings.svelte'
+  import { trackerState } from '$lib/state/trackers.svelte'
+  import { trackingState } from '$lib/state/tracking.svelte'
+  import { loadLibrary } from '$lib/state/library.svelte'
   import type { Manga } from '$lib/types'
   import type { Folder as FolderType } from '$lib/server-adapters/types'
   import type { LibraryViewMode } from '$lib/state/library.svelte'
@@ -36,6 +41,9 @@
   const isFolderTab = $derived(tab !== 'library' && tab !== 'downloaded')
 
   let movePanelOpen = $state(false)
+  let trackManga = $state<Manga | null>(null)
+
+  const trackIcon = (key: string) => trackerState.list.find(t => t.key === key)?.iconUrl ?? null
 
   const statsAlways = $derived(settingsState.settings.libraryStatsAlways ?? false)
   const cropCovers  = $derived(settingsState.settings.libraryCropCovers  ?? true)
@@ -186,13 +194,16 @@
           <div class="info">
             <span class="row-title">{m.title}</span>
             <div class="row-badges">
+              {#if m.trackLinks?.length}
+                <button class="row-track" title="Manage tracking" onclick={(e) => { e.stopPropagation(); trackManga = m }}>
+                  <TrackerLogo trackerKey={m.trackLinks[0].trackerKey} iconUrl={trackIcon(m.trackLinks[0].trackerKey)} size={13} />
+                </button>
+              {/if}
               {#if isCompleted}
                 <span class="badge badge-done">✓ Done</span>
-              {:else if m.unreadCount}
-                <span class="badge badge-unread">{m.unreadCount} new</span>
               {/if}
               {#if m.downloadCount}
-                <span class="badge badge-dl">↓ {m.downloadCount}</span>
+                <span class="badge badge-dl" class:badge-dl-new={m.unreadCount}>↓ {m.downloadCount}</span>
               {/if}
             </div>
           </div>
@@ -235,18 +246,26 @@
                 {:else}<ImageSquare size={12} weight="fill" />{/if}
               </span>
             {/if}
-            <div class="overlay">
-              <div class="badges">
-                {#if isCompleted}
-                  <span class="badge badge-done">✓ Done</span>
-                {:else if m.unreadCount}
-                  <span class="badge badge-unread">{m.unreadCount} new</span>
-                {/if}
-                {#if m.downloadCount}
-                  <span class="badge badge-dl">↓ {m.downloadCount}</span>
-                {/if}
-              </div>
+            <div class="badges">
+              {#if isCompleted}
+                <span class="badge badge-done">✓ Done</span>
+              {/if}
+              {#if m.downloadCount}
+                <span class="badge badge-dl" class:badge-dl-new={m.unreadCount}>↓ {m.downloadCount}</span>
+              {/if}
             </div>
+            {#if m.trackLinks?.length}
+              {@const link = m.trackLinks[0]}
+              {@const total = link.totalChapters || m.chapters?.totalCount || 0}
+              <button
+                class="track-strip"
+                title={`${link.statusName} · ${link.lastChapterRead}/${total || '?'}${m.trackLinks.length > 1 ? ` · +${m.trackLinks.length - 1} more` : ''}`}
+                onclick={(e) => { e.stopPropagation(); trackManga = m }}
+              >
+                <TrackerLogo trackerKey={link.trackerKey} iconUrl={trackIcon(link.trackerKey)} size={14} />
+                <span class="track-text">{link.statusName} · {link.lastChapterRead}/{total || '?'}</span>
+              </button>
+            {/if}
             {#if selectMode}
               <div class="select-overlay" aria-hidden="true">
                 <div class="select-check" class:checked={isSelected}>
@@ -268,6 +287,16 @@
     {/if}
   {/if}
 </div>
+
+{#if trackManga}
+  <TrackerPanel
+    mediaId={trackManga.id}
+    manga={trackManga}
+    links={trackManga.trackLinks ?? []}
+    onClose={() => trackManga = null}
+    onChanged={() => { trackingState.loadAll(true); loadLibrary(true) }}
+  />
+{/if}
 
 <style>
   .content {
@@ -332,7 +361,7 @@
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
     gap: var(--sp-4);
   }
 
@@ -384,7 +413,6 @@
     border: 1px solid var(--border-dim); will-change: transform;
     transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), border-color var(--t-base), box-shadow 0.18s cubic-bezier(0.16,1,0.3,1);
   }
-  .cover-wrap.completed { box-shadow: inset 0 -2px 0 0 var(--accent); }
 
   .type-tag {
     position: absolute; top: 5px; left: 5px; z-index: 2;
@@ -398,25 +426,39 @@
   :global(.cover) { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cover-contain :global(.cover) { object-fit: contain; }
 
-  .overlay {
-    position: absolute; bottom: 0; left: 0; right: 0; z-index: 2;
-    padding: 32px 6px 10px;
-    background: linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 50%, transparent 100%);
-    opacity: 0; pointer-events: none;
-    transition: opacity 0.18s ease;
+  .badges {
+    position: absolute; top: 5px; right: 5px; z-index: 3;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+    opacity: 0; pointer-events: none; transition: opacity 0.18s ease;
   }
-  .card:not(.select-mode):hover .overlay { opacity: 1; }
-  .stats-always .overlay { opacity: 1; }
+  .card:not(.select-mode):hover .badges { opacity: 1; }
+  .stats-always .badges { opacity: 1; }
 
-  .badges { display: flex; align-items: flex-end; justify-content: space-between; gap: 4px; flex-wrap: wrap; }
   .badge {
     font-family: var(--font-ui); font-size: 9.5px; font-weight: 700;
     letter-spacing: 0.04em; line-height: 1; padding: 3px 7px;
-    border-radius: 20px; white-space: nowrap;
+    border-radius: var(--radius-sm); white-space: nowrap;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.5);
   }
-  .badge-unread { background: var(--accent); color: #fff; box-shadow: 0 1px 8px rgba(0,0,0,0.5); }
-  .badge-done   { background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.25); }
-  .badge-dl     { background: rgba(0,0,0,0.55); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.18); margin-left: auto; }
+  .badge-done   { background: rgba(0,0,0,0.62); color: rgba(255,255,255,0.92); border: 1px solid rgba(255,255,255,0.22); }
+  .badge-dl     { background: rgba(0,0,0,0.62); color: rgba(255,255,255,0.82); border: 1px solid rgba(255,255,255,0.18); }
+  .badge-dl-new { background: var(--color-success, #16a34a); color: #fff; border-color: transparent; }
+
+  .track-strip {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+    display: flex; align-items: center; gap: 5px;
+    padding: 6px 7px 7px; border: none; cursor: pointer; text-align: left;
+    background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.45) 65%, transparent 100%);
+  }
+  .track-text {
+    flex: 1; min-width: 0;
+    font-family: var(--font-ui); font-size: 9.5px; font-weight: 600;
+    letter-spacing: 0.03em; color: #fff;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .track-strip:hover .track-text { text-decoration: underline; }
+
+  .row-track { display: inline-flex; padding: 0; border: none; background: none; cursor: pointer; }
 
   .select-overlay {
     position: absolute; inset: 0; z-index: 3;

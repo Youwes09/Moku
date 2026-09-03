@@ -101,8 +101,6 @@
               stroke-dashoffset={-a.off}
             />
           {/each}
-          <text class="donut-total" x="50" y="47">{byType.total}</text>
-          <text class="donut-cap" x="50" y="62">total</text>
         </svg>
         <div class="legend">
           {#each arcs as a}
@@ -197,12 +195,6 @@
     transition: stroke-dasharray var(--t-base);
   }
   .donut-track { stroke: var(--bg-raised); }
-  .donut text {
-    transform: rotate(90deg); transform-origin: 50px 50px;
-    text-anchor: middle; font-family: var(--font-ui);
-  }
-  .donut-total { font-size: 20px; font-weight: var(--weight-medium); fill: var(--text-secondary); }
-  .donut-cap { font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; fill: var(--text-faint); }
 
   .legend { display: flex; flex-direction: column; gap: var(--sp-2); flex: 1; min-width: 0; }
   .legend-row {

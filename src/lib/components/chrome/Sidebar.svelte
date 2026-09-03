@@ -6,7 +6,7 @@
   import type { ContentTypeFilter } from '$lib/types/settings'
   import {
     House, Books, MagnifyingGlass, ClockCounterClockwise,
-    DownloadSimple, PuzzlePiece, GearSix, Broadcast,
+    DownloadSimple, PuzzlePiece, GearSix,
     ImageSquare, BookOpenText, FilmSlate, SquaresFour,
   } from 'phosphor-svelte'
 
@@ -28,7 +28,6 @@
     { path: '/browse',     label: 'Browse',     icon: MagnifyingGlass },
     { path: '/downloads',  label: 'Downloads',  icon: DownloadSimple  },
     { path: '/recent',  label: 'Recent',  icon: ClockCounterClockwise  },
-    { path: '/tracking', label: 'Tracking', icon: Broadcast          },
     { path: '/extensions', label: 'Extensions', icon: PuzzlePiece     },
   ]
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     MagnifyingGlass, Books, DownloadSimple, Folder, FolderSimple,
-    SortAscending, CaretUp, CaretDown, Star, X, CheckSquare, SquaresFour, Rows,
+    SortAscending, CaretUp, CaretDown, Star, X, CheckSquare, SquaresFour, Rows, Broadcast,
   } from "phosphor-svelte";
   import { canOpenFolder }  from "$lib/core/filesystem";
   import LibraryFilters from "./LibraryFilters.svelte";
@@ -164,6 +164,15 @@
         <FolderSimple size={15} weight="bold" />
       </button>
     {/if}
+
+    <button
+      class="icon-btn"
+      class:icon-btn-active={!!tabFilters.tracked}
+      title={tabFilters.tracked ? "Showing tracked only" : "Show tracked only"}
+      onclick={() => onFilterToggle("tracked")}
+    >
+      <Broadcast size={15} weight={tabFilters.tracked ? "fill" : "bold"} />
+    </button>
 
     <div class="sort-panel-wrap">
       <button

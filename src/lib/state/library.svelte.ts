@@ -14,7 +14,7 @@ export type LibrarySortOption =
 
 export type LibrarySortDir = "asc" | "desc";
 
-export type LibraryContentFilter = "unread" | "started" | "downloaded" | "bookmarked";
+export type LibraryContentFilter = "unread" | "started" | "downloaded" | "bookmarked" | "tracked";
 
 export type LibraryViewMode = "grid" | "list";
 
@@ -175,6 +175,7 @@ class LibraryState {
     if (f.started)    items = items.filter(m => (m.unreadCount ?? 0) > 0 && (m.chapters?.totalCount ?? 0) > (m.unreadCount ?? 0));
     if (f.downloaded) items = items.filter(m => (m.downloadCount ?? 0) > 0);
     if (f.bookmarked) items = items.filter(m => (m.bookmarkCount ?? 0) > 0);
+    if (f.tracked)    items = items.filter(m => (m.trackLinks?.length ?? 0) > 0);
 
     const { mode, dir } = this.tabSort[tab] ?? { mode: "az" as LibrarySortOption, dir: "asc" as LibrarySortDir };
 
@@ -345,6 +346,7 @@ export function mapEntryToManga(entry: LibraryEntry): Manga {
     libraryEntryId: entry.id,
     prefsKey:       entry.extensionId ? `${entry.extensionId}:${entry.externalId}` : entry.id,
     metadata:       entry.metadata ?? null,
+    trackLinks:     entry.trackLinks ?? [],
   } as Manga;
 }
 

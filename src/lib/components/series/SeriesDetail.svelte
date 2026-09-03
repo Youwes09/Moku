@@ -697,7 +697,7 @@
     {manga}
     currentChapters={seriesState.chaptersFor(manga.id)}
     onClose={() => migrateOpen = false}
-    onMigrated={(newManga) => { goto(seriesHref(newManga)); migrateOpen = false }}
+    onMigrated={(newManga) => { migrateOpen = false; goto(seriesHref(newManga), { replaceState: true, invalidateAll: true }) }}
   />
 {/if}
 

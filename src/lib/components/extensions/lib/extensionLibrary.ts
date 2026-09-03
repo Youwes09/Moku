@@ -4,6 +4,7 @@ export interface LibraryManga {
   thumbnailUrl: string;
   unreadCount: number;
   downloadCount: number;
+  contentType?: string | null;
   source: { id: string; displayName: string } | null;
 }
 

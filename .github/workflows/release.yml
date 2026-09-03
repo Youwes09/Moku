@@ -6,6 +6,10 @@ on:
       version:
         description: "Moku version to release (no leading v), e.g. 0.10.5"
         required: true
+      tsunagu_version:
+        description: "Tsunagu backend version to bundle (no leading v). Blank keeps the current pin in nix/versions.nix"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -26,9 +30,13 @@ jobs:
         run: |
           set -euo pipefail
           V="${{ inputs.version }}"
+          T="${{ inputs.tsunagu_version }}"
           sed -i "s/moku = \"[^\"]*\"/moku = \"$V\"/"             nix/versions.nix
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$V\"/"  src-tauri/tauri.conf.json
           sed -i "0,/^version = \"[^\"]*\"/s//version = \"$V\"/"   src-tauri/Cargo.toml
+          if [ -n "$T" ]; then
+            sed -i "s/tsunagu = \"[^\"]*\"/tsunagu = \"$T\"/"      nix/versions.nix
+          fi
           (cd src-tauri && cargo generate-lockfile)
 
       - name: Commit, tag, push

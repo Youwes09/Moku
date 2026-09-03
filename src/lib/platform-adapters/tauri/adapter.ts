@@ -117,6 +117,10 @@ export class TauriAdapter implements PlatformAdapter {
     return invoke('get_auto_backup_dir')
   }
 
+  async listSystemFonts(): Promise<string[]> {
+    return invoke('list_system_fonts')
+  }
+
   async fetchImage(url: string, headers: Record<string, string>): Promise<Blob> {
     const res = await tauriFetch(url, { method: 'GET', headers })
     if (!res.ok) throw new Error(`${res.status}`)

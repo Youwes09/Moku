@@ -91,6 +91,7 @@ pub fn run() {
             commands::system::clear_moku_cache,
             commands::system::open_path,
             commands::system::pick_downloads_folder,
+            commands::system::list_system_fonts,
             commands::backup::export_app_data,
             commands::backup::import_app_data,
             commands::backup::auto_backup_app_data,

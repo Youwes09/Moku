@@ -3,6 +3,7 @@
   import { tsunagu }            from "$lib/server-adapters/tsunagu";
   import { settingsState }      from "$lib/state/settings.svelte";
   import { shouldHideNsfw, dedupeMangaById, dedupeMangaByTitle } from "$lib/core/util";
+  import { sourceErrorInfo } from "$lib/core/sourceErrors";
   import { resolvedCover } from "$lib/core/cover/coverResolver";
   import Thumbnail              from "$lib/components/shared/manga/Thumbnail.svelte";
   import type { Manga, Source } from "$lib/types";
@@ -16,6 +17,8 @@
     pendingPrefill:    string;
     popularResults:    (Manga & { _priority: number })[];
     popularLoading:    boolean;
+    popularExhausted:  boolean;
+    onPopularLoadMore: () => void;
     sourceCache:       Map<string, unknown>;
     query:             string;
     onQueryChange:     (q: string) => void;
@@ -24,7 +27,7 @@
   }
   let {
     allSources, availableLangs, hasMultipleLangs, loadingSources,
-    pendingPrefill, popularResults, popularLoading,
+    pendingPrefill, popularResults, popularLoading, popularExhausted, onPopularLoadMore,
     sourceCache,
     query, onQueryChange,
     onPrefillConsumed, onPreview,
@@ -46,7 +49,13 @@
     mangas:  Manga[];
     loading: boolean;
     error:   string | null;
+    page:    number;
+    hasMore: boolean;
   }
+
+  let kw_loadingMore = $state(false);
+  let kw_sentinel: HTMLDivElement | undefined = $state();
+  let kw_observer: IntersectionObserver | null = null;
 
   $effect(() => {
     if (!allSources.length) return;
@@ -101,7 +110,7 @@
     const ctrl = new AbortController();
     kw_abortCtrl = ctrl;
 
-    kw_results = visible.map((src) => ({ source: src, mangas: [], loading: true, error: null }));
+    kw_results = visible.map((src) => ({ source: src, mangas: [], loading: true, error: null, page: 1, hasMore: false }));
     const idxOf = new Map(visible.map((src, i) => [src.id, i]));
 
     await Promise.allSettled(visible.map(async (src) => {
@@ -113,12 +122,49 @@
         const mangas = result.results
           .map((r) => toBrowseManga(r, pkgName, src.id, src.contentType))
           .filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
-        kw_results[idx] = { ...kw_results[idx], mangas, loading: false };
+        kw_results[idx] = { ...kw_results[idx], mangas, loading: false, page: 1, hasMore: !!result.hasNextPage };
       } catch (e: any) {
         if (ctrl.signal.aborted || e?.name === "AbortError") return;
-        kw_results[idx] = { ...kw_results[idx], loading: false, error: e.message ?? "Error" };
+        const info = sourceErrorInfo(e);
+        if (info?.code === "SOURCE_NOT_FOUND") {
+          kw_results[idx] = { ...kw_results[idx], loading: false, error: null };
+        } else {
+          kw_results[idx] = { ...kw_results[idx], loading: false, error: info?.label ?? e.message ?? "Error" };
+        }
       }
     }));
+  }
+
+  async function kwLoadMore() {
+    if (kw_loadingMore || !kw_allDone) return;
+    const ctrl = kw_abortCtrl;
+    if (!ctrl || ctrl.signal.aborted) return;
+    const targets = kw_results
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => r.hasMore && !r.loading && !r.error);
+    if (!targets.length) return;
+    const trimmed = kw_localQuery.trim();
+    if (!trimmed) return;
+    kw_loadingMore = true;
+    await Promise.allSettled(targets.map(async ({ r, i }) => {
+      const next = r.page + 1;
+      try {
+        const result = await tsunagu.search(r.source.id, trimmed, next, undefined, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        const mangas = result.results
+          .map((x) => toBrowseManga(x, r.source.id, r.source.id, r.source.contentType))
+          .filter((m) => !shouldHideNsfw(m as any, settingsState.settings));
+        kw_results[i] = {
+          ...kw_results[i],
+          mangas: [...kw_results[i].mangas, ...mangas],
+          page: next,
+          hasMore: !!result.hasNextPage,
+        };
+      } catch {
+        kw_results[i] = { ...kw_results[i], hasMore: false };
+      }
+    }));
+    kw_loadingMore = false;
   }
 
   function kwToggleLang(lang: string) {
@@ -144,8 +190,24 @@
     return coverFirst(deduped).map((m, i) => ({ ...m, _priority: i < 12 ? 12 - i : 0 }));
   });
 
+  $effect(() => {
+    kw_observer?.disconnect();
+    if (!kw_sentinel) return;
+    kw_observer = new IntersectionObserver((entries) => {
+      if (!entries[0]?.isIntersecting) return;
+      if (!kw_localQuery.trim()) {
+        if (!popularExhausted && !popularLoading) onPopularLoadMore();
+      } else {
+        kwLoadMore();
+      }
+    }, { rootMargin: "600px" });
+    kw_observer.observe(kw_sentinel);
+    return () => kw_observer?.disconnect();
+  });
+
   onDestroy(() => {
     kw_abortCtrl?.abort();
+    kw_observer?.disconnect();
     if (kw_debounceTimer) clearTimeout(kw_debounceTimer);
   });
 </script>
@@ -233,6 +295,7 @@
       {#if popularLoading}
         {#each Array(12) as _, i (i)}<div class="skCard"><div class="skeleton skCover"></div></div>{/each}
       {/if}
+      {#if !popularExhausted}<div bind:this={kw_sentinel} class="kw-sentinel" aria-hidden="true"></div>{/if}
     </div>
   {:else}
     <div class="empty">
@@ -272,9 +335,10 @@
           </div>
         </button>
       {/each}
-      {#if kw_anyLoading}
+      {#if kw_anyLoading || kw_loadingMore}
         {#each Array(6) as _, i (i)}<div class="skCard"><div class="skeleton skCover"></div></div>{/each}
       {/if}
+      <div bind:this={kw_sentinel} class="kw-sentinel" aria-hidden="true"></div>
     </div>
   {:else if kw_anyLoading}
     <div class="searchGrid">
@@ -292,6 +356,7 @@
 {/if}
 
 <style>
+  .kw-sentinel   { grid-column: 1 / -1; height: 1px; }
   .keywordBar    { padding: var(--sp-3) var(--sp-4) var(--sp-2); flex-shrink: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .searchBar     { display: flex; align-items: center; gap: var(--sp-2); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-lg); padding: var(--sp-2) var(--sp-3); transition: border-color var(--t-base); }
   .searchBar:focus-within { border-color: var(--border-strong); }

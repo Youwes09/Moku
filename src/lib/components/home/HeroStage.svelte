@@ -1,7 +1,6 @@
 <script lang="ts">
   import { Play, ArrowRight, ArrowLeft, BookOpen, Clock, ListBullets, PushPin, X as XIcon } from 'phosphor-svelte'
   import { goto } from '$app/navigation'
-  import { seriesHref } from '$lib/state/series.svelte'
   import { timeAgo } from '$lib/core/util'
   import Thumbnail from '$lib/components/shared/manga/Thumbnail.svelte'
   import type { Manga } from '$lib/types'
@@ -151,7 +150,7 @@
             <Play size={11} weight="fill" />{resuming ? 'Loading…' : 'Resume'}
           </button>
         {:else if heroManga}
-          <button class="hero-cta" onclick={() => goto(seriesHref(heroManga!))}>
+          <button class="hero-cta" onclick={onviewseries}>
             <BookOpen size={11} weight="light" /> View manga
           </button>
         {/if}

@@ -60,6 +60,7 @@ export class WebAdapter implements PlatformAdapter {
   }
   async migrateDownloads(_src: string, _dst: string): Promise<void> {}
   async getAutoBackupDir(): Promise<string> { return '' }
+  async listSystemFonts(): Promise<string[]> { return [] }
 
   async fetchImage(url: string, headers: Record<string, string>): Promise<Blob> {
     const res = await fetch(url, { method: 'GET', headers })

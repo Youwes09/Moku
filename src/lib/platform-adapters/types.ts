@@ -89,6 +89,7 @@ export interface PlatformAdapter {
   getStorageInfo(downloadsPath: string):   Promise<StorageInfo>
   migrateDownloads(src: string, dst: string): Promise<void>
   getAutoBackupDir():                      Promise<string>
+  listSystemFonts():                       Promise<string[]>
 
   fetchImage(url: string, headers: Record<string, string>): Promise<Blob>
 

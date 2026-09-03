@@ -1,12 +1,19 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { seriesState } from "$lib/state/series.svelte";
   import { novelReaderState, type NovelFont, type NovelTheme } from "$lib/state/novelReader.svelte";
+  import { platformService } from "$lib/platform-service";
   import MediaSettingsPanel from "$lib/components/media/shared/MediaSettingsPanel.svelte";
 
   interface Props { onClose: () => void }
   let { onClose }: Props = $props();
 
   const st = novelReaderState;
+
+  let systemFonts: string[] = $state([]);
+  onMount(async () => {
+    try { systemFonts = await platformService.listSystemFonts(); } catch { systemFonts = []; }
+  });
 
   const FONTS: { k: NovelFont; label: string }[] = [
     { k: "serif", label: "Serif" },
@@ -25,9 +32,21 @@
     <p class="msp-label">Font</p>
     <div class="msp-seg">
       {#each FONTS as f (f.k)}
-        <button class="msp-seg-btn" class:on={st.fontFamily === f.k} onclick={() => st.setFont(f.k)}>{f.label}</button>
+        <button class="msp-seg-btn" class:on={st.fontFamily === f.k && !st.systemFont} onclick={() => st.setFont(f.k)}>{f.label}</button>
       {/each}
     </div>
+    {#if systemFonts.length > 0}
+      <select
+        class="ns-font-select"
+        value={st.systemFont ?? ""}
+        onchange={(e) => st.setSystemFont((e.currentTarget as HTMLSelectElement).value || null)}
+      >
+        <option value="">System font — default</option>
+        {#each systemFonts as f (f)}
+          <option value={f}>{f}</option>
+        {/each}
+      </select>
+    {/if}
   </div>
 
   <div class="msp-group">
@@ -88,6 +107,21 @@
 </MediaSettingsPanel>
 
 <style>
+  .ns-font-select {
+    width: 100%; margin-top: 4px; padding: 6px 26px 6px 8px;
+    font-family: var(--font-ui); font-size: var(--text-2xs);
+    color: var(--text-muted); cursor: pointer;
+    background-color: color-mix(in srgb, var(--bg-void) 55%, transparent);
+    border: 1px solid var(--frost-border); border-radius: var(--radius-md);
+    color-scheme: dark;
+    outline: none;
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23888' stroke-width='1.3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 9px center;
+  }
+  .ns-font-select:focus { border-color: var(--border-strong); }
+  .ns-font-select option { background: var(--bg-surface); color: var(--text-secondary); }
   .ns-themes { grid-template-columns: repeat(3, 1fr); }
   .ns-swatch {
     width: 20px; height: 20px; border-radius: var(--radius-sm);

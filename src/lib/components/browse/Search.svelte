@@ -53,7 +53,6 @@
   $effect(() => { urlTab; if (anims) requestAnimationFrame(() => requestAnimationFrame(updateIndicator)); });
 
   const SEARCH_PAGES        = 3;
-  const SEARCH_LIMIT        = 200;
   const SEARCH_BATCH        = 20;
   const POPULAR_CACHE_PAGES = 3;
 
@@ -92,15 +91,21 @@
 
   let popular_raw:          Manga[] = $state([]);
   let popular_loading                  = $state(false);
+  let popular_exhausted                = $state(false);
   let popular_abortCtrl: AbortController | null = null;
   let popular_sourcePool:   Source[] = [];
   let popular_sourceCursor             = 0;
+  let popular_round                    = 0;
+  let popular_roundAdded               = 0;
   let popular_seenIds    = new Set<string>();
   let popular_seenTitles = new Set<string>();
+
+  const POPULAR_CEILING = 3000;
 
   const popular_results = $derived(coverFirst(popular_raw).map((m, i) => ({ ...m, _priority: Math.max(0, 50 - i) })));
 
   function popular_push(incoming: Manga[]) {
+    if (popular_raw.length >= POPULAR_CEILING) return;
     const toAdd: Manga[] = [];
     for (const m of incoming) {
       if (shouldHideNsfw(m as any, settingsState.settings)) continue;
@@ -112,7 +117,8 @@
       toAdd.push(m);
     }
     if (!toAdd.length) return;
-    popular_raw = [...popular_raw, ...toAdd].slice(0, SEARCH_LIMIT);
+    popular_roundAdded += toAdd.length;
+    popular_raw = [...popular_raw, ...toAdd];
   }
 
   async function popular_fanOut(signal: AbortSignal) {
@@ -122,8 +128,10 @@
       popular_sourceCursor = popular_sourcePool.length;
       return;
     }
+    const from = popular_round * SEARCH_PAGES + 1;
+    const to   = from + SEARCH_PAGES - 1;
     await runConcurrent(batch, async (src) => {
-      for (let p = 1; p <= SEARCH_PAGES; p++) {
+      for (let p = from; p <= to; p++) {
         if (signal.aborted) return;
         try {
           const result = await tsunagu.popularManga(src.id, p, signal);
@@ -136,6 +144,18 @@
     popular_sourceCursor += batch.length;
   }
 
+  async function popular_run(signal: AbortSignal) {
+    popular_roundAdded = 0;
+    try {
+      while (!signal.aborted && popular_sourceCursor < popular_sourcePool.length) {
+        await popular_fanOut(signal);
+      }
+    } catch {}
+    if (signal.aborted) return;
+    if (popular_roundAdded === 0 || popular_raw.length >= POPULAR_CEILING) popular_exhausted = true;
+    popular_loading = false;
+  }
+
   function popularStart(sources: Source[]) {
     if (popular_raw.length > 0) return;
     popular_abortCtrl?.abort();
@@ -144,17 +164,22 @@
     popular_seenIds.clear();
     popular_seenTitles.clear();
     popular_raw = [];
+    popular_exhausted = false;
+    popular_round = 0;
     popular_sourcePool   = sources;
     popular_sourceCursor = 0;
     popular_loading = true;
-    (async () => {
-      try {
-        while (!ctrl.signal.aborted && popular_sourceCursor < popular_sourcePool.length) {
-          await popular_fanOut(ctrl.signal);
-        }
-      } catch {}
-      if (!ctrl.signal.aborted) popular_loading = false;
-    })();
+    popular_run(ctrl.signal);
+  }
+
+  export function popularLoadMore() {
+    if (popular_loading || popular_exhausted || !popular_raw.length) return;
+    const ctrl = popular_abortCtrl;
+    if (!ctrl || ctrl.signal.aborted) return;
+    popular_round += 1;
+    popular_sourceCursor = 0;
+    popular_loading = true;
+    popular_run(ctrl.signal);
   }
 
   export const sourceCache = new Map<string, CachedManga>();
@@ -279,6 +304,8 @@
       {pendingPrefill}
       popularResults={popular_results}
       popularLoading={popular_loading}
+      popularExhausted={popular_exhausted}
+      onPopularLoadMore={popularLoadMore}
       {sourceCache}
       query={urlQuery}
       onQueryChange={setQuery}

@@ -90,8 +90,30 @@ export const discovery = {
 		return data.latestUpdates
 	},
 
-	async sourcePreferences(_extensionId: string): Promise<SourcePreference[]> {
-		return []
+	async sourcePreferences(extensionId: string): Promise<SourcePreference[]> {
+		const data = await gql<{ sourcePreferences: SourcePreference[] }>(
+			`query SourcePreferences($extensionId: ID!) {
+				sourcePreferences(extensionId: $extensionId) {
+					key title summary type entries entryValues currentValue defaultValue
+				}
+			}`,
+			{ extensionId },
+			baseUrl()
+		)
+		return data.sourcePreferences ?? []
+	},
+
+	async setSourcePreference(extensionId: string, key: string, value: string): Promise<SourcePreference[]> {
+		const data = await gql<{ setSourcePreference: SourcePreference[] }>(
+			`mutation SetSourcePreference($extensionId: ID!, $key: String!, $value: String!) {
+				setSourcePreference(extensionId: $extensionId, key: $key, value: $value) {
+					key title summary type entries entryValues currentValue defaultValue
+				}
+			}`,
+			{ extensionId, key, value },
+			baseUrl()
+		)
+		return data.setSourcePreference ?? []
 	},
 
 	async filterOptions(extensionId: string): Promise<FilterNode[]> {

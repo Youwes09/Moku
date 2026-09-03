@@ -14,6 +14,7 @@
   import { resolvedCover }     from "$lib/core/cover/coverResolver";
   import { autoLinkLibrary }   from "$lib/core/cover/autoLink";
   import { settingsState }     from "$lib/state/settings.svelte";
+  import { loadLibrary }       from "$lib/state/library.svelte";
   import { addToast }          from "$lib/state/notifications.svelte";
   import { resolveMangaDetail } from "$lib/components/browse/lib/searchFilter";
   import {
@@ -264,6 +265,7 @@
         await tsunagu.removeFromLibrary(manga.id);
         cache.clear(CACHE_KEYS.MANGA(manga.id));
         cache.clear(CACHE_KEYS.LIBRARY);
+        void loadLibrary(true);
         addToast({ kind: "success", title: "Removed from library" });
         close();
       } else {
@@ -271,6 +273,7 @@
         cache.clear(CACHE_KEYS.MANGA(manga.id));
         cache.clear(CACHE_KEYS.LIBRARY);
         manga = { ...manga, id: entry.id, inLibrary: true, libraryEntryId: entry.id };
+        void loadLibrary(true);
         addToast({ kind: "success", title: "Added to library" });
       }
     } catch (e) {
@@ -413,7 +416,7 @@
   onclick={(e) => { if (e.target === e.currentTarget) close(); }}
   onkeydown={(e) => { if (e.key === "Escape") close(); }}
 >
-  <div class="modal" role="dialog" aria-label="Manga preview">
+  <div class="modal" role="dialog" aria-label="Media preview">
 
     <div class="cover-col">
       <div class="cover-wrap">

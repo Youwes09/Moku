@@ -7,6 +7,7 @@ import { tsunagu }                                    from '$lib/server-adapters
 import type { LibraryEntry, Chapter as TsunaguChapter, MangaInfo } from '$lib/server-adapters/types'
 import { buildChapterList }                           from '$lib/components/series/lib/chapterList'
 import { clearPageCache }                             from '$lib/core/cache/pageCache'
+import { sourceErrorInfo }                            from '$lib/core/sourceErrors'
 import { goto }                                       from '$app/navigation'
 
 export type { BookmarkEntry } from '$lib/types/history'
@@ -19,8 +20,13 @@ const CHAPTER_TTL_MS = 2 * 60 * 1000
 export function seriesHref(m: {
   extensionId?: string; sourceEntryId?: string; mediaId?: string; libraryEntryId?: string | null; id?: string
 }): string {
-  const base = `/series/${encodeURIComponent(m.extensionId ?? '')}/${encodeURIComponent(m.sourceEntryId ?? '')}`
   const mid = m.mediaId ?? m.libraryEntryId ?? (m.id && /^\d+$/.test(m.id) ? m.id : '')
+  const ext = m.extensionId ?? ''
+  const src = m.sourceEntryId ?? ''
+  if (!ext || !src) {
+    return mid ? `/series/_/_?mid=${encodeURIComponent(mid)}` : '/library'
+  }
+  const base = `/series/${encodeURIComponent(ext)}/${encodeURIComponent(src)}`
   return mid ? `${base}?mid=${encodeURIComponent(mid)}` : base
 }
 
@@ -182,7 +188,10 @@ class SeriesStore {
       this.#fetchedAt.set(key, Date.now())
     } catch (e: unknown) {
       if ((e as { name?: string }).name === 'AbortError') return
-      const msg = e instanceof Error ? e.message : String(e)
+      const info = sourceErrorInfo(e)
+      const msg = info
+        ? (info.cloudflare ? 'This source is behind Cloudflare protection.' : `${info.label} — ${info.message}`)
+        : (e instanceof Error ? e.message : String(e))
       this.#errors = new Map(this.#errors).set(key, msg)
     } finally {
       if (!ctrl.signal.aborted) {
@@ -218,9 +227,6 @@ class SeriesStore {
     this.#rawChapters = new Map(this.#rawChapters).set(mangaId, updater(current))
   }
 
-  // Promote cached chapters to downloaded:true when their download finishes while
-  // the list is on screen. Only ever flips ON — deletes drive the reverse via
-  // markChaptersDeleted, since `doneIds` is the recent queue, not full history.
   reconcileDownloadsCompleted(doneIds: Set<string>) {
     if (doneIds.size === 0) return
     let next: Map<string, Chapter[]> | null = null
@@ -228,12 +234,12 @@ class SeriesStore {
       if (!list.some(c => doneIds.has(c.id) && !c.downloaded)) continue
       const patched = list.map(c => {
         if (!doneIds.has(c.id) || c.downloaded) return c
-        clearPageCache(c.id)                    // local files now exist; drop the source URL list + blobs
+        clearPageCache(c.id)
         return { ...c, downloaded: true }
       })
       next ??= new Map(this.#rawChapters)
       next.set(mangaId, patched)
-      this.#fetchedAt.delete(mangaId)           // force a real reload so pageCount lands
+      this.#fetchedAt.delete(mangaId)
     }
     if (next) this.#rawChapters = next
   }

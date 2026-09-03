@@ -36,7 +36,9 @@
   interface Props { extensionId: string; sourceEntryId: string; mid?: string }
   let { extensionId, sourceEntryId, mid }: Props = $props()
 
-  const mangaId = $derived(`${extensionId}:${sourceEntryId}`)
+  const mangaId = $derived(
+    extensionId === '_' && mid ? mid : `${extensionId}:${sourceEntryId}`
+  )
 
   let manga = $state<Manga | null>(null)
 
@@ -230,7 +232,6 @@
         let entry = await tsunagu.libraryEntry(realId)
         if (ctrl.signal.aborted) return cached?.data ?? null
         if (!entry) {
-          // stale/removed id (e.g. after a migration) — re-resolve against the source
           realId = await resolveViaSource(ctrl.signal)
           if (ctrl.signal.aborted) return cached?.data ?? null
           entry = realId ? await tsunagu.libraryEntry(realId) : null

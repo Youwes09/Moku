@@ -32,8 +32,6 @@ async function getPagesForChapter(
     Array.from({ length: count }, (_, i) =>
       absolutePageUrl(`/content/${mangaId}/${chapterId}/pages/${i + 1}`));
 
-  // Downloaded chapters always go through the backend, which decides local-vs-remote.
-  // Never hand the reader a pre-resolved source URL for one.
   if (chapter?.downloaded && chapter.pageCount && chapter.pageCount > 0) {
     return contentPages(chapter.pageCount);
   }

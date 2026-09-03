@@ -98,6 +98,7 @@ export class CapacitorAdapter implements PlatformAdapter {
   }
   async migrateDownloads(_src: string, _dst: string): Promise<void> {}
   async getAutoBackupDir(): Promise<string> { return '' }
+  async listSystemFonts(): Promise<string[]> { return [] }
 
 
 

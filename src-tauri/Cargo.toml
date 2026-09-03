@@ -29,6 +29,7 @@ serde_json                = "1"
 walkdir                   = "2"
 sysinfo                   = "0.32"
 dirs                      = "5"
+font-kit                  = "0.14"
 tokio                     = { version = "1", features = ["rt-multi-thread", "process", "io-util", "time", "sync"] }
 
 [target.'cfg(unix)'.dependencies]

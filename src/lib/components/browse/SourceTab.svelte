@@ -4,6 +4,7 @@
   import { toBrowseManga, coverFirst } from "$lib/components/browse/lib/searchFilter";
   import { settingsState, updateSettings } from "$lib/state/settings.svelte";
   import { shouldHideNsfw } from "$lib/core/util";
+  import { sourceErrorInfo } from "$lib/core/sourceErrors";
   import { resolvedCover } from "$lib/core/cover/coverResolver";
   import Thumbnail              from "$lib/components/shared/manga/Thumbnail.svelte";
   import ExtensionIcon          from "$lib/components/extensions/ExtensionIcon.svelte";
@@ -112,9 +113,18 @@
       if (e?.name !== "AbortError") {
         console.error(e);
         if (!ctrl.signal.aborted && page === 1) {
-          src_browseError = /connection reset|socket|timeout|timed out|ECONN|unreachable|handshake/i.test(String(e?.message ?? e))
-            ? "The source site could not be reached. It may be down, blocking requests, or rate-limiting."
-            : (e?.message ?? "Failed to load from this source.");
+          const info = sourceErrorInfo(e);
+          if (info?.code === "SOURCE_NOT_FOUND") {
+            src_browseError = null;
+          } else if (info) {
+            src_browseError = info.cloudflare
+              ? "This source is behind Cloudflare protection. Enable the Cloudflare solver in settings, then retry."
+              : `${info.label} — ${info.message}`;
+          } else {
+            src_browseError = /connection reset|socket|timeout|timed out|ECONN|unreachable|handshake/i.test(String(e?.message ?? e))
+              ? "The source site could not be reached. It may be down, blocking requests, or rate-limiting."
+              : (e?.message ?? "Failed to load from this source.");
+          }
         }
       }
     } finally {

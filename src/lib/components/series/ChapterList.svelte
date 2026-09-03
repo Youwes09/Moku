@@ -111,7 +111,7 @@
   }
 </script>
 
-<div class="ch-scroll" bind:this={listEl} onscroll={onScroll}>
+<div class="ch-scroll" class:ch-scroll-grid={viewMode === 'grid'} bind:this={listEl} onscroll={onScroll}>
   {#if loadingChapters && sortedChapters.length === 0}
     {#if viewMode === 'grid'}
       <div class="ch-grid-inner">
@@ -216,6 +216,7 @@
 
 <style>
   .ch-scroll { flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+  .ch-scroll-grid { padding-top: var(--sp-3); }
   .ch-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
   .ch-scroll::-webkit-scrollbar-track { background: transparent; }
   .ch-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 99px; }

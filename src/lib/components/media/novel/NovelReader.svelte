@@ -4,7 +4,7 @@
   import { TextT, BookmarkSimple } from "phosphor-svelte";
   import { seriesState, setPreviewManga } from "$lib/state/series.svelte";
   import { settingsState } from "$lib/state/settings.svelte";
-  import { novelReaderState, NOVEL_FONTS, type NovelSegment } from "$lib/state/novelReader.svelte";
+  import { novelReaderState, resolvedNovelFont, type NovelSegment } from "$lib/state/novelReader.svelte";
   import { mediaViewState } from "$lib/state/mediaView.svelte";
   import { chapterNav } from "$lib/components/media/shared/useChapterNav";
   import { createMediaKeyHandler } from "$lib/components/media/shared/mediaKeybinds";
@@ -192,7 +192,7 @@
   >
     <article
       class="col"
-      style="font-family: {NOVEL_FONTS[st.fontFamily]}; font-size: {st.fontScale}rem; line-height: {st.lineHeight}; max-width: {st.pageWidth}rem; text-align: {st.textAlign}; --para-gap: {st.paraSpacing}em;"
+      style="font-family: {resolvedNovelFont(st)}; font-size: {st.fontScale}rem; line-height: {st.lineHeight}; max-width: {st.pageWidth}rem; text-align: {st.textAlign}; --para-gap: {st.paraSpacing}em;"
     >
       {#if st.loading}
         <p class="notice">Loading…</p>

@@ -1,36 +1,9 @@
 <script lang="ts">
-  import { X, CircleNotch, CaretUpDown, Check, CaretLeft, CaretRight } from "phosphor-svelte";
+  import { X, CircleNotch, CaretUpDown, Check, CaretLeft, CaretRight, ArrowCounterClockwise } from "phosphor-svelte";
   import Thumbnail from "$lib/components/shared/manga/Thumbnail.svelte";
+  import { tsunagu } from "$lib/server-adapters/tsunagu";
   import { addToast } from "$lib/state/notifications.svelte";
-
-  interface Preference {
-    type: string;
-    key: string;
-    CheckBoxTitle?: string;
-    CheckBoxSummary?: string;
-    CheckBoxDefault?: boolean;
-    CheckBoxCurrentValue?: boolean;
-    SwitchPreferenceTitle?: string;
-    SwitchPreferenceSummary?: string;
-    SwitchPreferenceDefault?: boolean;
-    SwitchPreferenceCurrentValue?: boolean;
-    ListPreferenceTitle?: string;
-    ListPreferenceSummary?: string;
-    ListPreferenceDefault?: string;
-    ListPreferenceCurrentValue?: string;
-    entries?: string[];
-    entryValues?: string[];
-    EditTextPreferenceTitle?: string;
-    EditTextPreferenceSummary?: string;
-    EditTextPreferenceDefault?: string;
-    EditTextPreferenceCurrentValue?: string;
-    dialogTitle?: string;
-    dialogMessage?: string;
-    MultiSelectListPreferenceTitle?: string;
-    MultiSelectListPreferenceSummary?: string;
-    MultiSelectListPreferenceDefault?: string[];
-    MultiSelectListPreferenceCurrentValue?: string[];
-  }
+  import type { SourcePreference } from "$lib/server-adapters/types";
 
   export type SourceEntry = { id: string; displayName: string };
 
@@ -44,8 +17,9 @@
   let { extensionName, iconUrl, sources, onClose }: Props = $props();
 
   let activeIndex = $state(sources.length === 1 ? 0 : -1);
-  let prefs        = $state<Preference[]>([]);
+  let prefs        = $state<SourcePreference[]>([]);
   let loading      = $state(false);
+  let loadError    = $state<string | null>(null);
   let saving       = $state<string | null>(null);
   let editKey      = $state<string | null>(null);
   let editValue    = $state("");
@@ -56,50 +30,80 @@
   const inPicker     = $derived(sources.length > 1 && activeIndex < 0);
 
   $effect(() => {
-    if (activeSource) loadPrefs(activeSource);
+    const src = activeSource;
+    if (src) loadPrefs(src.id);
   });
 
-  async function loadPrefs(src: SourceEntry) {
-    loading  = true;
-    prefs    = [];
-    editKey  = null;
-    listOpen = null;
-    loading  = false;
+  async function loadPrefs(extensionId: string) {
+    loading   = true;
+    loadError = null;
+    prefs     = [];
+    editKey   = null;
+    listOpen  = null;
+    try {
+      prefs = await tsunagu.sourcePreferences(extensionId);
+    } catch (e: any) {
+      loadError = e?.message ?? "Failed to load settings";
+    } finally {
+      loading = false;
+    }
   }
 
-  async function save(position: number, changeType: string, value: unknown) {
+  async function send(key: string, value: string) {
+    const src = activeSource;
+    if (!src || saving) return;
+    saving = key;
+    try {
+      prefs = await tsunagu.setSourcePreference(src.id, key, value);
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Couldn't save setting", body: e?.message ?? "" });
+    } finally {
+      saving = null;
+    }
   }
 
-  function getTitle(p: Preference) {
-    return p.CheckBoxTitle ?? p.SwitchPreferenceTitle ?? p.ListPreferenceTitle
-      ?? p.EditTextPreferenceTitle ?? p.MultiSelectListPreferenceTitle ?? p.key;
+  function cleanSummary(p: SourcePreference): string | null {
+    const s = (p.summary ?? "").trim();
+    if (!s) return null;
+    if (!s.includes("%s")) return s;
+    return s.replace(/%s/g, listLabel(p, p.currentValue));
   }
-  function getSummary(p: Preference) {
-    return p.CheckBoxSummary ?? p.SwitchPreferenceSummary ?? p.ListPreferenceSummary
-      ?? p.EditTextPreferenceSummary ?? p.MultiSelectListPreferenceSummary ?? null;
+
+  function listLabel(p: SourcePreference, val: string): string {
+    const i = p.entryValues.indexOf(val);
+    return i >= 0 ? (p.entries[i] ?? val) : val;
   }
-  function getBoolValue(p: Preference) {
-    return p.type === "CheckBoxPreference"
-      ? (p.CheckBoxCurrentValue ?? p.CheckBoxDefault ?? false)
-      : (p.SwitchPreferenceCurrentValue ?? p.SwitchPreferenceDefault ?? false);
+
+  function parseMulti(val: string): string[] {
+    try {
+      const a = JSON.parse(val);
+      return Array.isArray(a) ? a.map(String) : [];
+    } catch {
+      return [];
+    }
   }
-  function getListValue(p: Preference)  { return p.ListPreferenceCurrentValue ?? p.ListPreferenceDefault ?? ""; }
-  function getListLabel(p: Preference, val: string) {
-    const idx = p.entryValues?.indexOf(val) ?? -1;
-    return idx >= 0 ? (p.entries?.[idx] ?? val) : val;
+
+  function toggleMulti(p: SourcePreference, val: string) {
+    const curr = parseMulti(p.currentValue);
+    const next = curr.includes(val) ? curr.filter((v) => v !== val) : [...curr, val];
+    send(p.key, JSON.stringify(next));
   }
-  function getMultiValue(p: Preference): string[] {
-    return p.MultiSelectListPreferenceCurrentValue ?? p.MultiSelectListPreferenceDefault ?? [];
-  }
-  function toggleMulti(pos: number, p: Preference, val: string) {
-    const curr = getMultiValue(p);
-    save(pos, "multiSelectState", curr.includes(val) ? curr.filter(v => v !== val) : [...curr, val]);
-  }
-  function openEdit(p: Preference) {
+
+  function openEdit(p: SourcePreference) {
     editKey   = p.key;
-    editValue = p.EditTextPreferenceCurrentValue ?? p.EditTextPreferenceDefault ?? "";
+    editValue = p.currentValue ?? "";
   }
-  function submitEdit(pos: number) { save(pos, "editTextState", editValue); editKey = null; }
+  function submitEdit(key: string) {
+    send(key, editValue);
+    editKey = null;
+  }
+
+  function resetPref(p: SourcePreference) {
+    send(p.key, p.defaultValue ?? "");
+  }
+  function isDefault(p: SourcePreference): boolean {
+    return (p.currentValue ?? "") === (p.defaultValue ?? "");
+  }
 
   function langTag(name: string) {
     const m = name.match(/\(([^)]+)\)$/);
@@ -138,7 +142,7 @@
             onerror={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
         {/if}
         <div class="ext-titles">
-          <span class="ext-eyebrow">Extension Settings</span>
+          <span class="ext-eyebrow">Source Settings</span>
           <span class="ext-name">{extensionName}</span>
         </div>
       </div>
@@ -189,27 +193,28 @@
           <div class="center-state">
             <CircleNotch size={15} weight="light" class="anim-spin" style="color:var(--text-faint)" />
           </div>
+        {:else if loadError}
+          <div class="center-state dim">{loadError}</div>
         {:else if prefs.length === 0}
           <div class="center-state dim">No configurable settings.</div>
         {:else}
           <ul class="pref-list">
-            {#each prefs as pref, i}
-              {@const title    = getTitle(pref)}
-              {@const summary  = getSummary(pref)}
+            {#each prefs as pref (pref.key)}
+              {@const summary  = cleanSummary(pref)}
               {@const isSaving = saving === pref.key}
 
-              {#if pref.type === "CheckBoxPreference" || pref.type === "SwitchPreference"}
-                {@const checked = getBoolValue(pref)}
+              {#if pref.type === "SWITCH"}
+                {@const checked = pref.currentValue === "true"}
                 <li class="pref-row">
                   <div class="pref-text">
-                    <span class="pref-title">{title}</span>
+                    <span class="pref-title">{pref.title}</span>
                     {#if summary}<span class="pref-summary">{summary}</span>{/if}
                   </div>
                   <button
                     class="toggle" class:toggle-on={checked}
                     disabled={isSaving}
                     role="switch" aria-checked={checked}
-                    onclick={() => save(i, pref.type === "CheckBoxPreference" ? "checkBoxState" : "switchState", !checked)}
+                    onclick={() => send(pref.key, String(!checked))}
                   >
                     {#if isSaving}
                       <CircleNotch size={9} weight="light" class="anim-spin" />
@@ -219,12 +224,18 @@
                   </button>
                 </li>
 
-              {:else if pref.type === "ListPreference"}
-                {@const current = getListValue(pref)}
+              {:else if pref.type === "LIST"}
                 <li class="pref-row pref-col">
-                  <div class="pref-text">
-                    <span class="pref-title">{title}</span>
-                    {#if summary}<span class="pref-summary">{summary}</span>{/if}
+                  <div class="pref-head">
+                    <div class="pref-text">
+                      <span class="pref-title">{pref.title}</span>
+                      {#if summary}<span class="pref-summary">{summary}</span>{/if}
+                    </div>
+                    {#if !isDefault(pref)}
+                      <button class="reset-btn" title="Reset to default" onclick={() => resetPref(pref)}>
+                        <ArrowCounterClockwise size={11} weight="bold" />
+                      </button>
+                    {/if}
                   </div>
                   <div class="select-wrap">
                     <button
@@ -232,7 +243,7 @@
                       disabled={isSaving}
                       onclick={() => listOpen = listOpen === pref.key ? null : pref.key}
                     >
-                      <span class="select-val">{getListLabel(pref, current)}</span>
+                      <span class="select-val">{listLabel(pref, pref.currentValue)}</span>
                       {#if isSaving}
                         <CircleNotch size={10} weight="light" class="anim-spin" />
                       {:else}
@@ -241,14 +252,14 @@
                     </button>
                     {#if listOpen === pref.key}
                       <div class="dropdown">
-                        {#each (pref.entries ?? []) as entry, j}
-                          {@const val = pref.entryValues?.[j] ?? entry}
+                        {#each pref.entries as entry, j}
+                          {@const val = pref.entryValues[j] ?? entry}
                           <button
-                            class="dropdown-item" class:dropdown-item-active={val === current}
-                            onclick={() => { save(i, "listState", val); listOpen = null; }}
+                            class="dropdown-item" class:dropdown-item-active={val === pref.currentValue}
+                            onclick={() => { send(pref.key, val); listOpen = null; }}
                           >
                             {entry}
-                            {#if val === current}<Check size={10} weight="bold" />{/if}
+                            {#if val === pref.currentValue}<Check size={10} weight="bold" />{/if}
                           </button>
                         {/each}
                       </div>
@@ -256,18 +267,18 @@
                   </div>
                 </li>
 
-              {:else if pref.type === "EditTextPreference"}
+              {:else if pref.type === "EDIT_TEXT"}
                 {#if editKey === pref.key}
                   <li class="pref-row pref-col edit-active">
                     <div class="pref-text">
-                      {#if pref.dialogTitle}<span class="pref-title">{pref.dialogTitle}</span>{/if}
-                      {#if pref.dialogMessage}<span class="pref-summary">{pref.dialogMessage}</span>{/if}
+                      <span class="pref-title">{pref.title}</span>
+                      {#if summary}<span class="pref-summary">{summary}</span>{/if}
                     </div>
                     <div class="edit-row">
                       <input class="edit-input" bind:value={editValue} disabled={isSaving} autofocus
-                        onkeydown={(e) => { if (e.key === "Enter") submitEdit(i); if (e.key === "Escape") editKey = null; }} />
+                        onkeydown={(e) => { if (e.key === "Enter") submitEdit(pref.key); if (e.key === "Escape") editKey = null; }} />
                       <button class="action-dim" onclick={() => editKey = null}>Cancel</button>
-                      <button class="action-btn" onclick={() => submitEdit(i)} disabled={isSaving}>
+                      <button class="action-btn" onclick={() => submitEdit(pref.key)} disabled={isSaving}>
                         {#if isSaving}<CircleNotch size={10} weight="light" class="anim-spin" />{:else}Save{/if}
                       </button>
                     </div>
@@ -276,29 +287,34 @@
                   <li>
                     <button class="pref-row pref-row-btn" onclick={() => openEdit(pref)}>
                       <div class="pref-text">
-                        <span class="pref-title">{title}</span>
+                        <span class="pref-title">{pref.title}</span>
                         {#if summary}<span class="pref-summary">{summary}</span>{/if}
                       </div>
-                      <span class="pref-value-hint">
-                        {pref.EditTextPreferenceCurrentValue ?? pref.EditTextPreferenceDefault ?? "—"}
-                      </span>
+                      <span class="pref-value-hint">{pref.currentValue || "—"}</span>
                     </button>
                   </li>
                 {/if}
 
-              {:else if pref.type === "MultiSelectListPreference"}
-                {@const selected = getMultiValue(pref)}
+              {:else if pref.type === "MULTI_SELECT"}
+                {@const selected = parseMulti(pref.currentValue)}
                 <li class="pref-row pref-col">
-                  <div class="pref-text">
-                    <span class="pref-title">{title}</span>
-                    {#if summary}<span class="pref-summary">{summary}</span>{/if}
+                  <div class="pref-head">
+                    <div class="pref-text">
+                      <span class="pref-title">{pref.title}</span>
+                      {#if summary}<span class="pref-summary">{summary}</span>{/if}
+                    </div>
+                    {#if !isDefault(pref)}
+                      <button class="reset-btn" title="Reset to default" onclick={() => resetPref(pref)}>
+                        <ArrowCounterClockwise size={11} weight="bold" />
+                      </button>
+                    {/if}
                   </div>
                   <div class="multi-list">
-                    {#each (pref.entries ?? []) as entry, j}
-                      {@const val = pref.entryValues?.[j] ?? entry}
+                    {#each pref.entries as entry, j}
+                      {@const val = pref.entryValues[j] ?? entry}
                       {@const on  = selected.includes(val)}
                       <button class="multi-item" class:multi-item-on={on}
-                        disabled={isSaving} onclick={() => toggleMulti(i, pref, val)}>
+                        disabled={isSaving} onclick={() => toggleMulti(pref, val)}>
                         <span class="multi-check">{#if on}<Check size={9} weight="bold" />{/if}</span>
                         {entry}
                       </button>
@@ -425,7 +441,7 @@
     display: flex; align-items: center; justify-content: center;
     padding: var(--sp-10);
   }
-  .dim { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); }
+  .dim { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); text-align: center; }
   .pref-list { list-style: none; padding: var(--sp-1) 0; margin: 0; display: flex; flex-direction: column; }
 
   .pref-row {
@@ -445,6 +461,7 @@
   .pref-row-btn:hover { background: var(--bg-raised); }
   .edit-active { background: var(--bg-raised); }
 
+  .pref-head { display: flex; align-items: flex-start; gap: var(--sp-3); }
   .pref-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
   .pref-title { font-size: var(--text-sm); color: var(--text-secondary); font-weight: var(--weight-medium); }
   .pref-summary {
@@ -456,6 +473,13 @@
     letter-spacing: var(--tracking-wide); flex-shrink: 0;
     max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .reset-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; flex-shrink: 0;
+    border-radius: var(--radius-sm); color: var(--text-faint);
+    transition: color var(--t-base), background var(--t-base);
+  }
+  .reset-btn:hover { color: var(--text-primary); background: var(--bg-overlay); }
 
   .toggle {
     position: relative; width: 30px; height: 17px; border-radius: 9px;
@@ -490,6 +514,7 @@
     background: var(--bg-surface); border: 1px solid var(--border-strong);
     border-radius: var(--radius-md); overflow: hidden;
     box-shadow: var(--shadow-lg); z-index: 10;
+    max-height: 240px; overflow-y: auto;
     animation: dropIn 0.1s cubic-bezier(0.16,1,0.3,1) both;
   }
   @keyframes dropIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }

@@ -326,7 +326,7 @@ export function mapEntryToManga(entry: LibraryEntry): Manga {
     id:             entry.id,
     title:          entry.title,
     thumbnailUrl:   entry.thumbnailUrl ?? "",
-    inLibrary:      true,
+    inLibrary:      entry.inLibrary ?? true,
     contentType:    entry.contentType,
     description:    entry.description,
     status:         entry.status,
@@ -363,11 +363,20 @@ export async function loadLibrary(force = false) {
 
   inFlight = (async () => {
     try {
-      const [entries, folders] = await Promise.all([tsunagu.library(), tsunagu.folders()]);
+      const [entries, orphans, folders] = await Promise.all([
+        tsunagu.library(),
+        tsunagu.orphanedDownloads().catch(() => [] as typeof entries),
+        tsunagu.folders(),
+      ]);
       const items = entries.map(mapEntryToManga);
+
+      const seen = new Set(items.map(m => m.id));
+      for (const o of orphans) {
+        if (!seen.has(o.id)) items.push(mapEntryToManga(o));
+      }
       libraryState.items = items;
 
-      const byId = new Map(items.map((m, i) => [entries[i].id, m]));
+      const byId = new Map(items.map((m, i) => [entries[i]?.id ?? m.id, m]));
       const membership: Record<string, Manga[]> = {};
       for (const f of folders) membership[f.id] = [];
       for (const e of entries) {

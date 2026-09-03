@@ -141,7 +141,12 @@
       goto(`/media/${encodeURIComponent(heroEntry.mangaId)}/${encodeURIComponent(heroEntry.endChapterId)}`)
       return
     }
-    if (heroManga) goto(seriesHref(heroManga))
+    viewSeries()
+  }
+
+  function viewSeries() {
+    if (heroManga) { goto(seriesHref(heroManga)); return }
+    if (heroMangaId) goto(seriesHref({ mediaId: heroMangaId }))
   }
 
   function cycleNext() { activeIdx = (activeIdx + 1) % TOTAL_SLOTS; heroChapters = []; heroAllChapters = [] }
@@ -176,14 +181,14 @@
       {loadingHeroChapters}
       {resuming}
       onresume={resumeActive}
-      onviewseries={() => heroManga && goto(seriesHref(heroManga))}
+      onviewseries={viewSeries}
       onopenchapter={openChapter}
       oncyclenext={cycleNext}
       oncycleprev={cyclePrev}
       ongotoslot={goToSlot}
       onopenpicker={openPicker}
       onunpin={unpinSlot}
-      onviewall={() => heroManga && goto(seriesHref(heroManga))}
+      onviewall={viewSeries}
     />
   </div>
 

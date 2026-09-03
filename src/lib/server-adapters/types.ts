@@ -314,9 +314,17 @@ export type FilterNode =
 	| HeaderFilter | SeparatorFilter | SelectFilter | TextFilter
 	| CheckBoxFilter | TriStateFilter | SortFilter | GroupFilter
 
+export type SourcePreferenceType = 'LIST' | 'MULTI_SELECT' | 'SWITCH' | 'EDIT_TEXT'
+
 export interface SourcePreference {
 	key: string
 	title: string
+	summary: string
+	type: SourcePreferenceType
+	entries: string[]
+	entryValues: string[]
+	currentValue: string
+	defaultValue: string
 }
 
 export interface FilterInput {

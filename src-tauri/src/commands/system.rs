@@ -64,6 +64,16 @@ pub fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+pub fn list_system_fonts() -> Vec<String> {
+    use font_kit::source::SystemSource;
+    let mut families = SystemSource::new().all_families().unwrap_or_default();
+    families.retain(|f| !f.is_empty() && !f.starts_with('.'));
+    families.sort_by_key(|f| f.to_lowercase());
+    families.dedup();
+    families
+}
+
 fn remove_dir_best_effort(path: &std::path::Path) {
     if path.is_file() {
         let _ = std::fs::remove_file(path);

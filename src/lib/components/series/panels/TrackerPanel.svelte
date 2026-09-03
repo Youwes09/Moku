@@ -372,11 +372,14 @@
                 role="button" tabindex={binding ? -1 : 0}
                 onclick={pick}
                 onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } }}>
-                {#if r.coverUrl}
-                  <Thumbnail src={r.coverUrl} alt="" class="result-cover" />
-                {:else}
-                  <div class="result-cover result-cover-empty"></div>
-                {/if}
+                <div class="result-cover">
+                  <Thumbnail
+                    src={r.coverUrl}
+                    alt=""
+                    class="result-cover-img"
+                    contentType={r.mediaType === "ANIME" ? "ANIME" : "MANGA"}
+                  />
+                </div>
                 <div class="result-info">
                   <span class="result-title">{r.title}</span>
                   <div class="result-meta">
@@ -542,8 +545,8 @@
   .result-row:focus-visible { outline: none; background: var(--bg-raised); box-shadow: inset 0 0 0 1px var(--accent-dim); }
   .result-disabled { opacity: 0.4; cursor: default; }
   .result-bound { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-  :global(.result-cover) { width: 40px; height: 56px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); flex-shrink: 0; }
-  .result-cover-empty { background: var(--bg-raised); }
+  .result-cover { width: 40px; height: 56px; flex-shrink: 0; border-radius: var(--radius-sm); border: 1px solid var(--border-dim); overflow: hidden; background: var(--bg-raised); }
+  :global(.result-cover .result-cover-img) { width: 100%; height: 100%; object-fit: cover; display: block; }
   .result-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .result-title { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-snug); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
   .result-meta { display: flex; flex-wrap: wrap; gap: 4px; }

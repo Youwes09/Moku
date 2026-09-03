@@ -39,6 +39,7 @@ export const platformService = {
   getStorageInfo:  (downloadsPath: string)                 => get().getStorageInfo(downloadsPath),
   migrateDownloads:(src: string, dst: string)              => get().migrateDownloads(src, dst),
   getAutoBackupDir:()                                      => get().getAutoBackupDir(),
+  listSystemFonts: ()                                      => get().listSystemFonts(),
 
   fetchImage:      (url: string, headers: Record<string, string>) => get().fetchImage(url, headers),
 

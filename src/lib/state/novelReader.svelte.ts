@@ -7,6 +7,10 @@ export const NOVEL_FONTS: Record<NovelFont, string> = {
   mono:  '"JetBrains Mono", ui-monospace, "Courier New", monospace',
 };
 
+export function resolvedNovelFont(st: { systemFont: string | null; fontFamily: NovelFont }): string {
+  return st.systemFont ? `"${st.systemFont}", ${NOVEL_FONTS[st.fontFamily]}` : NOVEL_FONTS[st.fontFamily];
+}
+
 const FONT_MIN = 0.8,  FONT_MAX = 2.0;
 const LH_MIN   = 1.3,   LH_MAX  = 2.4;
 const PS_MIN   = 0.3,   PS_MAX  = 2.2;
@@ -16,6 +20,7 @@ const LS_KEY = "moku.novelPrefs";
 
 interface NovelPrefs {
   fontFamily:  NovelFont;
+  systemFont:  string | null;
   fontScale:   number;
   lineHeight:  number;
   paraSpacing: number;
@@ -24,7 +29,7 @@ interface NovelPrefs {
   theme:       NovelTheme;
 }
 const DEFAULTS: NovelPrefs = {
-  fontFamily: "serif", fontScale: 1, lineHeight: 1.7,
+  fontFamily: "serif", systemFont: null, fontScale: 1, lineHeight: 1.7,
   paraSpacing: 1.1, pageWidth: 42, textAlign: "left", theme: "paper",
 };
 
@@ -50,6 +55,7 @@ class NovelReaderState {
   scrollPct  = $state(0);
 
   fontFamily  = $state<NovelFont>(DEFAULTS.fontFamily);
+  systemFont  = $state<string | null>(DEFAULTS.systemFont);
   fontScale   = $state(DEFAULTS.fontScale);
   lineHeight  = $state(DEFAULTS.lineHeight);
   paraSpacing = $state(DEFAULTS.paraSpacing);
@@ -62,6 +68,7 @@ class NovelReaderState {
     try {
       const p = JSON.parse(localStorage.getItem(LS_KEY) ?? "{}") as Partial<NovelPrefs>;
       this.fontFamily  = p.fontFamily  ?? DEFAULTS.fontFamily;
+      this.systemFont  = p.systemFont  ?? DEFAULTS.systemFont;
       this.fontScale   = p.fontScale   ?? DEFAULTS.fontScale;
       this.lineHeight  = p.lineHeight  ?? DEFAULTS.lineHeight;
       this.paraSpacing = p.paraSpacing ?? DEFAULTS.paraSpacing;
@@ -75,7 +82,7 @@ class NovelReaderState {
     if (typeof localStorage === "undefined") return;
     try {
       localStorage.setItem(LS_KEY, JSON.stringify({
-        fontFamily: this.fontFamily, fontScale: this.fontScale, lineHeight: this.lineHeight,
+        fontFamily: this.fontFamily, systemFont: this.systemFont, fontScale: this.fontScale, lineHeight: this.lineHeight,
         paraSpacing: this.paraSpacing, pageWidth: this.pageWidth, textAlign: this.textAlign, theme: this.theme,
       } satisfies NovelPrefs));
     } catch { }
@@ -85,7 +92,8 @@ class NovelReaderState {
   bumpLine(d: number)  { this.lineHeight  = clamp(this.lineHeight + d, LH_MIN, LH_MAX);    this.#persist(); }
   bumpPara(d: number)  { this.paraSpacing = clamp(this.paraSpacing + d, PS_MIN, PS_MAX);   this.#persist(); }
   bumpWidth(d: number) { this.pageWidth   = clamp(this.pageWidth + d, W_MIN, W_MAX);       this.#persist(); }
-  setFont(f: NovelFont)                 { this.fontFamily = f; this.#persist(); }
+  setFont(f: NovelFont)                 { this.fontFamily = f; this.systemFont = null; this.#persist(); }
+  setSystemFont(name: string | null)   { this.systemFont = name; this.#persist(); }
   setAlign(a: "left" | "justify")       { this.textAlign  = a; this.#persist(); }
   setTheme(t: NovelTheme)               { this.theme      = t; this.#persist(); }
   cycleTheme() {

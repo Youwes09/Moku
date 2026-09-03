@@ -3,28 +3,39 @@ import type { ContentType, LibraryEntry, Chapter, MediaMetadata, MetadataCandida
 
 const METADATA_FIELDS = `mediaId provider providerId url coverUrl malId malUrl confidence locked matchedAt`
 
+const LIST_ITEM_FIELDS = `
+	id extensionId extensionName externalId contentType title inLibrary
+	thumbnailUrl description status extensionRemovedAt addedAt sourceName
+	unreadCount downloadCount: downloadedCount chapterCount
+	latestChapter { number uploadedAt }
+	genres tags
+	metadata { coverUrl }
+	trackLinks {
+		id mediaId trackerKey remoteId title url
+		status statusName lastChapterRead totalChapters score
+	}
+	folders { id }
+	source { id }
+`
+
 export const library = {
 	async library(contentType?: ContentType): Promise<LibraryEntry[]> {
 		const data = await gql<{ library: { items: LibraryEntry[] } }>(
 			`query Library($filter: LibraryFilter) {
-				library(filter: $filter, limit: 1000) {
-					items {
-						id extensionId extensionName externalId contentType title
-						thumbnailUrl description status extensionRemovedAt addedAt sourceName
-						unreadCount downloadCount: downloadedCount chapterCount
-						latestChapter { number uploadedAt }
-						genres tags
-						metadata { coverUrl }
-						trackLinks {
-							id mediaId trackerKey remoteId title url
-							status statusName lastChapterRead totalChapters score
-						}
-						folders { id }
-						source { id }
-					}
-				}
+				library(filter: $filter, limit: 1000) { items { ${LIST_ITEM_FIELDS} } }
 			}`,
 			{ filter: contentType ? { contentType } : undefined },
+			baseUrl()
+		)
+		return data.library.items
+	},
+
+	async orphanedDownloads(contentType?: ContentType): Promise<LibraryEntry[]> {
+		const data = await gql<{ library: { items: LibraryEntry[] } }>(
+			`query OrphanedDownloads($filter: LibraryFilter) {
+				library(filter: $filter, limit: 1000) { items { ${LIST_ITEM_FIELDS} } }
+			}`,
+			{ filter: { ...(contentType ? { contentType } : {}), inLibrary: false, downloadedOnly: true } },
 			baseUrl()
 		)
 		return data.library.items

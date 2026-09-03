@@ -1,7 +1,12 @@
 export class GraphQLError extends Error {
+	code?: string
+	grpc?: string
 	constructor(message: string, public errors: unknown[]) {
 		super(message)
 		this.name = 'GraphQLError'
+		const ext = (errors[0] as { extensions?: { code?: string; grpc?: string } } | undefined)?.extensions
+		this.code = ext?.code
+		this.grpc = ext?.grpc
 	}
 }
 

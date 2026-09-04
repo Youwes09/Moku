@@ -158,4 +158,18 @@
     </div>
   </div>
 
+  <div class="s-section">
+    <div class="s-row">
+      <div class="s-row-info">
+        <span class="s-label">Solid reader &amp; player UI</span>
+        <span class="s-desc">Turns off the frosted-glass blur on reader/player bars, menus and panels — flat, opaque backgrounds instead.</span>
+      </div>
+      <button class="s-toggle" class:on={settingsState.settings.readerSolidChrome}
+        onclick={() => updateSettings({ readerSolidChrome: !settingsState.settings.readerSolidChrome })}
+        role="switch" aria-label="Solid reader and player UI" aria-checked={settingsState.settings.readerSolidChrome}>
+        <span class="s-toggle-thumb"></span>
+      </button>
+    </div>
+  </div>
+
 </div>

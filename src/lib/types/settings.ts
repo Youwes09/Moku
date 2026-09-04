@@ -90,6 +90,7 @@ export interface MangaPrefs {
 	scanlatorForce: boolean
 	autoDownloadScanlators: string[]
 	coverUrl?: string
+	preferredVideoSource?: string
 }
 
 export const DEFAULT_MANGA_PREFS: MangaPrefs = {
@@ -200,6 +201,8 @@ export interface Settings {
 	autoplayNextEpisode?: boolean
 	autoEnableSubtitles?: boolean
 	preferredSubtitleLang?: string
+	videoUpscale?: 'off' | 'fast' | 'quality'
+	videoUpscaleExperimental?: boolean
 	nethermindMode?: boolean
 	playerManualChrome?: boolean
 	disableAutoComplete: boolean
@@ -221,6 +224,7 @@ export interface Settings {
 	chapterViewMode?: 'list' | 'grid'
 	libraryViewMode?: 'grid' | 'list'
 	contentTypeFilter: ContentTypeFilter
+	readerSolidChrome?: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -297,7 +301,10 @@ export const DEFAULT_SETTINGS: Settings = {
 	autoplayNextEpisode: true,
 	autoEnableSubtitles: true,
 	preferredSubtitleLang: '',
+	videoUpscale: 'off',
+	videoUpscaleExperimental: false,
 	nethermindMode: false,
+	readerSolidChrome: false,
 	playerManualChrome: false,
 	disableAutoComplete: false,
 	windowControls: true,

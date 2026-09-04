@@ -22,6 +22,7 @@
 	import ThemeEditor from '$lib/components/settings/ThemeEditor.svelte'
 	import { downloadStore } from '$lib/state/downloads.svelte'
 	import { seriesState } from '$lib/state/series.svelte'
+	import { animePlayerState } from '$lib/state/animePlayer.svelte'
 	import MediaPreview from '$lib/components/shared/manga/MediaPreview.svelte'
 	import { loadSettings, loadLibrary } from '$lib/core/persistence/persist'
 	import '../app.css'
@@ -163,6 +164,10 @@
 	})
 
 	$effect(() => {
+		document.body.classList.toggle('frost-off', !!settingsState.settings.readerSolidChrome)
+	})
+
+	$effect(() => {
 		mountSystemThemeSync(
 			settingsState.settings.systemThemeSync ?? false,
 			settingsState.settings.systemThemeDark ?? 'dark',
@@ -216,7 +221,7 @@
 		const mins = settingsState.settings.idleTimeoutMin ?? 5
 		if (mins <= 0) return
 		idleTimer = setTimeout(() => {
-			if (appState.status === 'ready' && !appState.idleSplash) appState.idleSplash = true
+			if (appState.status === 'ready' && !appState.idleSplash && !animePlayerState.playing) appState.idleSplash = true
 		}, mins * 60_000)
 	}
 
@@ -234,6 +239,11 @@
 			}
 			for (const e of events) document.removeEventListener(e, armIdleTimer, { capture: true })
 		}
+	})
+
+	$effect(() => {
+		animePlayerState.playing
+		if (appState.status === 'ready') armIdleTimer()
 	})
 
 	function openThemeEditor(id?: string | null) {

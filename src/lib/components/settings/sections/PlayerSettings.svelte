@@ -38,6 +38,21 @@
     </div>
   </div>
 
+  <div class="s-section">
+    <p class="s-section-title">Experimental</p>
+    <div class="s-section-body">
+      <label class="s-row">
+        <div class="s-row-info">
+          <span class="s-label">Video upscaling</span>
+          <span class="s-desc">Adds an Anime4K-style WebGL sharpening/upscale pass in the player (Off / Fast / Quality picker on the transport bar). Known to render incorrectly on Linux; test on Windows. Off by default.</span>
+        </div>
+        <button role="switch" aria-checked={settingsState.settings.videoUpscaleExperimental ?? false} aria-label="Video upscaling"
+          class="s-toggle" class:on={settingsState.settings.videoUpscaleExperimental ?? false}
+          onclick={() => updateSettings({ videoUpscaleExperimental: !(settingsState.settings.videoUpscaleExperimental ?? false), videoUpscale: 'off' })}><span class="s-toggle-thumb"></span></button>
+      </label>
+    </div>
+  </div>
+
   <p class="s-hint">Subtitle size and position, speed, quality and source are in the player.</p>
 
 </div>

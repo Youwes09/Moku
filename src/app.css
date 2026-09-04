@@ -109,6 +109,12 @@ html, body {
   color: var(--text-primary);
 }
 
+body.frost-off {
+  --frost-bg:     var(--bg-surface);
+  --frost-border: var(--border-base);
+  --frost-blur:   none;
+}
+
 .ui-unzoom { zoom: calc(1 / var(--ui-zoom-factor, 1)); }
 .ui-unzoom :where(.bar, .bottombar, .vbar-progress, .resume-banner, .msp, .dl-modal, .skip-btn, .skip-toast, .abar, .loader, .notice) {
   zoom: var(--ui-zoom-factor, 1);

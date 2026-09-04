@@ -4,12 +4,12 @@
   import {
     Play, Pause, FastForward, Rewind, Speedometer, CaretDown, CaretLeft,
     SpeakerSimpleHigh, SpeakerSimpleLow, SpeakerSimpleX, CircleNotch,
-    SkipBack, SkipForward, ClosedCaptioning, Stack,
+    SkipBack, SkipForward, ClosedCaptioning, Stack, Sparkle,
   } from "phosphor-svelte";
   import type HlsType from "hls.js";
   import type { MediaPlayerClass } from "dashjs";
   import { seriesState, setPreviewManga } from "$lib/state/series.svelte";
-  import { settingsState } from "$lib/state/settings.svelte";
+  import { settingsState, updateSettings } from "$lib/state/settings.svelte";
   import { tsunagu } from "$lib/server-adapters/tsunagu";
   import { pageServerUrl } from "$lib/core/cache/pageCache";
   import { animePlayerState } from "$lib/state/animePlayer.svelte";
@@ -20,6 +20,8 @@
   import { markChapterRead } from "$lib/components/media/manga/lib/chapterActions";
   import { resolveEpisodeSource, resolveSkipTimestamps } from "$lib/components/media/anime/lib/episodeSource";
   import type { AssRenderer } from "$lib/components/media/anime/lib/assSubs";
+  import { VideoUpscaler, type UpscaleMode } from "$lib/core/video/upscaler";
+  import { addToast } from "$lib/state/notifications.svelte";
   import mokuIcon from "$lib/assets/moku-icon.svg?raw";
   import MediaChrome from "$lib/components/media/shared/MediaChrome.svelte";
   import MediaSlider from "$lib/components/media/shared/MediaSlider.svelte";
@@ -28,12 +30,20 @@
   const aps        = animePlayerState;
   const manga      = $derived(seriesState.activeManga);
   const chapter    = $derived(seriesState.activeChapter);
+  const prefsKey   = $derived(manga?.prefsKey ?? manga?.mediaId ?? manga?.libraryEntryId ?? manga?.id ?? "");
   const reportProg = throttledProgressReporter(5000);
 
   trackHistory(() => aps.positionSeconds);
   const markedRead = new Set<string>();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
+  let upscaleCanvas = $state<HTMLCanvasElement | null>(null);
+  let upscaler: VideoUpscaler | null = null;
+  let upscaleActive = $state(false);
+  const upscaleEnabled = $derived(settingsState.settings.videoUpscaleExperimental ?? false);
+  const upscaleMode = $derived(
+    (upscaleEnabled ? (settingsState.settings.videoUpscale ?? "off") : "off") as UpscaleMode,
+  );
   let hls: HlsType | null = null;
   let dash: MediaPlayerClass | null = null;
   let attachedUrl: string | null = null;
@@ -553,7 +563,11 @@
       return;
     }
 
-    let startIdx = Math.max(0, aps.sources.findIndex(s => s.preferred));
+    const savedSource = settingsState.settings.mangaPrefs?.[prefsKey]?.preferredVideoSource;
+    let startIdx = savedSource
+      ? aps.sources.findIndex(s => s.label === savedSource)
+      : -1;
+    if (startIdx < 0) startIdx = Math.max(0, aps.sources.findIndex(s => s.preferred));
     if (canFallback && startIdx === 0) startIdx = 1;
     aps.sourceIdx = startIdx;
 
@@ -589,6 +603,14 @@
     aps.error       = null;
     aps.unavailable = false;
     aps.videoUrl    = aps.sources[i].url;
+    savePreferredSource(aps.sources[i].label);
+  }
+
+  function savePreferredSource(label: string | undefined) {
+    if (!label || !prefsKey) return;
+    const prefs = settingsState.settings.mangaPrefs ?? {};
+    if (prefs[prefsKey]?.preferredVideoSource === label) return;
+    updateSettings({ mangaPrefs: { ...prefs, [prefsKey]: { ...prefs[prefsKey], preferredVideoSource: label } } });
   }
 
   async function attach() {
@@ -740,6 +762,9 @@
     if (flashTimer) clearTimeout(flashTimer);
     if (volHideTimer) clearTimeout(volHideTimer);
     if (rateHideTimer) clearTimeout(rateHideTimer);
+    if (upscaleHideTimer) clearTimeout(upscaleHideTimer);
+    upscaler?.destroy();
+    upscaler = null;
   });
 
   let lastChapterId: string | null = null;
@@ -748,6 +773,48 @@
     if (id && id !== lastChapterId) { lastChapterId = id; load(); }
   });
   $effect(() => { if (aps.videoUrl && videoEl) void attach(); });
+
+  $effect(() => {
+    const mode = upscaleMode;
+    const v = videoEl;
+    const c = upscaleCanvas;
+    if (!v || !c || mode === "off") {
+      upscaler?.destroy();
+      upscaler = null;
+      upscaleActive = false;
+      return;
+    }
+    if (!upscaler) {
+      upscaler = new VideoUpscaler(v, c);
+      if (!upscaler.supported) {
+        upscaler = null;
+        addToast({ kind: "error", title: "Upscaling unavailable", body: "WebGL2 isn't supported here." });
+        updateSettings({ videoUpscale: "off" });
+        return;
+      }
+      upscaler.onFirstFrame = () => { upscaleActive = true; };
+      upscaler.onError = (reason) => {
+        upscaleActive = false;
+        addToast({ kind: "error", title: "Upscaling stopped", body: reason });
+        updateSettings({ videoUpscale: "off" });
+      };
+    }
+    upscaler.setMode(mode);
+    return () => {
+      upscaler?.destroy();
+      upscaler = null;
+      upscaleActive = false;
+    };
+  });
+
+  const UPSCALE_MENU: { v: UpscaleMode; label: string }[] = [
+    { v: "off",     label: "Off" },
+    { v: "fast",    label: "Fast" },
+    { v: "quality", label: "Quality" },
+  ];
+  function pickUpscale(v: UpscaleMode) { updateSettings({ videoUpscale: v }); upscaleOpen = false; }
+  let upscaleOpen = $state(false);
+  let upscaleHideTimer: ReturnType<typeof setTimeout> | null = null;
 
 
   $effect(() => {
@@ -814,6 +881,7 @@
       <video
         bind:this={videoEl}
         class="video"
+        class:video-dimmed={upscaleActive}
         autoplay
         onloadedmetadata={onLoadedMeta}
         ondurationchange={() => { if (Number.isFinite(videoEl?.duration)) aps.durationSeconds = videoEl!.duration; tryAniSkip(); }}
@@ -831,6 +899,14 @@
           <track kind="subtitles" src={t.url} srclang={bcp47(t.lang)} label={t.lang} />
         {/each}
       </video>
+
+      {#if upscaleMode !== "off"}
+        <canvas
+          bind:this={upscaleCanvas}
+          class="video up-canvas"
+          class:up-hidden={!upscaleActive}
+        ></canvas>
+      {/if}
 
       {#if subText && !assRenderer}
         <div
@@ -1070,6 +1146,28 @@
           {/if}
         </div>
 
+        {#if upscaleEnabled}
+        <div
+          class="vol"
+          role="presentation"
+          onmouseenter={() => { if (upscaleHideTimer) clearTimeout(upscaleHideTimer); upscaleOpen = true; }}
+          onmouseleave={() => { upscaleHideTimer = setTimeout(() => (upscaleOpen = false), 220); }}
+        >
+          <button class="abtn abtn-txt" data-tip="Upscale (experimental)" aria-label="Upscale"
+            onclick={() => (upscaleOpen = !upscaleOpen)}>
+            <Sparkle size={16} weight={upscaleMode === "off" ? "regular" : "fill"} />
+            {#if upscaleMode !== "off"}<span class="abtn-lbl">4K</span>{/if}
+          </button>
+          {#if upscaleOpen}
+            <div class="stack-pop" role="presentation" onclick={(e) => e.stopPropagation()}>
+              {#each UPSCALE_MENU as m (m.v)}
+                <button class="stack-opt" class:on={upscaleMode === m.v} onclick={() => pickUpscale(m.v)}>{m.label}</button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        {/if}
+
         <div
           class="vol"
           role="presentation"
@@ -1111,7 +1209,10 @@
   .root.cursor-off { cursor: none; }
   .anime { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
   .video { width: 100%; height: 100%; object-fit: contain; background: #000; }
-  .tap-layer { position: absolute; inset: 0; }
+  .video-dimmed { opacity: 0; }
+  .up-canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; pointer-events: none; z-index: 1; opacity: 1; transition: opacity 0.15s ease; }
+  .up-hidden { opacity: 0; }
+  .tap-layer { position: absolute; inset: 0; z-index: 2; }
 
   .sub-overlay {
     position: absolute; left: 0; right: 0;

@@ -302,7 +302,7 @@ pub async fn stop(state: &State<'_, Backend>) {
         use nix::sys::signal::{kill, Signal};
         use nix::unistd::Pid;
         let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
-        let _ = tokio::time::timeout(Duration::from_secs(8), child.wait()).await;
+        let _ = tokio::time::timeout(Duration::from_secs(15), child.wait()).await;
     }
     let _ = child.kill().await;
 }

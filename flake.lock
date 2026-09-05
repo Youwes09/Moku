@@ -118,11 +118,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788411934,
-        "narHash": "sha256-PyD4vmKcM9K2HeAQgQf4cGFtefQixec1bYRmELeENwY=",
+        "lastModified": 1788634604,
+        "narHash": "sha256-KpRouvtSLdGIwPmlIEWuOWzcj8xgQWMmRfGOycgwaNo=",
         "owner": "moku-project",
         "repo": "Tsunagu",
-        "rev": "cd2a20a23df60d80bf4c1fc3adbb55692216f834",
+        "rev": "0bf540f0a6ab62e1f0010948a426bcaa27542291",
         "type": "github"
       },
       "original": {

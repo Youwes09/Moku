@@ -169,9 +169,12 @@
     if (cursorTimer) clearTimeout(cursorTimer);
     if (aps.playing) cursorTimer = setTimeout(() => { cursorActive = false; }, 2500);
   }
-  function onRootMove() {
+  function pointerNearBar(e: MouseEvent) {
+    return e.clientY <= 88 || e.clientY >= window.innerHeight - 130;
+  }
+  function onRootMove(e: MouseEvent) {
     pokeCursor();
-    if (!manualChrome) armIdleHide();
+    if (!manualChrome && pointerNearBar(e)) armIdleHide();
   }
 
   const activeSkip = $derived.by(() => {
@@ -462,7 +465,6 @@
   }
 
   function onSurfaceClick(e: MouseEvent) {
-    if (!manualChrome) armIdleHide();
     if (clickTimer) {
       clearTimeout(clickTimer);
       clickTimer = null;
@@ -745,8 +747,8 @@
     aps.videoUrl = null;
     aps.unavailable = true;
   }
-  function onPlay()   { clearWatchdog(); aps.playing = true; aps.buffering = false; pokeCursor(); if (!manualChrome) armIdleHide(); }
-  function onPause()  { aps.playing = false; aps.buffering = false; mediaViewState.showUi(); if (idleTimer) clearTimeout(idleTimer); }
+  function onPlay()   { clearWatchdog(); aps.playing = true; aps.buffering = false; pokeCursor(); if (!manualChrome && mediaViewState.uiVisible) armIdleHide(); }
+  function onPause()  { aps.playing = false; aps.buffering = false; if (idleTimer) clearTimeout(idleTimer); }
 
   onMount(() => {
     slog("env check", {

@@ -74,7 +74,7 @@ export async function loadChapter(
   readerState.resetForChapter();
   readerState.pageUrls = [];
 
-  const bookmark = seriesState.bookmarks.find(b => b.chapterId === id);
+  const bookmark = seriesState.bookmarks.find(b => b.mangaId === mangaId && b.chapterId === id);
   const resumeTo = bookmark ? bookmark.pageNumber : 0;
   readerState.resumePage      = resumeTo > 1 ? resumeTo : 0;
   readerState.resumeDismissed = false;

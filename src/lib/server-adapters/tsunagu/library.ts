@@ -161,6 +161,17 @@ export const library = {
 		return data.setMediaCover
 	},
 
+	async refetchMediaCover(mediaId: string): Promise<{ id: string; thumbnailUrl: string | null }> {
+		const data = await gql<{ refetchMediaCover: { id: string; thumbnailUrl: string | null } }>(
+			`mutation RefetchMediaCover($mediaId: ID!) {
+				refetchMediaCover(mediaId: $mediaId) { id thumbnailUrl }
+			}`,
+			{ mediaId },
+			baseUrl()
+		)
+		return data.refetchMediaCover
+	},
+
 	async searchMetadata(query: string, contentType?: ContentType | null): Promise<MetadataCandidate[]> {
 		const data = await gql<{ searchMetadata: MetadataCandidate[] }>(
 			`query SearchMetadata($query: String!, $contentType: ContentType!) {

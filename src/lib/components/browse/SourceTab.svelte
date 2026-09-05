@@ -99,9 +99,12 @@
     if (page === 1) { src_loadingBrowse = true; src_browseResults = []; src_browseError = null; }
     try {
       const pkgName = src.id;
-      const result = type === "SEARCH" && q
-        ? await tsunagu.search(pkgName, q, page, undefined, ctrl.signal)
-        : await tsunagu.popularManga(pkgName, page, ctrl.signal);
+      const isLocal = !!localSource && src.id === localSource.id;
+      const result = isLocal
+        ? await tsunagu.localSourceSearch(type === "SEARCH" ? (q ?? "") : "", page, ctrl.signal)
+        : type === "SEARCH" && q
+          ? await tsunagu.search(pkgName, q, page, undefined, ctrl.signal)
+          : await tsunagu.popularManga(pkgName, page, ctrl.signal);
       if (ctrl.signal.aborted) return;
       const incoming = result.results
         .map((r) => toBrowseManga(r, pkgName, src.id, src.contentType))
@@ -209,7 +212,7 @@
               onclick={() => srcSelectSource(src)}
               oncontextmenu={(e) => openCtx(e, src)}
             >
-              <ExtensionIcon src={src.iconUrl} alt="" class="splitSourceIcon" />
+              <ExtensionIcon src={src.iconUrl} alt="" size={20} class="splitSourceIcon" />
               <span class="splitItemLabel">{src.name}</span>
               <span class="pinIndicator" title="Pinned">
                 <PushPin size={9} weight="fill" />
@@ -228,7 +231,7 @@
             onclick={() => srcSelectSource(src)}
             oncontextmenu={(e) => openCtx(e, src)}
           >
-            <ExtensionIcon src={src.iconUrl} alt="" class="splitSourceIcon" />
+            <ExtensionIcon src={src.iconUrl} alt="" size={20} class="splitSourceIcon" />
             <span class="splitItemLabel">{src.name}</span>
             {#if src_selectedLang === "all"}
               <span class="sourceLang">{src.lang.toUpperCase()}</span>
@@ -255,7 +258,7 @@
     {:else}
       <div class="splitContentHeader">
         <div class="splitSourceTitle">
-          <ExtensionIcon src={src_activeSource.iconUrl} alt="" class="splitSourceIcon" />
+          <ExtensionIcon src={src_activeSource.iconUrl} alt="" size={20} class="splitSourceIcon" />
           <span class="splitContentTitle">{src_activeSource.displayName}</span>
           {#if src_loadingBrowse}
             <svg width="13" height="13" viewBox="0 0 256 256" fill="currentColor" class="anim-spin" style="color:var(--text-faint)" aria-hidden="true">
@@ -389,6 +392,7 @@
   .splitContentTitle  { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: var(--tracking-tight); }
   .splitResultCount   { font-family: var(--font-ui); font-size: var(--text-2xs); color: var(--text-faint); letter-spacing: var(--tracking-wide); flex-shrink: 0; }
   :global(.splitSourceIcon) { width: 20px; height: 20px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; background: var(--bg-raised); }
+  :global(.splitSourceIcon.ext-icon-fallback) { border-radius: var(--radius-sm); border: none; }
   .sourceBrowseBar    { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border-dim); flex-shrink: 0; }
   .searchBar          { display: flex; align-items: center; gap: var(--sp-2); background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-lg); padding: var(--sp-2) var(--sp-3); transition: border-color var(--t-base); }
   .searchBar:focus-within { border-color: var(--border-strong); }

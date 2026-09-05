@@ -82,6 +82,24 @@
     onClose();
   }
 
+  let refetching = $state(false);
+
+  async function refetchFromSource() {
+    if (!mediaId || refetching) return;
+    refetching = true;
+    try {
+      const res = await tsunagu.refetchMediaCover(mediaId);
+      bustCover(mediaId, manga.id, manga.mediaId);
+      addToast({ kind: "success", title: "Cover refetched from source" });
+      onApplied?.(res.thumbnailUrl ?? null);
+      onClose();
+    } catch (e: any) {
+      addToast({ kind: "error", title: "Couldn't refetch cover", body: e?.message ?? String(e) });
+    } finally {
+      refetching = false;
+    }
+  }
+
   function onKeydown(e: KeyboardEvent) {
     if (e.key === "ArrowLeft")  { e.preventDefault(); prev(); }
     if (e.key === "ArrowRight") { e.preventDefault(); next(); }
@@ -142,6 +160,11 @@
     {/if}
 
     <div class="footer">
+      {#if mediaId}
+        <button class="refetch-btn" onclick={refetchFromSource} disabled={refetching || saving} title="Corrupted or mismatched cover? Re-download it from the source.">
+          {refetching ? "Refetching…" : "Refetch from source"}
+        </button>
+      {/if}
       <button class="confirm-btn" onclick={confirm} disabled={saving || !current}>
         {saving ? "Saving…" : current && current.mangaId === manga.id ? "Reset to source cover" : "Use this cover"}
       </button>
@@ -228,7 +251,18 @@
   .film-thumb:hover { opacity: 0.8; }
   .film-active { border-color: var(--accent); opacity: 1; }
   :global(.film-img) { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .footer { padding: 0 var(--sp-4) var(--sp-4); flex-shrink: 0; }
+  .footer { padding: 0 var(--sp-4) var(--sp-4); flex-shrink: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  .refetch-btn {
+    width: 100%; padding: 9px;
+    border-radius: var(--radius-md);
+    background: transparent; border: 1px solid var(--border-base);
+    color: var(--text-secondary);
+    font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: var(--tracking-wide);
+    cursor: pointer;
+    transition: opacity var(--t-base), background var(--t-base);
+  }
+  .refetch-btn:hover:not(:disabled) { background: var(--bg-raised); }
+  .refetch-btn:disabled { opacity: 0.5; cursor: default; }
   .confirm-btn {
     width: 100%; padding: 9px;
     border-radius: var(--radius-md);

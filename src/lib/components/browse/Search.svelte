@@ -81,7 +81,17 @@
     tsunagu.installedExtensions()
       .then((exts) => {
         if (ctrl.signal.aborted) return;
-        localSource   = null;
+        localSource = {
+          id:             "__local__",
+          name:           "Local source",
+          lang:           "local",
+          displayName:    "Local source",
+          iconUrl:        "",
+          isNsfw:         false,
+          isConfigurable: false,
+          supportsLatest: false,
+          contentType:    "MANGA",
+        };
         allSourcesRaw = exts.map(toSource);
       })
       .catch(console.error)

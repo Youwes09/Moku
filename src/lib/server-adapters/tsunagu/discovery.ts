@@ -75,6 +75,21 @@ export const discovery = {
 		return data.popularManga
 	},
 
+	async localSourceSearch(query?: string, page?: number, signal?: AbortSignal): Promise<SearchResponse> {
+		const data = await gql<{ localSourceSearch: SearchResponse }>(
+			`query LocalSourceSearch($query: String, $page: Int) {
+				localSourceSearch(query: $query, page: $page) {
+					results { id externalId title thumbnailUrl inLibrary status genres metadata { coverUrl } }
+					hasNextPage
+				}
+			}`,
+			{ query, page },
+			baseUrl(),
+			signal
+		)
+		return data.localSourceSearch
+	},
+
 	async latestUpdates(extensionId: string, page?: number, signal?: AbortSignal): Promise<SearchResponse> {
 		const data = await gql<{ latestUpdates: SearchResponse }>(
 			`query LatestUpdates($extensionId: ID!, $page: Int) {

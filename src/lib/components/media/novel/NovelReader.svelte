@@ -17,6 +17,7 @@
   import MediaChrome from "$lib/components/media/shared/MediaChrome.svelte";
   import MediaSlider from "$lib/components/media/shared/MediaSlider.svelte";
   import NovelSettingsPanel from "$lib/components/media/novel/NovelSettingsPanel.svelte";
+  import { setReading, clearReading } from "$lib/core/discord";
 
   const nav        = chapterNav();
   const manga      = $derived(seriesState.activeManga);
@@ -29,6 +30,11 @@
   const st = novelReaderState;
   const mediaId = $derived(manga?.mediaId ?? manga?.libraryEntryId ?? manga?.id ?? "");
 
+  $effect(() => {
+    if (manga && chapter) setReading(manga, chapter).catch(() => {});
+  });
+  onDestroy(() => { clearReading().catch(() => {}); });
+
   const activeSeg = $derived(st.segments.find(s => s.chapterId === chapter?.id) ?? st.segments[0]);
   const chapterLabel = $derived(
     activeSeg ? `Ch. ${activeSeg.chapterNumber}${activeSeg.name ? ` — ${activeSeg.name}` : ""}` : "",
@@ -40,18 +46,17 @@
 
   let cfgOpen = $state(false);
 
-  const prefsKey = $derived(manga?.prefsKey ?? manga?.id ?? "");
   const isBookmarked = $derived(
-    !!seriesState.bookmarks.find(b => b.mangaId === prefsKey && b.chapterId === chapter?.id),
+    !!seriesState.bookmarks.find(b => b.mangaId === manga?.id && b.chapterId === chapter?.id),
   );
   function toggleBookmark() {
     const c = chapter, m = manga;
-    if (!c || !m || !prefsKey) return;
+    if (!c || !m) return;
     if (isBookmarked) {
-      seriesState.removeBookmark(c.id);
+      seriesState.removeBookmark(m.id);
     } else {
       seriesState.setBookmark({
-        mangaId: prefsKey, mangaTitle: m.title, thumbnailUrl: m.thumbnailUrl ?? "",
+        mangaId: m.id, mangaTitle: m.title, thumbnailUrl: m.thumbnailUrl ?? "",
         chapterId: c.id, chapterName: c.name, pageNumber: 0,
       });
     }

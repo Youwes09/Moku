@@ -145,7 +145,7 @@
             title={ch.scanlator ? `${ch.name} · ${ch.scanlator}` : ch.name}
           >
             {#if isGridSelected}<span class="grid-cell-check">✓</span>{/if}
-            <span class="grid-cell-num">{ch.chapterNumber < 0 ? '–' : ch.chapterNumber % 1 === 0 ? ch.chapterNumber.toFixed(0) : ch.chapterNumber}</span>
+            <span class="grid-cell-num">{ch.chapterNumber < 0 ? '–' : ch.chapterNumber % 1 === 0 ? ch.chapterNumber.toFixed(0) : ch.chapterNumber.toFixed(1)}</span>
             {#if ch.scanlator}<span class="grid-cell-scan" title={ch.scanlator}>{ch.scanlator}</span>{/if}
             {#if ch.downloaded}<span class="grid-cell-dl" title="Downloaded"></span>{/if}
             {#if ch.read}<span class="grid-cell-dot"></span>{/if}

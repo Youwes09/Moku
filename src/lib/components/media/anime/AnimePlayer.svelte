@@ -22,6 +22,7 @@
   import type { AssRenderer } from "$lib/components/media/anime/lib/assSubs";
   import { VideoUpscaler, type UpscaleMode } from "$lib/core/video/upscaler";
   import { addToast } from "$lib/state/notifications.svelte";
+  import { setReading, clearReading } from "$lib/core/discord";
   import mokuIcon from "$lib/assets/moku-icon.svg?raw";
   import MediaChrome from "$lib/components/media/shared/MediaChrome.svelte";
   import MediaSlider from "$lib/components/media/shared/MediaSlider.svelte";
@@ -148,6 +149,11 @@
   const episodeLabel = $derived(
     chapter ? `Ep. ${chapter.chapterNumber}${chapter.name ? ` — ${chapter.name}` : ""}` : "",
   );
+
+  $effect(() => {
+    if (manga && chapter) setReading(manga, chapter).catch(() => {});
+  });
+  onDestroy(() => { clearReading().catch(() => {}); });
   const durationPct = $derived(aps.durationSeconds > 0 ? (aps.positionSeconds / aps.durationSeconds) * 100 : 0);
   const timeLabel   = $derived(`${fmt(aps.positionSeconds)} / ${fmt(aps.durationSeconds)}`);
   const nethermind    = $derived(settingsState.settings.nethermindMode ?? false);

@@ -15,9 +15,10 @@
   import { tsunagu } from '$lib/server-adapters/tsunagu'
   import { downloadStore }             from '$lib/state/downloads.svelte'
   import { saveScroll, getScroll }     from '$lib/state/app.svelte'
-  import { seriesState, openReaderForChapter, acknowledgeUpdate, addBookmark, seriesHref } from '$lib/state/series.svelte'
+  import { seriesState, openReaderForChapter, acknowledgeUpdate, setBookmark, seriesHref } from '$lib/state/series.svelte'
   import { settingsState, updateSettings } from '$lib/state/settings.svelte'
   import { libraryState, loadLibrary } from '$lib/state/library.svelte'
+  import { cache, CACHE_KEYS }         from '$lib/core/cache/queryCache'
   import { DEFAULT_MANGA_PREFS }       from '$lib/state/series.svelte'
   import type { MangaPrefs }           from '$lib/types/settings'
   import { addToast }                  from '$lib/state/notifications.svelte'
@@ -311,7 +312,10 @@
         mangaFolders = []
       }
       mangaCache.delete(mangaId)
+      cache.clear(CACHE_KEYS.MANGA(mangaId))
+      cache.clear(CACHE_KEYS.MANGA(realMediaId))
       await loadLibrary(true)
+      addToast({ kind: 'success', title: next ? 'Added to library' : 'Removed from library' })
     } catch (e) {
       addToast({ kind: 'error', title: next ? "Couldn't add to library" : "Couldn't remove", body: String(e) })
     } finally {
@@ -492,17 +496,14 @@
 
   function openReaderWithAhead(ch: Chapter, inProgress: boolean) {
     if (inProgress && ch.lastPageRead && ch.lastPageRead > 1) {
-      const existing = seriesState.bookmarks.find(b => b.chapterId === ch.id)
-      if (!existing || existing.pageNumber < ch.lastPageRead) {
-        addBookmark({
-          mangaId,
-          mangaTitle:   manga!.title,
-          thumbnailUrl: manga!.thumbnailUrl,
-          chapterId:    ch.id,
-          chapterName:  ch.name,
-          pageNumber:   ch.lastPageRead,
-        })
-      }
+      setBookmark({
+        mangaId,
+        mangaTitle:   manga!.title,
+        thumbnailUrl: manga!.thumbnailUrl,
+        chapterId:    ch.id,
+        chapterName:  ch.name,
+        pageNumber:   ch.lastPageRead,
+      })
     }
     openReaderForChapter(ch, manga)
   }
@@ -540,6 +541,9 @@
       if (inFolder) await tsunagu.removeEntryFromFolder(manga.libraryEntryId, folder.id)
       else          await tsunagu.addEntryToFolder(manga.libraryEntryId, folder.id)
       mangaFolders = inFolder ? mangaFolders.filter(f => f.id !== folder.id) : [...mangaFolders, folder]
+      cache.clear(CACHE_KEYS.MANGA(mangaId))
+      cache.clear(CACHE_KEYS.MANGA(manga.libraryEntryId))
+      void loadLibrary(true)
     } catch (e) { console.error(e) }
   }
 
@@ -551,6 +555,9 @@
       await tsunagu.addEntryToFolder(manga.libraryEntryId, folder.id)
       allFolders   = [...allFolders, folder]
       mangaFolders = [...mangaFolders, folder]
+      cache.clear(CACHE_KEYS.MANGA(mangaId))
+      cache.clear(CACHE_KEYS.MANGA(manga.libraryEntryId))
+      void loadLibrary(true)
     } catch (e) { console.error(e) }
   }
 </script>

@@ -307,22 +307,15 @@ class SeriesStore {
     })
   }
 
-  addBookmark(entry: Omit<BookmarkEntry, 'savedAt'>, label?: string) {
+  setBookmark(entry: Omit<BookmarkEntry, 'savedAt'>) {
     this.bookmarks = [
-      { ...entry, savedAt: Date.now(), label },
-      ...this.bookmarks.filter(b => b.chapterId !== entry.chapterId),
+      { ...entry, savedAt: Date.now() },
+      ...this.bookmarks.filter(b => b.mangaId !== entry.mangaId),
     ].slice(0, 200)
   }
 
-  setBookmark(entry: Omit<BookmarkEntry, 'savedAt'>, label?: string) {
-    const other = this.bookmarks.find(b => b.mangaId === entry.mangaId && b.chapterId !== entry.chapterId)
-    if (other) this.removeBookmark(other.chapterId)
-    this.addBookmark(entry, label)
-  }
-
-  removeBookmark(chapterId: string) { this.bookmarks = this.bookmarks.filter(b => b.chapterId !== chapterId) }
-  clearBookmarks()                  { this.bookmarks = [] }
-  getBookmark(chapterId: string)    { return this.bookmarks.find(b => b.chapterId === chapterId) }
+  removeBookmark(mangaId: string) { this.bookmarks = this.bookmarks.filter(b => b.mangaId !== mangaId) }
+  clearBookmarks()                { this.bookmarks = [] }
 
   get settings() { return settingsState.settings }
 }
@@ -334,10 +327,8 @@ export function setPreviewManga(next: Manga | null)                             
 export function openReaderForChapter(ch: Chapter, manga?: Manga | null)                             { seriesState.openReaderForChapter(ch, manga) }
 export function closeReader()                                                                        { seriesState.closeReader() }
 export function acknowledgeUpdate(mangaId: string)                                                  { seriesState.acknowledgeUpdate(mangaId) }
-export function addBookmark(entry: Omit<BookmarkEntry, 'savedAt'>, label?: string)                  { seriesState.addBookmark(entry, label) }
-export function setBookmark(entry: Omit<BookmarkEntry, 'savedAt'>, label?: string)                  { seriesState.setBookmark(entry, label) }
-export function removeBookmark(chapterId: string)                                                   { seriesState.removeBookmark(chapterId) }
+export function setBookmark(entry: Omit<BookmarkEntry, 'savedAt'>)                                  { seriesState.setBookmark(entry) }
+export function removeBookmark(mangaId: string)                                                     { seriesState.removeBookmark(mangaId) }
 export function clearBookmarks()                                                                     { seriesState.clearBookmarks() }
-export function getBookmark(chapterId: string)                                                      { return seriesState.getBookmark(chapterId) }
 export function getPref<K extends keyof MangaPrefs>(mangaId: string, key: K): MangaPrefs[K]         { return seriesState.getPref(mangaId, key) }
 export function setPref<K extends keyof MangaPrefs>(mangaId: string, key: K, v: MangaPrefs[K])      { seriesState.setPref(mangaId, key, v) }

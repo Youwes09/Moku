@@ -6,7 +6,6 @@ export interface BookmarkEntry {
   chapterName:  string
   pageNumber:   number
   savedAt:      number
-  label?:       string
 }
 
 export type MediaKind = 'MANGA' | 'NOVEL' | 'ANIME'

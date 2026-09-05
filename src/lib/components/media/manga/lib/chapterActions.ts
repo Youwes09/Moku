@@ -92,7 +92,7 @@ export function toggleBookmark(chapter: typeof readerState.activeChapter, pageNu
     b => b.mangaId === manga.id && b.chapterId === chapter.id && b.pageNumber === pageNumber,
   );
   if (existing) {
-    seriesState.removeBookmark(chapter.id);
+    seriesState.removeBookmark(manga.id);
   } else {
     seriesState.setBookmark({
       mangaId:      manga.id,

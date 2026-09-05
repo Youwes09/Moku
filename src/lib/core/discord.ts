@@ -35,9 +35,10 @@ function trunc(s: string, max = 128): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`
 }
 
-function formatChapter(chapter: Chapter): string {
+function formatChapter(manga: Manga, chapter: Chapter): string {
   const n = chapter.chapterNumber
-  return `Chapter ${Number.isInteger(n) ? n : n.toFixed(1)}`
+  const num = Number.isInteger(n) ? n : n.toFixed(1)
+  return manga.contentType === 'ANIME' ? `Episode ${num}` : `Chapter ${num}`
 }
 
 async function resolveCover(manga: Manga): Promise<string> {
@@ -47,7 +48,7 @@ async function resolveCover(manga: Manga): Promise<string> {
 function buildReadingPresence(manga: Manga, chapter: Chapter, cover: string) {
   return {
     details:    trunc(manga.title),
-    state:      `${formatChapter(chapter)}  ·  Reading`,
+    state:      `${formatChapter(manga, chapter)}  ·  ${manga.contentType === 'ANIME' ? 'Watching' : 'Reading'}`,
     timestamps: { start: sessionStart ?? Date.now() },
     assets: {
       largeImage: cover,

@@ -19,7 +19,7 @@
   import { resolveMangaDetail } from "$lib/components/browse/lib/searchFilter";
   import {
     seriesState, seriesHref,
-    setPreviewManga, addBookmark, openReaderForChapter,
+    setPreviewManga, setBookmark, openReaderForChapter,
   } from "$lib/state/series.svelte";
   import type { Manga, Chapter } from "$lib/types";
   import type { Folder as TsunaguFolder } from "$lib/server-adapters/types";
@@ -271,8 +271,10 @@
       } else {
         const entry = await tsunagu.addToLibrary(manga.id);
         cache.clear(CACHE_KEYS.MANGA(manga.id));
+        cache.clear(CACHE_KEYS.MANGA(entry.id));
         cache.clear(CACHE_KEYS.LIBRARY);
         manga = { ...manga, id: entry.id, inLibrary: true, libraryEntryId: entry.id };
+        setPreviewManga(manga);
         void loadLibrary(true);
         addToast({ kind: "success", title: "Added to library" });
       }
@@ -308,17 +310,14 @@
     if (!continueChapter || !displayManga) return;
     const { ch, type, resumePage } = continueChapter;
     if (type === "continue" && resumePage && resumePage > 1) {
-      const existing = seriesState.bookmarks.find((b) => b.chapterId === ch.id);
-      if (!existing || existing.pageNumber < resumePage) {
-        addBookmark({
-          mangaId:      displayManga.id,
-          mangaTitle:   displayManga.title,
-          thumbnailUrl: displayManga.thumbnailUrl,
-          chapterId:    ch.id,
-          chapterName:  ch.name,
-          pageNumber:   resumePage,
-        });
-      }
+      setBookmark({
+        mangaId:      displayManga.id,
+        mangaTitle:   displayManga.title,
+        thumbnailUrl: displayManga.thumbnailUrl,
+        chapterId:    ch.id,
+        chapterName:  ch.name,
+        pageNumber:   resumePage,
+      });
     }
     openReaderForChapter(ch, displayManga);
     close();
@@ -359,7 +358,11 @@
     } else if (!allRead && inCompleted) {
       await tsunagu.removeEntryFromFolder(id, completed.id).catch(console.error);
       mangaFolders = mangaFolders.filter((f) => f.id !== completed.id);
+    } else {
+      return;
     }
+    cache.clear(CACHE_KEYS.MANGA(id));
+    void loadLibrary(true);
   }
 
   async function toggleFolder(folder: TsunaguFolder) {
@@ -369,6 +372,8 @@
     if (inCat) await tsunagu.removeEntryFromFolder(id, folder.id).catch(console.error);
     else       await tsunagu.addEntryToFolder(id, folder.id).catch(console.error);
     mangaFolders = inCat ? mangaFolders.filter((f) => f.id !== folder.id) : [...mangaFolders, folder];
+    cache.clear(CACHE_KEYS.MANGA(id));
+    void loadLibrary(true);
   }
 
   async function handleFolderCreate() {
@@ -379,6 +384,8 @@
       allFolders = [...allFolders, folder];
       await tsunagu.addEntryToFolder(seriesState.previewManga.id, folder.id);
       mangaFolders = [...mangaFolders, folder];
+      cache.clear(CACHE_KEYS.MANGA(seriesState.previewManga.id));
+      void loadLibrary(true);
     } catch (e) { console.error(e); }
     newFolderName = ""; creatingFolder = false;
   }
